@@ -16,6 +16,7 @@ func main() {
 	g := gin.Default()
 	g.Use(middleware.ErrorHandler())
 	io := socket.NewServer(nil, nil)
+	io.Use(middleware.SocketIOAuthHandler())
 	handler := io.ServeHandler(nil)
 	g.GET("/socket.io/", gin.WrapH(handler))
 	g.POST("/socket.io/", gin.WrapH(handler))
