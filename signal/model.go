@@ -1,4 +1,4 @@
-package singal
+package signal
 
 import (
 	"github.com/vipcxj/conference.go/auth"
@@ -9,7 +9,7 @@ type SingalContext struct {
 	authInfo *auth.AuthInfo
 }
 
-func (ctx *SingalContext)Authed() bool {
+func (ctx *SingalContext) Authed() bool {
 	return ctx.authInfo != nil
 }
 

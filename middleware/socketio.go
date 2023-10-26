@@ -4,13 +4,13 @@ import (
 	"strings"
 
 	"github.com/vipcxj/conference.go/auth"
-	"github.com/vipcxj/conference.go/singal"
+	"github.com/vipcxj/conference.go/signal"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
 func SocketIOAuthHandler() (func(*socket.Socket, func(*socket.ExtendedError)) ) {
 	return func(s *socket.Socket, next func(*socket.ExtendedError)) {
-		sCtx := singal.GetSingalContext(s)
+		sCtx := signal.GetSingalContext(s)
 		if sCtx != nil && sCtx.Authed() {
 			next(nil)
 			return
@@ -33,7 +33,7 @@ func SocketIOAuthHandler() (func(*socket.Socket, func(*socket.ExtendedError)) ) 
 			next(socket.NewExtendedError("Unauthorized", err))
 			return
 		}
-		singal.SetAuthInfo(s, authInfo)
+		signal.SetAuthInfo(s, authInfo)
 		next(nil)
 	}
 }
