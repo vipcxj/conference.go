@@ -5,10 +5,12 @@ go 1.21.3
 require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/gookit/config/v2 v2.2.4
+	github.com/zishang520/socket.io/v2 v2.0.4
 )
 
 require (
 	github.com/BurntSushi/toml v1.3.2 // indirect
+	github.com/andybalholm/brotli v1.0.5 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
 	github.com/fatih/color v1.14.1 // indirect
@@ -22,6 +24,7 @@ require (
 	github.com/gookit/color v1.5.4 // indirect
 	github.com/gookit/goutil v0.6.14 // indirect
 	github.com/gookit/ini/v2 v2.2.2 // indirect
+	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/imdario/mergo v0.3.15 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
@@ -36,7 +39,12 @@ require (
 	github.com/titanous/json5 v1.0.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.11 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.3.5 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/zishang520/engine.io v1.5.9 // indirect
+	github.com/zishang520/engine.io-go-parser v1.2.2 // indirect
+	github.com/zishang520/socket.io-go-parser v1.0.4 // indirect
 	golang.org/x/arch v0.3.0 // indirect
 	golang.org/x/crypto v0.14.0 // indirect
 	golang.org/x/net v0.17.0 // indirect
