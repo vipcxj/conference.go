@@ -1,20 +1,25 @@
-package main
+package authserver
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/config"
+	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/middleware"
 )
 
-func main() {
-	config.Init()
+func Run(ch chan error) {
+	if !config.Conf().AuthServerEnable {
+		ch <- errors.Ok()
+	}
 	g := gin.Default()
 	g.Use(middleware.ErrorHandler())
+	if cors := config.Conf().AuthServerCors; cors != "" {
+		g.Use(middleware.Cors(cors))
+	}
 	g.GET("/token", func(ctx *gin.Context) {
 		ctx.Request.ParseForm()
 		authInfo, err := auth.NewAuthInfoFromForm(ctx.Request.Form)
@@ -34,16 +39,17 @@ func main() {
 		certPath := config.Conf().AuthServerCertPath
 		keyPath := config.Conf().AuthServerKeyPath
 		if certPath == "" || keyPath == "" {
-			panic(errors.New("to enable ssl for auth server, the authServerCertPath and authServerKeyPath must be provided"))
+			ch <- errors.FatalError("to enable ssl for auth server, the authServerCertPath and authServerKeyPath must be provided")
+			return
 		}
 		err := g.RunTLS(addr, certPath, keyPath)
 		if err != nil {
-			panic(err)
+			ch <- err
 		}
 	} else {
 		err := g.Run(addr)
 		if err != nil {
-			panic(err)
+			ch <- err
 		}
 	}
 }

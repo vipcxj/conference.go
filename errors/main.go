@@ -3,6 +3,7 @@ package errors
 import "net/http"
 
 const (
+	ERR_OK = 0
 	ERR_FATAL = 1000
 )
 
@@ -21,6 +22,17 @@ func NewError(code int, msg string) *ConferenceError {
 		Msg:  msg,
 		Code: code,
 	}
+}
+
+func IsOk(err error) bool {
+	if myErr, ok := err.(*ConferenceError); ok {
+		return myErr.Code == ERR_OK
+	}
+	return false
+}
+
+func Ok() *ConferenceError {
+	return NewError(ERR_OK, "")
 }
 
 func InvalidParam(msg string) *ConferenceError {
