@@ -1,0 +1,19 @@
+{
+    "name": "conference.go",
+    "version": "0.0.1",
+    "description": "The client for conference.go",
+    "main": "dist/index.ts",
+    "types": "dist/index.d.ts",
+    "files": [
+      "/dist"
+    ],
+    "dependencies": {
+        "socket.io-client": "^4.7.2"
+    },
+    "devDependencies": {
+        "typescript": "^4.9.5"
+    },
+    "scripts": {
+        "build": "tsc"
+    }
+}

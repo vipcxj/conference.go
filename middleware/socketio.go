@@ -1,7 +1,11 @@
 package middleware
 
 import (
+	"fmt"
+	"reflect"
+
 	"github.com/vipcxj/conference.go/auth"
+	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/signal"
 	"github.com/zishang520/socket.io/v2/socket"
 )
@@ -14,10 +18,14 @@ func SocketIOAuthHandler() func(*socket.Socket, func(*socket.ExtendedError)) {
 			return
 		}
 
-		token, ok := s.Handshake().Auth.(map[string]string)["token"]
-		if !ok || token == "" {
+		tokenAny, ok := s.Handshake().Auth.(map[string]interface{})["token"]
+		if !ok {
 			next(socket.NewExtendedError("Unauthorized", nil))
 			return
+		}
+		token, ok := tokenAny.(string)
+		if !ok {
+			panic(errors.FatalError(fmt.Sprintf("Invalid token type %v", reflect.TypeOf(token))))
 		}
 		authInfo := &auth.AuthInfo{}
 		err := auth.Decode(token, authInfo)

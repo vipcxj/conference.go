@@ -35,6 +35,10 @@ func Ok() *ConferenceError {
 	return NewError(ERR_OK, "")
 }
 
+func Unauthorized(msg string) *ConferenceError {
+	return NewError(http.StatusUnauthorized, msg)
+}
+
 func InvalidParam(msg string) *ConferenceError {
 	return NewError(http.StatusBadRequest, msg)
 }

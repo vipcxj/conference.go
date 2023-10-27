@@ -19,7 +19,7 @@ type AuthInfo struct {
 	UID string `json:"uid"`
 	UName string `json:"uname"`
 	Role string `json:"role"`
-	Room string `json:"room"`
+	Rooms []string `json:"rooms"`
 	Nonce int32 `json:"nonce"`
 }
 
@@ -36,9 +36,12 @@ func NewAuthInfoFromForm(form url.Values) (*AuthInfo, error) {
 	if role == "" {
 		return nil, errors.InvalidParam("The param role is required for creating auth info.")
 	}
-	room := form.Get("room")
-	if room == "" {
+	var rooms []string
+	rooms, ok := form["room"]
+	if !ok {
 		return nil, errors.InvalidParam("The param room is required for creating auth info.")
+	} else if rooms == nil {
+		rooms = []string{}
 	}
 	strNonce := form.Get("nonce")
 	if strNonce == "" {
@@ -52,7 +55,7 @@ func NewAuthInfoFromForm(form url.Values) (*AuthInfo, error) {
 		UID: uid,
 		UName: uname,
 		Role: role,
-		Room: room,
+		Rooms: rooms,
 		Nonce: int32(nonce),
 	}, nil
 }
