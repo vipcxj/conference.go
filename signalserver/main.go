@@ -29,18 +29,11 @@ func Run(ch chan error) {
 		if err != nil {
 			signal.FatalErrorAndClose(socket, err.Error())
 		}
+		err = signal.InitSignal(socket)
+		if err != nil {
+			signal.FatalErrorAndClose(socket, err.Error())
+		}
 		utils.Log().Info(`socket %s connected`, socket.Id())
-
-		// send an event to the client
-		socket.Emit("foo", "bar")
-
-		socket.On("foobar", func(...any) {
-			// an event was received from the client
-		})
-
-		socket.OnAny(func(events ...any) {
-			utils.Log().Info(`got events %v`, events)
-		})
 
 		// upon disconnection
 		socket.On("disconnect", func(reason ...any) {
