@@ -13,16 +13,20 @@ import (
 )
 
 type ProxyConn struct {
-	Rtp net.UDPConn
+	Rtp  net.UDPConn
 	Rtcp net.TCPConn
 }
 
 type SingalContext struct {
-	Socket   *socket.Socket
-	AuthInfo *auth.AuthInfo
-	Peer     *webrtc.PeerConnection
-	Conns    map[socket.SocketId]*ProxyConn
-	peer_mux sync.Mutex
+	Socket            *socket.Socket
+	AuthInfo          *auth.AuthInfo
+	Peer              *webrtc.PeerConnection
+	polite            bool
+	makingOffer       bool
+	Conns             map[socket.SocketId]*ProxyConn
+	PendingCandidates []*CandidateMessage
+	cand_mux          sync.Mutex
+	peer_mux          sync.Mutex
 }
 
 func (ctx *SingalContext) Authed() bool {
@@ -50,10 +54,49 @@ func (ctx *SingalContext) MakeSurePeer() (*webrtc.PeerConnection, error) {
 		var peer *webrtc.PeerConnection
 		var err error
 		if peer = ctx.Peer; peer == nil {
+			// only support impolite because pion webrtc not support rollback.
+			ctx.polite = false
 			peer, err = webrtc.NewPeerConnection(webrtc.Configuration{})
 			if err != nil {
 				return nil, err
 			}
+			peer.OnNegotiationNeeded(func() {
+				defer CatchFatalAndClose(ctx.Socket, "on negotiation")
+				ctx.makingOffer = true
+				defer func() {
+					ctx.makingOffer = false
+				}()
+				offer, err := peer.CreateOffer(nil)
+				if err != nil {
+					panic(err)
+				}
+				err = peer.SetLocalDescription(offer)
+				if err != nil {
+					panic(err)
+				}
+				desc := peer.LocalDescription()
+				ctx.Socket.Emit("sdp", SdpMessage{
+					Type: desc.Type.String(),
+					Sdp:  desc.SDP,
+				})
+			})
+			peer.OnICECandidate(func(i *webrtc.ICECandidate) {
+				defer CatchFatalAndClose(ctx.Socket, "on candidate")
+				var err error
+				if i == nil {
+					err = ctx.Socket.Emit("candidate", CandidateMessage{
+						Op: "end",
+					})
+				} else {
+					err = ctx.Socket.Emit("candidate", &CandidateMessage{
+						Op:        "add",
+						Candidate: i.ToJSON(),
+					})
+				}
+				if err != nil {
+					panic(err)
+				}
+			})
 			peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
 				msg := StreamMessage{
 					Op: "add",
@@ -62,9 +105,11 @@ func (ctx *SingalContext) MakeSurePeer() (*webrtc.PeerConnection, error) {
 						StreamId: tr.StreamID(),
 					},
 				}
+				fmt.Println("On track with stream id ", tr.StreamID(), " and id ", tr.ID())
 				ctx.Socket.To(ctx.Rooms()...).Emit("stream", msg)
 				ctx.Socket.Emit("stream", msg)
 			})
+
 			lastState := []webrtc.PeerConnectionState{peer.ConnectionState()}
 			peer.OnConnectionStateChange(func(pcs webrtc.PeerConnectionState) {
 				fmt.Println("peer connect state changed to ", pcs, " from ", lastState[0])

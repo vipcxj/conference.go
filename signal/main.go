@@ -2,106 +2,106 @@ package signal
 
 import (
 	"fmt"
-	"reflect"
-	"time"
 
-	"github.com/mitchellh/mapstructure"
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/zishang520/socket.io/v2/socket"
 )
-
-func FatalErrorAndClose(s *socket.Socket, msg string) {
-	s.Timeout(time.Second*1).EmitWithAck("fatal error", msg)(func(a []any, err error) {
-		s.Disconnect(true)
-	})
-}
-
-func parseArgs[R any, PR *R](out PR, args ...any) (func(...any), error) {
-	if len(args) == 0 {
-		if out == nil {
-			return nil, nil
-		} else {
-			return nil, errors.FatalError("too little parameter")
-		}
-	}
-	last := args[len(args)-1]
-	var ark func(...any) = nil
-	if reflect.TypeOf(last).Kind() == reflect.Func {
-		ark = last.(func(...any))
-		args = args[0 : len(args)-1]
-	}
-	if len(args) == 0 {
-		if out == nil {
-			return nil, nil
-		} else {
-			return nil, errors.FatalError("too little parameter")
-		}
-	}
-	err := mapstructure.Decode(args[0], out)
-	return ark, err
-}
 
 func InitSignal(s *socket.Socket) error {
 	ctx := GetSingalContext(s)
 	if ctx == nil {
 		return errors.FatalError("unable to find the signal context")
 	}
-	s.On("offer", func(args ...any) {
+	s.On("sdp", func(args ...any) {
+		defer CatchFatalAndClose(ctx.Socket, "on sdp")
 		msg := SdpMessage{}
 		ark, err := parseArgs(&msg, args...)
+		doArk(ark, nil)
 		if err != nil {
-			FatalErrorAndClose(s, err.Error())
+			panic(err)
+		}
+		peer, err := ctx.MakeSurePeer()
+		if err != nil {
+			panic(err)
+		}
+		offerCollision := msg.Type == webrtc.SDPTypeOffer.String() && (ctx.makingOffer || peer.SignalingState() != webrtc.SignalingStateStable)
+		if ctx.polite && offerCollision {
 			return
 		}
-		go OnOffer(s, ctx, &msg)
-		if ark != nil {
-			ark()
+		err = peer.SetRemoteDescription(webrtc.SessionDescription{
+			Type: webrtc.NewSDPType(msg.Type),
+			SDP:  msg.Sdp,
+		})
+		if err != nil {
+			panic(err)
+		}
+		err = processPendingCandidateMsg(s, peer, ctx)
+		if err != nil {
+			panic(err)
+		}
+		if msg.Type == webrtc.SDPTypeOffer.String() {
+			answer, err := peer.CreateAnswer(nil)
+			if err != nil {
+				panic(err)
+			}
+			err = peer.SetLocalDescription(answer)
+			if err != nil {
+				panic(err)
+			}
+			err = s.Emit("sdp", SdpMessage{
+				Type: answer.Type.String(),
+				Sdp:  answer.SDP,
+			})
+			if err != nil {
+				panic(err)
+			}
 		}
 	})
 	s.On("candidate", func(args ...any) {
 		msg := CandidateMessage{}
 		ark, err := parseArgs(&msg, args...)
+		doArk(ark, nil)
 		if err != nil {
-			FatalErrorAndClose(s, err.Error())
-			return
+			panic(err)
 		}
-		go OnCandidate(s, ctx, &msg)
-		if ark != nil {
-			ark()
+		peer, err := ctx.MakeSurePeer()
+		if err != nil {
+			panic(err)
+		}
+		if peer.RemoteDescription() == nil {
+			ctx.cand_mux.Lock()
+			if peer.RemoteDescription() == nil {
+				defer ctx.cand_mux.Unlock()
+				ctx.PendingCandidates = append(ctx.PendingCandidates, &msg)
+				return
+			} else {
+				ctx.cand_mux.Unlock()
+			}
+		}
+		err = processCandidateMsg(s, peer, &msg)
+		if err != nil {
+			panic(err)
 		}
 	})
 	return nil
 }
 
-func OnOffer(s *socket.Socket, ctx *SingalContext, msg *SdpMessage) {
-	peer, err := ctx.MakeSurePeer()
-	if err != nil {
-		FatalErrorAndClose(s, err.Error())
-		return
+func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, ctx *SingalContext) error {
+	ctx.cand_mux.Lock()
+	defer ctx.cand_mux.Unlock()
+	var err error
+	for _, msg := range ctx.PendingCandidates {
+		if e := processCandidateMsg(s, peer, msg); e!= nil {
+			err = e
+		} 
 	}
-	offer := webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: msg.Sdp}
-	err = peer.SetRemoteDescription(offer)
-	if err != nil {
-		FatalErrorAndClose(s, err.Error())
-	}
-	answer, err := peer.CreateAnswer(nil)
-	if err != nil {
-		FatalErrorAndClose(s, err.Error())
-	}
-	s.Emit("answer", SdpMessage{Sdp: answer.SDP})
-	err = peer.SetLocalDescription(answer)
-	if err != nil {
-		FatalErrorAndClose(s, err.Error())
-	}
+	ctx.PendingCandidates = nil
+	return err
 }
 
-func OnCandidate(s *socket.Socket, ctx *SingalContext, msg *CandidateMessage) {
-	peer, err := ctx.MakeSurePeer()
-	if err != nil {
-		FatalErrorAndClose(s, err.Error())
-		return
-	}
+func processCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, msg *CandidateMessage) error {
+	var err error
 	if msg.Op == "add" {
 		fmt.Println("Received candidate ", msg.Candidate.Candidate)
 		err = peer.AddICECandidate(msg.Candidate)
@@ -109,7 +109,5 @@ func OnCandidate(s *socket.Socket, ctx *SingalContext, msg *CandidateMessage) {
 		fmt.Println("Received candidate completed")
 		err = peer.AddICECandidate(webrtc.ICECandidateInit{})
 	}
-	if err != nil {
-		FatalErrorAndClose(s, err.Error())
-	}
+	return err
 }

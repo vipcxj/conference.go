@@ -37,6 +37,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConferenceClient = void 0;
+require("webrtc-adapter");
 var socket_io_client_1 = require("socket.io-client");
 function splitUrl(url) {
     var spos = url.indexOf('://');
@@ -53,74 +54,166 @@ function splitUrl(url) {
     }
 }
 var ConferenceClient = /** @class */ (function () {
-    function ConferenceClient(signalUrl, token) {
+    function ConferenceClient(signalUrl, token, polite) {
+        if (polite === void 0) { polite = true; }
         var _this = this;
-        this.connect = function () { return __awaiter(_this, void 0, void 0, function () {
-            var stream, self, candidateListener, offer, waitForAnswer, sdp;
-            var _this = this;
+        this.ark = function (func) {
+            if (func) {
+                func();
+            }
+        };
+        this.makeSurePeer = function () {
+            if (!_this.peer) {
+                var peer_1 = new RTCPeerConnection();
+                peer_1.onnegotiationneeded = function () { return __awaiter(_this, void 0, void 0, function () {
+                    var desc, msg, err_1;
+                    return __generator(this, function (_a) {
+                        switch (_a.label) {
+                            case 0:
+                                _a.trys.push([0, 2, 3, 4]);
+                                this.makingOffer = true;
+                                return [4 /*yield*/, peer_1.setLocalDescription()];
+                            case 1:
+                                _a.sent();
+                                desc = peer_1.localDescription;
+                                msg = {
+                                    type: desc.type,
+                                    sdp: desc.sdp,
+                                };
+                                this.socket.emit("sdp", msg);
+                                return [3 /*break*/, 4];
+                            case 2:
+                                err_1 = _a.sent();
+                                console.error(err_1);
+                                return [3 /*break*/, 4];
+                            case 3:
+                                this.makingOffer = false;
+                                return [7 /*endfinally*/];
+                            case 4: return [2 /*return*/];
+                        }
+                    });
+                }); };
+                peer_1.onicecandidate = function (evt) {
+                    var msg;
+                    if (evt.candidate) {
+                        msg = {
+                            op: "add",
+                            candidate: evt.candidate.toJSON(),
+                        };
+                    }
+                    else {
+                        msg = {
+                            op: "end",
+                        };
+                    }
+                    _this.socket.emit("candidate", msg);
+                };
+                _this.socket.on("sdp", function (msg, ark) { return __awaiter(_this, void 0, void 0, function () {
+                    var offerCollision, _i, _a, pending, desc, send_msg;
+                    return __generator(this, function (_b) {
+                        switch (_b.label) {
+                            case 0:
+                                this.ark(ark);
+                                offerCollision = msg.type === "offer"
+                                    && (this.makingOffer || peer_1.signalingState !== "stable");
+                                this.ignoreOffer = !this.polite && offerCollision;
+                                if (this.ignoreOffer) {
+                                    return [2 /*return*/];
+                                }
+                                return [4 /*yield*/, peer_1.setRemoteDescription({
+                                        type: msg.type,
+                                        sdp: msg.sdp,
+                                    })];
+                            case 1:
+                                _b.sent();
+                                _i = 0, _a = this.pendingCandidates;
+                                _b.label = 2;
+                            case 2:
+                                if (!(_i < _a.length)) return [3 /*break*/, 5];
+                                pending = _a[_i];
+                                return [4 /*yield*/, this.addCandidate(peer_1, pending)];
+                            case 3:
+                                _b.sent();
+                                _b.label = 4;
+                            case 4:
+                                _i++;
+                                return [3 /*break*/, 2];
+                            case 5:
+                                if (!(msg.type === 'offer')) return [3 /*break*/, 7];
+                                return [4 /*yield*/, peer_1.setLocalDescription()];
+                            case 6:
+                                _b.sent();
+                                desc = peer_1.localDescription;
+                                send_msg = {
+                                    type: desc.type,
+                                    sdp: desc.sdp,
+                                };
+                                this.socket.emit("sdp", send_msg);
+                                _b.label = 7;
+                            case 7: return [2 /*return*/];
+                        }
+                    });
+                }); });
+                _this.socket.on("candidate", function (msg, ark) { return __awaiter(_this, void 0, void 0, function () {
+                    return __generator(this, function (_a) {
+                        switch (_a.label) {
+                            case 0:
+                                this.ark(ark);
+                                if (!peer_1.remoteDescription) {
+                                    this.pendingCandidates.push(msg);
+                                    return [2 /*return*/];
+                                }
+                                return [4 /*yield*/, this.addCandidate(peer_1, msg)];
+                            case 1:
+                                _a.sent();
+                                return [2 /*return*/];
+                        }
+                    });
+                }); });
+                _this.peer = peer_1;
+            }
+            return _this.peer;
+        };
+        this.addCandidate = function (peer, msg) { return __awaiter(_this, void 0, void 0, function () {
+            var err_2;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        this.socket.connect();
-                        this.peer = new RTCPeerConnection();
-                        return [4 /*yield*/, navigator.mediaDevices.getUserMedia({
-                                video: true,
-                            })];
+                        _a.trys.push([0, 5, , 6]);
+                        if (!(msg.op == "end")) return [3 /*break*/, 2];
+                        return [4 /*yield*/, peer.addIceCandidate()];
                     case 1:
-                        stream = _a.sent();
-                        stream.getTracks().forEach(function (track) {
-                            _this.peer.addTrack(track, stream);
-                        });
-                        this.peer.onicecandidate = function (evt) {
-                            var msg;
-                            if (evt.candidate) {
-                                msg = {
-                                    op: "add",
-                                    candidate: evt.candidate.toJSON(),
-                                };
-                            }
-                            else {
-                                msg = {
-                                    op: "end",
-                                };
-                            }
-                            _this.socket.emit("candidate", msg);
-                        };
-                        self = this;
-                        candidateListener = function (candidate, ark) {
-                            if (candidate.op == "end") {
-                                self.peer.addIceCandidate(undefined);
-                                self.socket.off(this);
-                            }
-                            else {
-                                self.peer.addIceCandidate(candidate.candidate);
-                            }
-                        };
-                        this.socket.on("candidate", candidateListener);
-                        return [4 /*yield*/, this.peer.createOffer()];
-                    case 2:
-                        offer = _a.sent();
-                        return [4 /*yield*/, this.peer.setLocalDescription(offer)];
+                        _a.sent();
+                        return [3 /*break*/, 4];
+                    case 2: return [4 /*yield*/, peer.addIceCandidate(msg.candidate)];
                     case 3:
                         _a.sent();
-                        waitForAnswer = this.wait("answer");
-                        this.socket.emit("offer", {
-                            sdp: this.peer.localDescription.sdp
-                        });
-                        return [4 /*yield*/, waitForAnswer];
-                    case 4:
-                        sdp = (_a.sent()).sdp;
-                        return [4 /*yield*/, this.peer.setRemoteDescription({ type: "answer", sdp: sdp })];
+                        _a.label = 4;
+                    case 4: return [3 /*break*/, 6];
                     case 5:
-                        _a.sent();
-                        console.log("connected.");
-                        return [2 /*return*/];
+                        err_2 = _a.sent();
+                        if (!this.ignoreOffer) {
+                            throw err_2;
+                        }
+                        return [3 /*break*/, 6];
+                    case 6: return [2 /*return*/];
                 }
+            });
+        }); };
+        this.publish = function (stream) { return __awaiter(_this, void 0, void 0, function () {
+            var peer;
+            return __generator(this, function (_a) {
+                this.socket.connect();
+                peer = this.makeSurePeer();
+                stream.getTracks().forEach(function (track) {
+                    peer.addTrack(track, stream);
+                });
+                return [2 /*return*/];
             });
         }); };
         this.wait = function (evt, _a) {
             var _b = _a === void 0 ? {} : _a, arkData = _b.arkData, timeout = _b.timeout;
-            return new Promise(function (resolve, reject) {
+            return new Promise(function (resolve) {
                 _this.socket.once(evt, function () {
                     var args = [];
                     for (var _i = 0; _i < arguments.length; _i++) {
@@ -157,11 +250,52 @@ var ConferenceClient = /** @class */ (function () {
             });
         };
         var _a = splitUrl(signalUrl), host = _a[0], path = _a[1];
+        this.makingOffer = false;
+        this.ignoreOffer = false;
+        this.polite = polite;
+        this.pendingCandidates = [];
+        this.streams = [];
         this.socket = (0, socket_io_client_1.io)(host, {
             auth: {
                 token: token,
             },
             path: path,
+            autoConnect: true,
+        });
+        this.socket.on('error', function (msg, ark) {
+            console.error("Received".concat(msg.fatal ? " fatal " : " ", "error ").concat(msg.msg, " because of ").concat(msg.cause));
+            if (ark) {
+                ark();
+            }
+        });
+        this.socket.on('stream', function (msg, ark) {
+            if (msg.op == "add") {
+                console.log("Add stream with id ".concat(msg.stream.id, " and stream id ").concat(msg.stream.streamId));
+                _this.streams.push(msg.stream);
+            }
+            else {
+                console.log("Remove stream with id ".concat(msg.stream.id, " and stream id ").concat(msg.stream.streamId));
+                _this.streams = _this.streams.filter(function (st) { return st.id == msg.stream.id && st.streamId == msg.stream.streamId; });
+            }
+        });
+        this.socket.onAny(function (evt) {
+            var args = [];
+            for (var _i = 1; _i < arguments.length; _i++) {
+                args[_i - 1] = arguments[_i];
+            }
+            if (['error', 'stream', 'sdp', 'candidate'].indexOf(evt) !== -1) {
+                return;
+            }
+            var ark = args[args.length - 1];
+            var hasArk = typeof ark == 'function';
+            if (hasArk) {
+                args = args.slice(0, args.length - 1);
+            }
+            else {
+                ark = function () { return undefined; };
+            }
+            console.log("Received event ".concat(evt, " with args ").concat(args.join(",")));
+            ark();
         });
     }
     return ConferenceClient;

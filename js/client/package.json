@@ -8,7 +8,8 @@
         "/dist"
     ],
     "dependencies": {
-        "socket.io-client": "^4.7.2"
+        "socket.io-client": "^4.7.2",
+        "webrtc-adapter": "^8.2.3"
     },
     "devDependencies": {
         "typescript": "^4.9.5"
