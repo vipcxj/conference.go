@@ -5,6 +5,8 @@ import "net/http"
 const (
 	ERR_OK = 0
 	ERR_FATAL = 1000
+
+	BAD_PACKET = 10000
 )
 
 type ConferenceError struct {
@@ -45,4 +47,8 @@ func InvalidParam(msg string) *ConferenceError {
 
 func FatalError(msg string) *ConferenceError {
 	return NewError(ERR_FATAL, msg)
+}
+
+func BadPacket(msg string) *ConferenceError {
+	return NewError(BAD_PACKET, msg)
 }
