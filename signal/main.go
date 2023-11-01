@@ -59,6 +59,7 @@ func InitSignal(s *socket.Socket) error {
 		}
 	})
 	s.On("candidate", func(args ...any) {
+		defer CatchFatalAndClose(ctx.Socket, "candidate")
 		msg := CandidateMessage{}
 		ark, err := parseArgs(&msg, args...)
 		doArk(ark, nil)
@@ -84,6 +85,41 @@ func InitSignal(s *socket.Socket) error {
 			panic(err)
 		}
 	})
+	s.On("subscribe", func(args ...any) {
+		defer CatchFatalAndClose(ctx.Socket, "subscribe")
+		msg := SubscribeMessage{}
+		ark, err := parseArgs(&msg, args...)
+		doArk(ark, nil)
+		if err != nil {
+			panic(err)
+		}
+		ctx.Subscribe(msg.Tracks)
+	})
+	s.On("state", func(args ...any) {
+		defer CatchFatalAndClose(ctx.Socket, "subscribe")
+		msg := StateMessage{}
+		ark, err := parseArgs(&msg, args...)
+		doArk(ark, nil)
+		if err != nil {
+			panic(err)
+		}
+		r := GetRouter()
+		for _, track := range msg.Tracks {
+			r.SubscribeTrackIfWanted(track.GlobalId, track.Id, track.StreamId, msg.Addr)
+		}
+	})
+	s.On("want", func(args ...any) {
+		defer CatchFatalAndClose(ctx.Socket, "want")
+		msg := WantMessage{}
+		ark, err := parseArgs(&msg, args...)
+		doArk(ark, nil)
+		if err != nil {
+			panic(err)
+		}
+		for _, track := range msg.Tracks {
+			ctx.TryPublish(track.GlobalId, msg.TransportId)
+		}
+	})
 	return nil
 }
 
@@ -92,9 +128,9 @@ func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, c
 	defer ctx.cand_mux.Unlock()
 	var err error
 	for _, msg := range ctx.PendingCandidates {
-		if e := processCandidateMsg(s, peer, msg); e!= nil {
+		if e := processCandidateMsg(s, peer, msg); e != nil {
 			err = e
-		} 
+		}
 	}
 	ctx.PendingCandidates = nil
 	return err

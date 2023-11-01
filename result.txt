@@ -1,0 +1,1917 @@
+fatal error: unexpected signal during runtime execution
+[signal 0xc0000005 code=0x0 addr=0x308 pc=0xec59ac]
+
+runtime stack:
+runtime.throw({0xf5b2b8?, 0x0?})
+	D:/develop/Go/src/runtime/panic.go:1077 +0x65 fp=0x710a1ff660 sp=0x710a1ff630 pc=0xec4c45
+runtime.sigpanic()
+	D:/develop/Go/src/runtime/signal_windows.go:358 +0x265 fp=0x710a1ff6a8 sp=0x710a1ff660 pc=0xed8e05
+runtime.suspendG(0xc0002b11e0)
+	D:/develop/Go/src/runtime/preempt.go:210 +0x14c fp=0x710a1ff720 sp=0x710a1ff6a8 pc=0xec59ac
+runtime.markroot.func1()
+	D:/develop/Go/src/runtime/mgcmark.go:232 +0x89 fp=0x710a1ff770 sp=0x710a1ff720 pc=0xeab729
+runtime.markroot(0xc000039240, 0x66, 0x0)
+	D:/develop/Go/src/runtime/mgcmark.go:214 +0x1a8 fp=0x710a1ff818 sp=0x710a1ff770 pc=0xeab3e8
+runtime.gcDrainN(0xc000039240, 0x75b0)
+	D:/develop/Go/src/runtime/mgcmark.go:1184 +0x15d fp=0x710a1ff848 sp=0x710a1ff818 pc=0xead49d
+runtime.gcAssistAlloc1(0xc0000844e0, 0xc000281cf8?)
+	D:/develop/Go/src/runtime/mgcmark.go:568 +0x117 fp=0x710a1ff8b0 sp=0x710a1ff848 pc=0xeac077
+runtime.gcAssistAlloc.func1()
+	D:/develop/Go/src/runtime/mgcmark.go:476 +0x1b fp=0x710a1ff8d0 sp=0x710a1ff8b0 pc=0xeabf3b
+traceback: unexpected SPWRITE function runtime.systemstack
+runtime.systemstack()
+	D:/develop/Go/src/runtime/asm_amd64.s:509 +0x49 fp=0x710a1ff8e0 sp=0x710a1ff8d0 pc=0xef0309
+
+goroutine 20 [GC assist marking]:
+runtime.systemstack_switch()
+	D:/develop/Go/src/runtime/asm_amd64.s:474 +0x8 fp=0xc000091dd0 sp=0xc000091dc0 pc=0xef02a8
+runtime.gcAssistAlloc(0xc0000844e0)
+	D:/develop/Go/src/runtime/mgcmark.go:475 +0x198 fp=0xc000091e30 sp=0xc000091dd0 pc=0xeabdf8
+runtime.deductAssistCredit(0xc00010bf28?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc000091e58 sp=0xc000091e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc000091ec0 sp=0xc000091e58 pc=0xe9bce9
+runtime.makeslice(0xc000020180?, 0xc000091f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc000091ee8 sp=0xc000091ec0 pc=0xed92a9
+main.readChan(0xc0000866f0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc000091f70 sp=0xc000091ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000091f90 sp=0xc000091f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086030)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000091fb8 sp=0xc000091f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000091fe0 sp=0xc000091fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000091fe8 sp=0xc000091fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 1 [runnable]:
+runtime.gopark(0xc000783eb8?, 0x2?, 0xa0?, 0x3e?, 0xc000783e54?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000783d00 sp=0xc000783ce0 pc=0xec78ae
+runtime.selectgo(0xc000783eb8, 0xc000783e50, 0x0?, 0x1, 0x1?, 0x1)
+	D:/develop/Go/src/runtime/select.go:327 +0x725 fp=0xc000783e20 sp=0xc000783d00 pc=0xed6505
+main.main()
+	D:/project/github/conference.go/cmd/try/pooltest.go:56 +0x332 fp=0xc000783f40 sp=0xc000783e20 pc=0xf300f2
+runtime.main()
+	D:/develop/Go/src/runtime/proc.go:267 +0x2b2 fp=0xc000783fe0 sp=0xc000783f40 pc=0xec7492
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000783fe8 sp=0xc000783fe0 pc=0xef22c1
+
+goroutine 2 [force gc (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000049fa8 sp=0xc000049f88 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.forcegchelper()
+	D:/develop/Go/src/runtime/proc.go:322 +0xb8 fp=0xc000049fe0 sp=0xc000049fa8 pc=0xec7738
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000049fe8 sp=0xc000049fe0 pc=0xef22c1
+created by runtime.init.6 in goroutine 1
+	D:/develop/Go/src/runtime/proc.go:310 +0x1a
+
+goroutine 3 [GC sweep wait]:
+runtime.gopark(0xffd201?, 0xffd2a0?, 0xc?, 0x14?, 0x1?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc00004bf78 sp=0xc00004bf58 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.bgsweep(0x0?)
+	D:/develop/Go/src/runtime/mgcsweep.go:321 +0xdf fp=0xc00004bfc8 sp=0xc00004bf78 pc=0xeb28ff
+runtime.gcenable.func1()
+	D:/develop/Go/src/runtime/mgc.go:200 +0x25 fp=0xc00004bfe0 sp=0xc00004bfc8 pc=0xea7c25
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00004bfe8 sp=0xc00004bfe0 pc=0xef22c1
+created by runtime.gcenable in goroutine 1
+	D:/develop/Go/src/runtime/mgc.go:200 +0x66
+
+goroutine 4 [runnable]:
+runtime.gopark(0xc000060000?, 0x5ddcf614e438c?, 0x0?, 0x0?, 0xf5d400?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc00005bf30 sp=0xc00005bf10 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.(*scavengerState).sleep(0xffd3a0, 0x4131733000000000)
+	D:/develop/Go/src/runtime/mgcscavenge.go:504 +0x118 fp=0xc00005bfa0 sp=0xc00005bf30 pc=0xeb0338
+runtime.bgscavenge(0x0?)
+	D:/develop/Go/src/runtime/mgcscavenge.go:662 +0x74 fp=0xc00005bfc8 sp=0xc00005bfa0 pc=0xeb0734
+runtime.gcenable.func2()
+	D:/develop/Go/src/runtime/mgc.go:201 +0x25 fp=0xc00005bfe0 sp=0xc00005bfc8 pc=0xea7bc5
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00005bfe8 sp=0xc00005bfe0 pc=0xef22c1
+created by runtime.gcenable in goroutine 1
+	D:/develop/Go/src/runtime/mgc.go:201 +0xa5
+
+goroutine 5 [finalizer wait]:
+runtime.gopark(0x0?, 0x100000000?, 0x0?, 0x0?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc00004de28 sp=0xc00004de08 pc=0xec78ae
+runtime.runfinq()
+	D:/develop/Go/src/runtime/mfinal.go:193 +0x107 fp=0xc00004dfe0 sp=0xc00004de28 pc=0xea6ce7
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00004dfe8 sp=0xc00004dfe0 pc=0xef22c1
+created by runtime.createfing in goroutine 1
+	D:/develop/Go/src/runtime/mfinal.go:163 +0x3d
+
+goroutine 6 [runnable]:
+github.com/alphadose/itogami.safe_ready(0xc0000000c0?)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/lib_runtime_linkage.go:162 +0x25 fp=0xc00005df40 sp=0xc00005df18 pc=0xf253a5
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke(0xf784a0, 0xc000086000)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:47 +0x150 fp=0xc00005df70 sp=0xc00005df40 pc=0xf30850
+main.main.func2(0xc00005e060, 0x0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:47 +0xa6 fp=0xc00005dfc0 sp=0xc00005df70 pc=0xf30306
+main.main.func4()
+	D:/project/github/conference.go/cmd/try/pooltest.go:51 +0x2b fp=0xc00005dfe0 sp=0xc00005dfc0 pc=0xf3022b
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00005dfe8 sp=0xc00005dfe0 pc=0xef22c1
+created by main.main in goroutine 1
+	D:/project/github/conference.go/cmd/try/pooltest.go:36 +0x279
+
+goroutine 18 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086010)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc000057fb8 sp=0xc000057f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000057fe0 sp=0xc000057fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000057fe8 sp=0xc000057fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 19 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106168?, 0xb8?, 0x2?, 0xc00003b998?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000059d98 sp=0xc000059d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc000059dd0 sp=0xc000059d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc000084340)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc000059e30 sp=0xc000059dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc000059e58 sp=0xc000059e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc000059ec0 sp=0xc000059e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc000059f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc000059ee8 sp=0xc000059ec0 pc=0xed92a9
+main.readChan(0xc0003b4010?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc000059f70 sp=0xc000059ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000059f90 sp=0xc000059f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086020)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000059fb8 sp=0xc000059f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000059fe0 sp=0xc000059fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000059fe8 sp=0xc000059fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 21 [GC assist wait]:
+runtime.gopark(0xc000093e10?, 0xea2317?, 0xb8?, 0x3?, 0x71095ff938?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000093d98 sp=0xc000093d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc000093dd0 sp=0xc000093d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc000084680)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc000093e30 sp=0xc000093dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106060?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc000093e58 sp=0xc000093e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc000093ec0 sp=0xc000093e58 pc=0xe9bce9
+runtime.makeslice(0xc0003220c0?, 0xc000093f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc000093ee8 sp=0xc000093ec0 pc=0xed92a9
+main.readChan(0xc000026020?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc000093f70 sp=0xc000093ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000093f90 sp=0xc000093f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086040)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000093fb8 sp=0xc000093f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000093fe0 sp=0xc000093fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000093fe8 sp=0xc000093fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 22 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086050)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc00008dfb8 sp=0xc00008df90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00008dfe0 sp=0xc00008dfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00008dfe8 sp=0xc00008dfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 23 [GC assist wait]:
+runtime.gopark(0xc00008fe10?, 0xea2317?, 0x80?, 0x3?, 0x1?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc00008fd98 sp=0xc00008fd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc00008fdd0 sp=0xc00008fd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000849c0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc00008fe30 sp=0xc00008fdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106180?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc00008fe58 sp=0xc00008fe30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc00008fec0 sp=0xc00008fe58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc00008ff28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc00008fee8 sp=0xc00008fec0 pc=0xed92a9
+main.readChan(0xc00015c050?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc00008ff70 sp=0xc00008fee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc00008ff90 sp=0xc00008ff70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086060)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc00008ffb8 sp=0xc00008ff90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00008ffe0 sp=0xc00008ffb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00008ffe8 sp=0xc00008ffe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 24 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086070)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc000099fb8 sp=0xc000099f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000099fe0 sp=0xc000099fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000099fe8 sp=0xc000099fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 25 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086080)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc00009bfb8 sp=0xc00009bf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00009bfe0 sp=0xc00009bfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00009bfe8 sp=0xc00009bfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 26 [GC assist wait]:
+runtime.gopark(0xc000095e10?, 0xea2317?, 0x20?, 0x1?, 0x71095ff938?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000095d98 sp=0xc000095d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc000095dd0 sp=0xc000095d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc000084ea0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc000095e30 sp=0xc000095dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106240?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc000095e58 sp=0xc000095e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc000095ec0 sp=0xc000095e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc000095f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc000095ee8 sp=0xc000095ec0 pc=0xed92a9
+main.readChan(0xc00015c090?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc000095f70 sp=0xc000095ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000095f90 sp=0xc000095f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086090)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000095fb8 sp=0xc000095f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000095fe0 sp=0xc000095fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000095fe8 sp=0xc000095fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 27 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000860a0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc000097fb8 sp=0xc000097f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000097fe0 sp=0xc000097fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000097fe8 sp=0xc000097fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 28 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000860b0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000a3fb8 sp=0xc0000a3f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000a3fe0 sp=0xc0000a3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000a3fe8 sp=0xc0000a3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 29 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000860c0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000a5fb8 sp=0xc0000a5f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000a5fe0 sp=0xc0000a5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000a5fe8 sp=0xc0000a5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 30 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000860d0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc00009ffb8 sp=0xc00009ff90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00009ffe0 sp=0xc00009ffb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00009ffe8 sp=0xc00009ffe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 31 [GC assist wait]:
+runtime.gopark(0xc0000a1e10?, 0xea2317?, 0x70?, 0x2?, 0x71095ff938?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000a1d98 sp=0xc0000a1d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000a1dd0 sp=0xc0000a1d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000856c0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000a1e30 sp=0xc0000a1dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc00010bfb8?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000a1e58 sp=0xc0000a1e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000a1ec0 sp=0xc0000a1e58 pc=0xe9bce9
+runtime.makeslice(0xc000080800?, 0xc0000a1f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000a1ee8 sp=0xc0000a1ec0 pc=0xed92a9
+main.readChan(0xc00018e090?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000a1f70 sp=0xc0000a1ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000a1f90 sp=0xc0000a1f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000860e0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000a1fb8 sp=0xc0000a1f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000a1fe0 sp=0xc0000a1fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000a1fe8 sp=0xc0000a1fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 32 [semacquire]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000860f0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000abfb8 sp=0xc0000abf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000abfe0 sp=0xc0000abfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000abfe8 sp=0xc0000abfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 33 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086100)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000adfb8 sp=0xc0000adf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000adfe0 sp=0xc0000adfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000adfe8 sp=0xc0000adfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 34 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106120?, 0xc0?, 0x3?, 0xc00003b9a8?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000a7d98 sp=0xc0000a7d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000a7dd0 sp=0xc0000a7d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc000085ba0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000a7e30 sp=0xc0000a7dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf4b520?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000a7e58 sp=0xc0000a7e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000a7ec0 sp=0xc0000a7e58 pc=0xe9bce9
+runtime.makeslice(0xc0003220c0?, 0xc0000a7f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000a7ee8 sp=0xc0000a7ec0 pc=0xed92a9
+main.readChan(0xc00015c0b0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000a7f70 sp=0xc0000a7ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000a7f90 sp=0xc0000a7f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086110)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000a7fb8 sp=0xc0000a7f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000a7fe0 sp=0xc0000a7fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000a7fe8 sp=0xc0000a7fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 35 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086120)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000a9fb8 sp=0xc0000a9f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000a9fe0 sp=0xc0000a9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000a9fe8 sp=0xc0000a9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 36 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086130)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000b5fb8 sp=0xc0000b5f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000b5fe0 sp=0xc0000b5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000b5fe8 sp=0xc0000b5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 37 [GC assist wait]:
+runtime.gopark(0xc0000b7e10?, 0xea2317?, 0xd0?, 0x3?, 0x71095ff938?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000b7d98 sp=0xc0000b7d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000b7dd0 sp=0xc0000b7d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000ae1a0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000b7e30 sp=0xc0000b7dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106258?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000b7e58 sp=0xc0000b7e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000b7ec0 sp=0xc0000b7e58 pc=0xe9bce9
+runtime.makeslice(0xc0003220c0?, 0xc0000b7f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000b7ee8 sp=0xc0000b7ec0 pc=0xed92a9
+main.readChan(0xc00018e050?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000b7f70 sp=0xc0000b7ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000b7f90 sp=0xc0000b7f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086140)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000b7fb8 sp=0xc0000b7f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000b7fe0 sp=0xc0000b7fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000b7fe8 sp=0xc0000b7fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 38 [semacquire]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086150)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000b1fb8 sp=0xc0000b1f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000b1fe0 sp=0xc0000b1fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000b1fe8 sp=0xc0000b1fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 39 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086160)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000b3fb8 sp=0xc0000b3f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000b3fe0 sp=0xc0000b3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000b3fe8 sp=0xc0000b3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 40 [GC assist wait]:
+runtime.gopark(0xc0000bde10?, 0xea2317?, 0xc0?, 0x0?, 0x710a3ff688?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000bdd98 sp=0xc0000bdd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000bddd0 sp=0xc0000bdd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000ae680)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000bde30 sp=0xc0000bddd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc0001062a0?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000bde58 sp=0xc0000bde30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000bdec0 sp=0xc0000bde58 pc=0xe9bce9
+runtime.makeslice(0xc000406000?, 0xc0000bdf28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000bdee8 sp=0xc0000bdec0 pc=0xed92a9
+main.readChan(0xc000026070?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000bdf70 sp=0xc0000bdee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000bdf90 sp=0xc0000bdf70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086170)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000bdfb8 sp=0xc0000bdf90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000bdfe0 sp=0xc0000bdfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000bdfe8 sp=0xc0000bdfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 41 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106318?, 0xc0?, 0x2?, 0xc00003b9f8?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000bfd98 sp=0xc0000bfd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000bfdd0 sp=0xc0000bfd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000ae820)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000bfe30 sp=0xc0000bfdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000bfe58 sp=0xc0000bfe30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000bfec0 sp=0xc0000bfe58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000bff28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000bfee8 sp=0xc0000bfec0 pc=0xed92a9
+main.readChan(0xc00018e040?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000bff70 sp=0xc0000bfee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000bff90 sp=0xc0000bff70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086180)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000bffb8 sp=0xc0000bff90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000bffe0 sp=0xc0000bffb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000bffe8 sp=0xc0000bffe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 42 [GC assist wait]:
+runtime.gopark(0xc0000b9e10?, 0xea2317?, 0x20?, 0x1?, 0x7109fffb98?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000b9d98 sp=0xc0000b9d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000b9dd0 sp=0xc0000b9d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000ae9c0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000b9e30 sp=0xc0000b9dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106030?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000b9e58 sp=0xc0000b9e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000b9ec0 sp=0xc0000b9e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000b9f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000b9ee8 sp=0xc0000b9ec0 pc=0xed92a9
+main.readChan(0xc00049c030?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000b9f70 sp=0xc0000b9ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000b9f90 sp=0xc0000b9f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086190)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000b9fb8 sp=0xc0000b9f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000b9fe0 sp=0xc0000b9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000b9fe8 sp=0xc0000b9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 43 [GC assist wait]:
+runtime.gopark(0xc0000bbe10?, 0xea2317?, 0x10?, 0x1?, 0x710a3ff688?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000bbd98 sp=0xc0000bbd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000bbdd0 sp=0xc0000bbd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000aeb60)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000bbe30 sp=0xc0000bbdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106288?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000bbe58 sp=0xc0000bbe30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000bbec0 sp=0xc0000bbe58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000bbf28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000bbee8 sp=0xc0000bbec0 pc=0xed92a9
+main.readChan(0xc0000866f0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000bbf70 sp=0xc0000bbee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000bbf90 sp=0xc0000bbf70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000861a0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000bbfb8 sp=0xc0000bbf90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000bbfe0 sp=0xc0000bbfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000bbfe8 sp=0xc0000bbfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 44 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000861b0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000c7fb8 sp=0xc0000c7f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000c7fe0 sp=0xc0000c7fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000c7fe8 sp=0xc0000c7fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 45 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000861c0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000c9fb8 sp=0xc0000c9f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000c9fe0 sp=0xc0000c9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000c9fe8 sp=0xc0000c9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 46 [GC assist wait]:
+runtime.gopark(0x314?, 0xc0001060d8?, 0x10?, 0x1?, 0xc00003b9b8?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000c3d98 sp=0xc0000c3d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000c3dd0 sp=0xc0000c3d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000af040)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000c3e30 sp=0xc0000c3dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000c3e58 sp=0xc0000c3e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000c3ec0 sp=0xc0000c3e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000c3f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000c3ee8 sp=0xc0000c3ec0 pc=0xed92a9
+main.readChan(0xc000248010?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000c3f70 sp=0xc0000c3ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000c3f90 sp=0xc0000c3f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000861d0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000c3fb8 sp=0xc0000c3f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000c3fe0 sp=0xc0000c3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000c3fe8 sp=0xc0000c3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 47 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000861e0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000c5fb8 sp=0xc0000c5f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000c5fe0 sp=0xc0000c5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000c5fe8 sp=0xc0000c5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 48 [semacquire]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000861f0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000cffb8 sp=0xc0000cff90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000cffe0 sp=0xc0000cffb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000cffe8 sp=0xc0000cffe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 49 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086200)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000d1fb8 sp=0xc0000d1f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000d1fe0 sp=0xc0000d1fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000d1fe8 sp=0xc0000d1fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 50 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086210)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000cbfb8 sp=0xc0000cbf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000cbfe0 sp=0xc0000cbfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000cbfe8 sp=0xc0000cbfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 51 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086220)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000cdfb8 sp=0xc0000cdf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000cdfe0 sp=0xc0000cdfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000cdfe8 sp=0xc0000cdfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 52 [GC assist wait]:
+runtime.gopark(0xc0000d7e10?, 0xc000106330?, 0xa8?, 0x2?, 0xc00003b998?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000d7d98 sp=0xc0000d7d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000d7dd0 sp=0xc0000d7d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000afa00)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000d7e30 sp=0xc0000d7dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000d7e58 sp=0xc0000d7e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000d7ec0 sp=0xc0000d7e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000d7f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000d7ee8 sp=0xc0000d7ec0 pc=0xed92a9
+main.readChan(0xc000026070?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000d7f70 sp=0xc0000d7ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000d7f90 sp=0xc0000d7f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086230)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000d7fb8 sp=0xc0000d7f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000d7fe0 sp=0xc0000d7fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000d7fe8 sp=0xc0000d7fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 53 [GC assist wait]:
+runtime.gopark(0xc0000d9e10?, 0xea2317?, 0x70?, 0x1?, 0x71095ff938?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000d9d98 sp=0xc0000d9d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000d9dd0 sp=0xc0000d9d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000afba0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000d9e30 sp=0xc0000d9dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc00010bfd0?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000d9e58 sp=0xc0000d9e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000d9ec0 sp=0xc0000d9e58 pc=0xe9bce9
+runtime.makeslice(0xc000080800?, 0xc0000d9f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000d9ee8 sp=0xc0000d9ec0 pc=0xed92a9
+main.readChan(0xc0003b4030?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000d9f70 sp=0xc0000d9ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000d9f90 sp=0xc0000d9f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086240)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000d9fb8 sp=0xc0000d9f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000d9fe0 sp=0xc0000d9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000d9fe8 sp=0xc0000d9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 54 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086250)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000d3fb8 sp=0xc0000d3f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000d3fe0 sp=0xc0000d3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000d3fe8 sp=0xc0000d3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 55 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086260)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000d5fb8 sp=0xc0000d5f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000d5fe0 sp=0xc0000d5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000d5fe8 sp=0xc0000d5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 56 [runnable]:
+runtime.gopark(0xc0000e3e10?, 0xea2317?, 0xa8?, 0x2?, 0x2?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000e3d98 sp=0xc0000e3d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000e3dd0 sp=0xc0000e3d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000dc1a0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000e3e30 sp=0xc0000e3dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc00010bf88?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000e3e58 sp=0xc0000e3e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000e3ec0 sp=0xc0000e3e58 pc=0xe9bce9
+runtime.makeslice(0xc000080800?, 0xc0000e3f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000e3ee8 sp=0xc0000e3ec0 pc=0xed92a9
+main.readChan(0xc000026030?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000e3f70 sp=0xc0000e3ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000e3f90 sp=0xc0000e3f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086270)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000e3fb8 sp=0xc0000e3f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000e3fe0 sp=0xc0000e3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000e3fe8 sp=0xc0000e3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 57 [GC assist wait]:
+runtime.gopark(0x100000314?, 0xc000106348?, 0xd8?, 0x3?, 0xc00003b998?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000e5d98 sp=0xc0000e5d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000e5dd0 sp=0xc0000e5d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000dc340)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000e5e30 sp=0xc0000e5dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf4b520?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000e5e58 sp=0xc0000e5e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000e5ec0 sp=0xc0000e5e58 pc=0xe9bce9
+runtime.makeslice(0xc0003220c0?, 0xc0000e5f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000e5ee8 sp=0xc0000e5ec0 pc=0xed92a9
+main.readChan(0xc0000866f0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000e5f70 sp=0xc0000e5ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000e5f90 sp=0xc0000e5f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086280)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000e5fb8 sp=0xc0000e5f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000e5fe0 sp=0xc0000e5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000e5fe8 sp=0xc0000e5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 58 [GC assist wait]:
+runtime.gopark(0xc0000dfe10?, 0xea2317?, 0x28?, 0x2?, 0x7109fffb98?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000dfd98 sp=0xc0000dfd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000dfdd0 sp=0xc0000dfd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000dc4e0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000dfe30 sp=0xc0000dfdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106000?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000dfe58 sp=0xc0000dfe30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000dfec0 sp=0xc0000dfe58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000dff28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000dfee8 sp=0xc0000dfec0 pc=0xed92a9
+main.readChan(0xc0000866b0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000dff70 sp=0xc0000dfee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000dff90 sp=0xc0000dff70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086290)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000dffb8 sp=0xc0000dff90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000dffe0 sp=0xc0000dffb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000dffe8 sp=0xc0000dffe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 59 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000862a0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000e1fb8 sp=0xc0000e1f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000e1fe0 sp=0xc0000e1fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000e1fe8 sp=0xc0000e1fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 60 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106150?, 0xe8?, 0x3?, 0xc00003b998?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000ebd98 sp=0xc0000ebd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000ebdd0 sp=0xc0000ebd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000dc820)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000ebe30 sp=0xc0000ebdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000ebe58 sp=0xc0000ebe30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000ebec0 sp=0xc0000ebe58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000ebf28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000ebee8 sp=0xc0000ebec0 pc=0xed92a9
+main.readChan(0xc00018e010?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000ebf70 sp=0xc0000ebee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000ebf90 sp=0xc0000ebf70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000862b0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000ebfb8 sp=0xc0000ebf90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000ebfe0 sp=0xc0000ebfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000ebfe8 sp=0xc0000ebfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 61 [GC assist marking]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000862c0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000edfb8 sp=0xc0000edf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000edfe0 sp=0xc0000edfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000edfe8 sp=0xc0000edfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 62 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000862d0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000e7fb8 sp=0xc0000e7f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000e7fe0 sp=0xc0000e7fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000e7fe8 sp=0xc0000e7fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 63 [GC assist wait]:
+runtime.gopark(0xc0000e9e10?, 0xea2317?, 0x50?, 0x2?, 0x7109fffb98?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000e9d98 sp=0xc0000e9d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000e9dd0 sp=0xc0000e9d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000dcd00)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000e9e30 sp=0xc0000e9dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc0001060a8?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000e9e58 sp=0xc0000e9e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000e9ec0 sp=0xc0000e9e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000e9f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000e9ee8 sp=0xc0000e9ec0 pc=0xed92a9
+main.readChan(0xc00018e040?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000e9f70 sp=0xc0000e9ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000e9f90 sp=0xc0000e9f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000862e0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000e9fb8 sp=0xc0000e9f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000e9fe0 sp=0xc0000e9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000e9fe8 sp=0xc0000e9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 64 [semacquire]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000862f0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000f3fb8 sp=0xc0000f3f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000f3fe0 sp=0xc0000f3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000f3fe8 sp=0xc0000f3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 65 [GC assist wait]:
+runtime.gopark(0xc0000f5e10?, 0xc0001061e0?, 0xc8?, 0x3?, 0xc00003b9d8?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000f5d98 sp=0xc0000f5d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000f5dd0 sp=0xc0000f5d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000dd040)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000f5e30 sp=0xc0000f5dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf4b520?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000f5e58 sp=0xc0000f5e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000f5ec0 sp=0xc0000f5e58 pc=0xe9bce9
+runtime.makeslice(0xc0003220c0?, 0xc0000f5f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000f5ee8 sp=0xc0000f5ec0 pc=0xed92a9
+main.readChan(0xc0000260e0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000f5f70 sp=0xc0000f5ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000f5f90 sp=0xc0000f5f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086300)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000f5fb8 sp=0xc0000f5f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000f5fe0 sp=0xc0000f5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000f5fe8 sp=0xc0000f5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 66 [GC assist wait]:
+runtime.gopark(0xc0000efe10?, 0xea2317?, 0x50?, 0x2?, 0x710a3ff6a8?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000efd98 sp=0xc0000efd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000efdd0 sp=0xc0000efd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000dd1e0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000efe30 sp=0xc0000efdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106210?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000efe58 sp=0xc0000efe30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000efec0 sp=0xc0000efe58 pc=0xe9bce9
+runtime.makeslice(0xc00030c0f0?, 0xc0000eff28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000efee8 sp=0xc0000efec0 pc=0xed92a9
+main.readChan(0xc0003b4080?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000eff70 sp=0xc0000efee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000eff90 sp=0xc0000eff70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086310)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000effb8 sp=0xc0000eff90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000effe0 sp=0xc0000effb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000effe8 sp=0xc0000effe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 67 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086320)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000f1fb8 sp=0xc0000f1f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000f1fe0 sp=0xc0000f1fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000f1fe8 sp=0xc0000f1fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 68 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086330)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000fbfb8 sp=0xc0000fbf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000fbfe0 sp=0xc0000fbfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000fbfe8 sp=0xc0000fbfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 69 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086340)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0000fdfb8 sp=0xc0000fdf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000fdfe0 sp=0xc0000fdfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000fdfe8 sp=0xc0000fdfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 70 [GC assist wait]:
+runtime.gopark(0x314?, 0xc0001060f0?, 0x18?, 0x1?, 0xc00003b998?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000f7d98 sp=0xc0000f7d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000f7dd0 sp=0xc0000f7d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000dd860)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000f7e30 sp=0xc0000f7dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000f7e58 sp=0xc0000f7e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000f7ec0 sp=0xc0000f7e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000f7f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000f7ee8 sp=0xc0000f7ec0 pc=0xed92a9
+main.readChan(0xc0003b4040?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000f7f70 sp=0xc0000f7ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000f7f90 sp=0xc0000f7f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086350)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000f7fb8 sp=0xc0000f7f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000f7fe0 sp=0xc0000f7fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000f7fe8 sp=0xc0000f7fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 71 [GC assist wait]:
+runtime.gopark(0xc0000f9e10?, 0xea2317?, 0xa0?, 0x3?, 0x7109fffb98?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0000f9d98 sp=0xc0000f9d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0000f9dd0 sp=0xc0000f9d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000dda00)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0000f9e30 sp=0xc0000f9dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106018?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0000f9e58 sp=0xc0000f9e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0000f9ec0 sp=0xc0000f9e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0000f9f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0000f9ee8 sp=0xc0000f9ec0 pc=0xed92a9
+main.readChan(0xc00018e050?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0000f9f70 sp=0xc0000f9ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0000f9f90 sp=0xc0000f9f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086360)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0000f9fb8 sp=0xc0000f9f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0000f9fe0 sp=0xc0000f9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0000f9fe8 sp=0xc0000f9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 72 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086370)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc000285fb8 sp=0xc000285f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000285fe0 sp=0xc000285fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000285fe8 sp=0xc000285fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 73 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086380)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc000287fb8 sp=0xc000287f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000287fe0 sp=0xc000287fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000287fe8 sp=0xc000287fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 74 [runnable]:
+time.Since({0xc1483ba69b89bc6c?, 0xb2a0f161?, 0xffd320?})
+	D:/develop/Go/src/time/time.go:911 +0x88 fp=0xc000281ee8 sp=0xc000281ee0 pc=0xf14cc8
+main.readChan(0x0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:20 +0xec fp=0xc000281f70 sp=0xc000281ee8 pc=0xf2fd8c
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000281f90 sp=0xc000281f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086390)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000281fb8 sp=0xc000281f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000281fe0 sp=0xc000281fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000281fe8 sp=0xc000281fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 75 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000863a0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc000283fb8 sp=0xc000283f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000283fe0 sp=0xc000283fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000283fe8 sp=0xc000283fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 76 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106360?, 0x78?, 0x1?, 0xc00003b998?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc00028dd98 sp=0xc00028dd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc00028ddd0 sp=0xc00028dd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000fe340)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc00028de30 sp=0xc00028ddd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc00028de58 sp=0xc00028de30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc00028dec0 sp=0xc00028de58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc00028df28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc00028dee8 sp=0xc00028dec0 pc=0xed92a9
+main.readChan(0xc0003b4020?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc00028df70 sp=0xc00028dee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc00028df90 sp=0xc00028df70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000863b0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc00028dfb8 sp=0xc00028df90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00028dfe0 sp=0xc00028dfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00028dfe8 sp=0xc00028dfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 77 [GC assist wait]:
+runtime.gopark(0xc00028fe10?, 0xea2317?, 0x0?, 0x2?, 0x7109fffbb8?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc00028fd98 sp=0xc00028fd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc00028fdd0 sp=0xc00028fd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000fe4e0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc00028fe30 sp=0xc00028fdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc0001062b8?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc00028fe58 sp=0xc00028fe30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc00028fec0 sp=0xc00028fe58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc00028ff28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc00028fee8 sp=0xc00028fec0 pc=0xed92a9
+main.readChan(0xc000086660?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc00028ff70 sp=0xc00028fee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc00028ff90 sp=0xc00028ff70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000863c0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc00028ffb8 sp=0xc00028ff90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00028ffe0 sp=0xc00028ffb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00028ffe8 sp=0xc00028ffe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 78 [GC assist wait]:
+runtime.gopark(0xc000289e10?, 0xea2317?, 0x40?, 0x2?, 0x7109fffb98?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000289d98 sp=0xc000289d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc000289dd0 sp=0xc000289d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000fe680)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc000289e30 sp=0xc000289dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc000106198?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc000289e58 sp=0xc000289e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc000289ec0 sp=0xc000289e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc000289f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc000289ee8 sp=0xc000289ec0 pc=0xed92a9
+main.readChan(0xc000026010?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc000289f70 sp=0xc000289ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000289f90 sp=0xc000289f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000863d0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000289fb8 sp=0xc000289f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000289fe0 sp=0xc000289fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000289fe8 sp=0xc000289fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 79 [GC assist wait]:
+runtime.gopark(0xc00028be10?, 0xc000106078?, 0x48?, 0x2?, 0xc000036da8?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc00028bd98 sp=0xc00028bd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc00028bdd0 sp=0xc00028bd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000fe820)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc00028be30 sp=0xc00028bdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc00028be58 sp=0xc00028be30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc00028bec0 sp=0xc00028be58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc00028bf28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc00028bee8 sp=0xc00028bec0 pc=0xed92a9
+main.readChan(0xc00018e060?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc00028bf70 sp=0xc00028bee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc00028bf90 sp=0xc00028bf70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000863e0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc00028bfb8 sp=0xc00028bf90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00028bfe0 sp=0xc00028bfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00028bfe8 sp=0xc00028bfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 80 [GC assist wait]:
+runtime.gopark(0x314?, 0xc00010bfe8?, 0xd8?, 0x3?, 0xc00003b7f0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000295d98 sp=0xc000295d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc000295dd0 sp=0xc000295d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000fe9c0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc000295e30 sp=0xc000295dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc000295e58 sp=0xc000295e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc000295ec0 sp=0xc000295e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc000295f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc000295ee8 sp=0xc000295ec0 pc=0xed92a9
+main.readChan(0xc0003b4030?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc000295f70 sp=0xc000295ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000295f90 sp=0xc000295f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000863f0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000295fb8 sp=0xc000295f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000295fe0 sp=0xc000295fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000295fe8 sp=0xc000295fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 81 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106378?, 0x28?, 0x1?, 0xc00003b998?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000297d98 sp=0xc000297d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc000297dd0 sp=0xc000297d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000feb60)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc000297e30 sp=0xc000297dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf4b520?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc000297e58 sp=0xc000297e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc000297ec0 sp=0xc000297e58 pc=0xe9bce9
+runtime.makeslice(0xc000406000?, 0xc000297f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc000297ee8 sp=0xc000297ec0 pc=0xed92a9
+main.readChan(0xc0000866a0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc000297f70 sp=0xc000297ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000297f90 sp=0xc000297f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086400)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000297fb8 sp=0xc000297f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000297fe0 sp=0xc000297fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000297fe8 sp=0xc000297fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 82 [GC assist wait]:
+runtime.gopark(0x314?, 0xc0001061f8?, 0xa0?, 0x2?, 0xc00003b998?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000291d98 sp=0xc000291d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc000291dd0 sp=0xc000291d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000fed00)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc000291e30 sp=0xc000291dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc000291e58 sp=0xc000291e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc000291ec0 sp=0xc000291e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc000291f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc000291ee8 sp=0xc000291ec0 pc=0xed92a9
+main.readChan(0xc0003b4000?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc000291f70 sp=0xc000291ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000291f90 sp=0xc000291f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086410)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000291fb8 sp=0xc000291f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000291fe0 sp=0xc000291fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000291fe8 sp=0xc000291fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 83 [GC assist wait]:
+runtime.gopark(0xc000293e10?, 0xea2317?, 0x18?, 0x2?, 0x7109fffb98?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000293d98 sp=0xc000293d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc000293dd0 sp=0xc000293d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000feea0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc000293e30 sp=0xc000293dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc0001061b0?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc000293e58 sp=0xc000293e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc000293ec0 sp=0xc000293e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc000293f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc000293ee8 sp=0xc000293ec0 pc=0xed92a9
+main.readChan(0xc0003b4090?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc000293f70 sp=0xc000293ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc000293f90 sp=0xc000293f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086420)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc000293fb8 sp=0xc000293f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000293fe0 sp=0xc000293fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000293fe8 sp=0xc000293fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 84 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086430)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc00029dfb8 sp=0xc00029df90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00029dfe0 sp=0xc00029dfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00029dfe8 sp=0xc00029dfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 85 [GC assist marking]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086440)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc00029ffb8 sp=0xc00029ff90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00029ffe0 sp=0xc00029ffb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00029ffe8 sp=0xc00029ffe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 86 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086450)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc000299fb8 sp=0xc000299f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc000299fe0 sp=0xc000299fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000299fe8 sp=0xc000299fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 87 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086460)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc00029bfb8 sp=0xc00029bf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc00029bfe0 sp=0xc00029bfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc00029bfe8 sp=0xc00029bfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 88 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086470)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002a5fb8 sp=0xc0002a5f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002a5fe0 sp=0xc0002a5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002a5fe8 sp=0xc0002a5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 89 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086480)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002a7fb8 sp=0xc0002a7f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002a7fe0 sp=0xc0002a7fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002a7fe8 sp=0xc0002a7fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 90 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086490)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002a1fb8 sp=0xc0002a1f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002a1fe0 sp=0xc0002a1fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002a1fe8 sp=0xc0002a1fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 91 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000864a0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002a3fb8 sp=0xc0002a3f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002a3fe0 sp=0xc0002a3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002a3fe8 sp=0xc0002a3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 92 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106270?, 0x78?, 0x2?, 0xc00003b7f0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002add98 sp=0xc0002add78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0002addd0 sp=0xc0002add98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0000ffd40)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0002ade30 sp=0xc0002addd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0002ade58 sp=0xc0002ade30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0002adec0 sp=0xc0002ade58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0002adf28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0002adee8 sp=0xc0002adec0 pc=0xed92a9
+main.readChan(0xc00015c020?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0002adf70 sp=0xc0002adee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0002adf90 sp=0xc0002adf70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000864b0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0002adfb8 sp=0xc0002adf90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002adfe0 sp=0xc0002adfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002adfe8 sp=0xc0002adfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 93 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000864c0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002affb8 sp=0xc0002aff90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002affe0 sp=0xc0002affb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002affe8 sp=0xc0002affe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 94 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000864d0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002a9fb8 sp=0xc0002a9f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002a9fe0 sp=0xc0002a9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002a9fe8 sp=0xc0002a9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 95 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000864e0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002abfb8 sp=0xc0002abf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002abfe0 sp=0xc0002abfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002abfe8 sp=0xc0002abfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 96 [GC assist marking]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000864f0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002b7fb8 sp=0xc0002b7f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002b7fe0 sp=0xc0002b7fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002b7fe8 sp=0xc0002b7fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 97 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086500)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002b9fb8 sp=0xc0002b9f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002b9fe0 sp=0xc0002b9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002b9fe8 sp=0xc0002b9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 98 [GC assist wait]:
+runtime.gopark(0xc0002b3e10?, 0xea2317?, 0xd0?, 0x0?, 0x7109fffb98?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002b3d98 sp=0xc0002b3d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0002b3dd0 sp=0xc0002b3d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0002b0820)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0002b3e30 sp=0xc0002b3dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc0001060c0?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0002b3e58 sp=0xc0002b3e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0002b3ec0 sp=0xc0002b3e58 pc=0xe9bce9
+runtime.makeslice(0xc000406000?, 0xc0002b3f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0002b3ee8 sp=0xc0002b3ec0 pc=0xed92a9
+main.readChan(0xc00018e010?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0002b3f70 sp=0xc0002b3ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0002b3f90 sp=0xc0002b3f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086510)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0002b3fb8 sp=0xc0002b3f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002b3fe0 sp=0xc0002b3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002b3fe8 sp=0xc0002b3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 99 [GC assist wait]:
+runtime.gopark(0xc0002b5e10?, 0xea2317?, 0x20?, 0x2?, 0x710a3ff688?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002b5d98 sp=0xc0002b5d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0002b5dd0 sp=0xc0002b5d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0002b09c0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0002b5e30 sp=0xc0002b5dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc0001062e8?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0002b5e58 sp=0xc0002b5e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0002b5ec0 sp=0xc0002b5e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0002b5f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0002b5ee8 sp=0xc0002b5ec0 pc=0xed92a9
+main.readChan(0xc00015c050?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0002b5f70 sp=0xc0002b5ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0002b5f90 sp=0xc0002b5f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086520)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0002b5fb8 sp=0xc0002b5f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002b5fe0 sp=0xc0002b5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002b5fe8 sp=0xc0002b5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 100 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086530)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002bffb8 sp=0xc0002bff90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002bffe0 sp=0xc0002bffb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002bffe8 sp=0xc0002bffe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 101 [GC assist wait]:
+runtime.gopark(0xc0002c1e10?, 0xc000106090?, 0x98?, 0x2?, 0xc00003b7f0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002c1d98 sp=0xc0002c1d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0002c1dd0 sp=0xc0002c1d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0002b0d00)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0002c1e30 sp=0xc0002c1dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0002c1e58 sp=0xc0002c1e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0002c1ec0 sp=0xc0002c1e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0002c1f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0002c1ee8 sp=0xc0002c1ec0 pc=0xed92a9
+main.readChan(0xc00024e030?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0002c1f70 sp=0xc0002c1ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0002c1f90 sp=0xc0002c1f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086540)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0002c1fb8 sp=0xc0002c1f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002c1fe0 sp=0xc0002c1fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002c1fe8 sp=0xc0002c1fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 102 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086550)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002bbfb8 sp=0xc0002bbf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002bbfe0 sp=0xc0002bbfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002bbfe8 sp=0xc0002bbfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 103 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086560)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002bdfb8 sp=0xc0002bdf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002bdfe0 sp=0xc0002bdfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002bdfe8 sp=0xc0002bdfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 104 [running (scan)]:
+	goroutine running on other thread; stack unavailable
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 105 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086580)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002c9fb8 sp=0xc0002c9f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002c9fe0 sp=0xc0002c9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002c9fe8 sp=0xc0002c9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 106 [GC assist wait]:
+runtime.gopark(0xc0002c3e10?, 0xea2317?, 0xc8?, 0x0?, 0x710a3ff688?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002c3d98 sp=0xc0002c3d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0002c3dd0 sp=0xc0002c3d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0002b1520)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0002c3e30 sp=0xc0002c3dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc0001062d0?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0002c3e58 sp=0xc0002c3e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0002c3ec0 sp=0xc0002c3e58 pc=0xe9bce9
+runtime.makeslice(0xc000406000?, 0xc0002c3f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0002c3ee8 sp=0xc0002c3ec0 pc=0xed92a9
+main.readChan(0xc0003b4090?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0002c3f70 sp=0xc0002c3ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0002c3f90 sp=0xc0002c3f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086590)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0002c3fb8 sp=0xc0002c3f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002c3fe0 sp=0xc0002c3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002c3fe8 sp=0xc0002c3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 107 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000865a0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002c5fb8 sp=0xc0002c5f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002c5fe0 sp=0xc0002c5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002c5fe8 sp=0xc0002c5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 108 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000865b0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002cffb8 sp=0xc0002cff90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002cffe0 sp=0xc0002cffb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002cffe8 sp=0xc0002cffe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 109 [semacquire]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000865c0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002d1fb8 sp=0xc0002d1f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002d1fe0 sp=0xc0002d1fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002d1fe8 sp=0xc0002d1fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 110 [GC assist wait]:
+runtime.gopark(0xc0002cbe10?, 0xea2317?, 0xe0?, 0x3?, 0x71095ff938?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002cbd98 sp=0xc0002cbd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0002cbdd0 sp=0xc0002cbd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0002b1ba0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0002cbe30 sp=0xc0002cbdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xc00010bfa0?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0002cbe58 sp=0xc0002cbe30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0002cbec0 sp=0xc0002cbe58 pc=0xe9bce9
+runtime.makeslice(0xc000080800?, 0xc0002cbf28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0002cbee8 sp=0xc0002cbec0 pc=0xed92a9
+main.readChan(0xc000086710?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0002cbf70 sp=0xc0002cbee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0002cbf90 sp=0xc0002cbf70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000865d0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0002cbfb8 sp=0xc0002cbf90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002cbfe0 sp=0xc0002cbfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002cbfe8 sp=0xc0002cbfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 111 [semacquire]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000865e0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002cdfb8 sp=0xc0002cdf90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002cdfe0 sp=0xc0002cdfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002cdfe8 sp=0xc0002cdfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 112 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc0000865f0)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002d9fb8 sp=0xc0002d9f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002d9fe0 sp=0xc0002d9fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002d9fe8 sp=0xc0002d9fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 113 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106138?, 0xb0?, 0x2?, 0xc00003b998?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002dbd98 sp=0xc0002dbd78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0002dbdd0 sp=0xc0002dbd98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0002d21a0)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0002dbe30 sp=0xc0002dbdd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0002dbe58 sp=0xc0002dbe30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0002dbec0 sp=0xc0002dbe58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0002dbf28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0002dbee8 sp=0xc0002dbec0 pc=0xed92a9
+main.readChan(0xc0000866d0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0002dbf70 sp=0xc0002dbee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0002dbf90 sp=0xc0002dbf70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086600)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0002dbfb8 sp=0xc0002dbf90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002dbfe0 sp=0xc0002dbfb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002dbfe8 sp=0xc0002dbfe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 114 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106228?, 0x40?, 0x2?, 0xc00002fcf0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002d5d98 sp=0xc0002d5d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0002d5dd0 sp=0xc0002d5d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0002d2340)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0002d5e30 sp=0xc0002d5dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf39160?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0002d5e58 sp=0xc0002d5e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0002d5ec0 sp=0xc0002d5e58 pc=0xe9bce9
+runtime.makeslice(0xc000180400?, 0xc0002d5f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0002d5ee8 sp=0xc0002d5ec0 pc=0xed92a9
+main.readChan(0xc0003b4000?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0002d5f70 sp=0xc0002d5ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0002d5f90 sp=0xc0002d5f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086610)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0002d5fb8 sp=0xc0002d5f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002d5fe0 sp=0xc0002d5fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002d5fe8 sp=0xc0002d5fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 115 [runnable]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086620)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002d7fb8 sp=0xc0002d7f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002d7fe0 sp=0xc0002d7fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002d7fe8 sp=0xc0002d7fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 116 [GC assist marking]:
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086630)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:66 +0x97 fp=0xc0002e1fb8 sp=0xc0002e1f90 pc=0xf306b7
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002e1fe0 sp=0xc0002e1fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002e1fe8 sp=0xc0002e1fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 117 [GC assist wait]:
+runtime.gopark(0x314?, 0xc000106048?, 0x60?, 0x2?, 0xc000036c60?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002e3d98 sp=0xc0002e3d78 pc=0xec78ae
+runtime.goparkunlock(...)
+	D:/develop/Go/src/runtime/proc.go:404
+runtime.gcParkAssist()
+	D:/develop/Go/src/runtime/mgcmark.go:652 +0xe7 fp=0xc0002e3dd0 sp=0xc0002e3d98 pc=0xeac427
+runtime.gcAssistAlloc(0xc0002d2820)
+	D:/develop/Go/src/runtime/mgcmark.go:509 +0x22a fp=0xc0002e3e30 sp=0xc0002e3dd0 pc=0xeabe8a
+runtime.deductAssistCredit(0xf4b520?)
+	D:/develop/Go/src/runtime/malloc.go:1287 +0x54 fp=0xc0002e3e58 sp=0xc0002e3e30 pc=0xe9c4b4
+runtime.mallocgc(0x1000, 0xf3a720, 0x1)
+	D:/develop/Go/src/runtime/malloc.go:1002 +0xc9 fp=0xc0002e3ec0 sp=0xc0002e3e58 pc=0xe9bce9
+runtime.makeslice(0xc00030c0f0?, 0xc0002e3f28?, 0xeffaa5?)
+	D:/develop/Go/src/runtime/slice.go:103 +0x49 fp=0xc0002e3ee8 sp=0xc0002e3ec0 pc=0xed92a9
+main.readChan(0xc0000260d0?, 0xc000086008)
+	D:/project/github/conference.go/cmd/try/pooltest.go:15 +0x75 fp=0xc0002e3f70 sp=0xc0002e3ee8 pc=0xf2fd15
+main.main.func1(0xc0000000c0?)
+	D:/project/github/conference.go/cmd/try/pooltest.go:31 +0x1d fp=0xc0002e3f90 sp=0xc0002e3f70 pc=0xf303bd
+github.com/alphadose/itogami.(*PoolWithFunc[...]).loopQ(0xf784a0, 0xc000086640)
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:64 +0x73 fp=0xc0002e3fb8 sp=0xc0002e3f90 pc=0xf30693
+github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke.func1()
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x28 fp=0xc0002e3fe0 sp=0xc0002e3fb8 pc=0xf30408
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002e3fe8 sp=0xc0002e3fe0 pc=0xef22c1
+created by github.com/alphadose/itogami.(*PoolWithFunc[...]).Invoke in goroutine 6
+	C:/Users/cxj/go/pkg/mod/github.com/alphadose/itogami@v0.4.0/pool_func.go:51 +0x119
+
+goroutine 130 [GC worker (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002ddf50 sp=0xc0002ddf30 pc=0xec78ae
+runtime.gcBgMarkWorker()
+	D:/develop/Go/src/runtime/mgc.go:1293 +0xe5 fp=0xc0002ddfe0 sp=0xc0002ddf50 pc=0xea9625
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002ddfe8 sp=0xc0002ddfe0 pc=0xef22c1
+created by runtime.gcBgMarkStartWorkers in goroutine 33
+	D:/develop/Go/src/runtime/mgc.go:1217 +0x1c
+
+goroutine 146 [GC worker (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000785f50 sp=0xc000785f30 pc=0xec78ae
+runtime.gcBgMarkWorker()
+	D:/develop/Go/src/runtime/mgc.go:1293 +0xe5 fp=0xc000785fe0 sp=0xc000785f50 pc=0xea9625
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000785fe8 sp=0xc000785fe0 pc=0xef22c1
+created by runtime.gcBgMarkStartWorkers in goroutine 33
+	D:/develop/Go/src/runtime/mgc.go:1217 +0x1c
+
+goroutine 162 [GC worker (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000781f50 sp=0xc000781f30 pc=0xec78ae
+runtime.gcBgMarkWorker()
+	D:/develop/Go/src/runtime/mgc.go:1293 +0xe5 fp=0xc000781fe0 sp=0xc000781f50 pc=0xea9625
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000781fe8 sp=0xc000781fe0 pc=0xef22c1
+created by runtime.gcBgMarkStartWorkers in goroutine 33
+	D:/develop/Go/src/runtime/mgc.go:1217 +0x1c
+
+goroutine 7 [GC worker (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000617f50 sp=0xc000617f30 pc=0xec78ae
+runtime.gcBgMarkWorker()
+	D:/develop/Go/src/runtime/mgc.go:1293 +0xe5 fp=0xc000617fe0 sp=0xc000617f50 pc=0xea9625
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000617fe8 sp=0xc000617fe0 pc=0xef22c1
+created by runtime.gcBgMarkStartWorkers in goroutine 33
+	D:/develop/Go/src/runtime/mgc.go:1217 +0x1c
+
+goroutine 178 [GC worker (idle)]:
+runtime.gopark(0x5ddcf1afd9234?, 0x1?, 0x0?, 0x0?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc000613f50 sp=0xc000613f30 pc=0xec78ae
+runtime.gcBgMarkWorker()
+	D:/develop/Go/src/runtime/mgc.go:1293 +0xe5 fp=0xc000613fe0 sp=0xc000613f50 pc=0xea9625
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc000613fe8 sp=0xc000613fe0 pc=0xef22c1
+created by runtime.gcBgMarkStartWorkers in goroutine 33
+	D:/develop/Go/src/runtime/mgc.go:1217 +0x1c
+
+goroutine 194 [GC worker (idle)]:
+runtime.gopark(0x5ddcf1d870dc8?, 0x1?, 0xec?, 0x2e?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0005a3f50 sp=0xc0005a3f30 pc=0xec78ae
+runtime.gcBgMarkWorker()
+	D:/develop/Go/src/runtime/mgc.go:1293 +0xe5 fp=0xc0005a3fe0 sp=0xc0005a3f50 pc=0xea9625
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0005a3fe8 sp=0xc0005a3fe0 pc=0xef22c1
+created by runtime.gcBgMarkStartWorkers in goroutine 33
+	D:/develop/Go/src/runtime/mgc.go:1217 +0x1c
+
+goroutine 195 [GC worker (idle)]:
+runtime.gopark(0x5ddcf13487a7c?, 0x1?, 0x0?, 0x0?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0005a5f50 sp=0xc0005a5f30 pc=0xec78ae
+runtime.gcBgMarkWorker()
+	D:/develop/Go/src/runtime/mgc.go:1293 +0xe5 fp=0xc0005a5fe0 sp=0xc0005a5f50 pc=0xea9625
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0005a5fe8 sp=0xc0005a5fe0 pc=0xef22c1
+created by runtime.gcBgMarkStartWorkers in goroutine 33
+	D:/develop/Go/src/runtime/mgc.go:1217 +0x1c
+
+goroutine 131 [GC worker (idle)]:
+runtime.gopark(0x10509c0?, 0x1?, 0x50?, 0xad?, 0x0?)
+	D:/develop/Go/src/runtime/proc.go:398 +0xce fp=0xc0002dff50 sp=0xc0002dff30 pc=0xec78ae
+runtime.gcBgMarkWorker()
+	D:/develop/Go/src/runtime/mgc.go:1293 +0xe5 fp=0xc0002dffe0 sp=0xc0002dff50 pc=0xea9625
+runtime.goexit()
+	D:/develop/Go/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc0002dffe8 sp=0xc0002dffe0 pc=0xef22c1
+created by runtime.gcBgMarkStartWorkers in goroutine 33
+	D:/develop/Go/src/runtime/mgc.go:1217 +0x1c
+exit status 2

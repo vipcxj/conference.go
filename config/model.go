@@ -1,6 +1,8 @@
 package config
 
 type ConferenceConfigure struct {
+	Ip                 string `mapstructure:"ip" default:"${CONF_IP}"`
+	Port               int    `mapstructure:"port" default:"${CONF_PORT | 0}"`
 	SignalEnable       bool   `mapstructure:"signalEnable" default:"${CONF_SIGNAL_ENABLE | true}"`
 	SignalHost         string `mapstructure:"signalHost" default:"${CONF_SIGNAL_HOST | localhost}"`
 	SignalPort         uint16 `mapstructure:"signalPort" default:"${CONF_SIGNAL_PORT | 8080}"`
@@ -19,6 +21,8 @@ type ConferenceConfigure struct {
 }
 
 var KEYS = []string{
+	"ip:string",
+	"port:string",
 	"signalEnable:bool",
 	"signalHost:string",
 	"signalPort:uint16",

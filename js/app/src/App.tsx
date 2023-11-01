@@ -2,12 +2,10 @@ import React from 'react';
 import logo from './logo.svg';
 import './App.css';
 
-import { testSocket } from './Socket'
+import { testSocket, useDelay } from './Socket'
 
 function App() {
-  React.useEffect(() => {
-    testSocket()
-  }, []);
+  useDelay(testSocket);
   return (
     <div className="App">
       <header className="App-header">

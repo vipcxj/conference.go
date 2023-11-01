@@ -1,6 +1,9 @@
 package errors
 
-import "net/http"
+import (
+	_errors "errors"
+	"net/http"
+)
 
 const (
 	ERR_OK = 0
@@ -51,4 +54,42 @@ func FatalError(msg string) *ConferenceError {
 
 func BadPacket(msg string) *ConferenceError {
 	return NewError(BAD_PACKET, msg)
+}
+
+func Join(errs ...error) error {
+	return _errors.Join(errs...)
+}
+
+func Is(err error, target error) bool {
+	return _errors.Is(err, target)
+}
+
+func Ignore(errs ...error) {
+	if r := recover(); r != nil {
+		switch e := r.(type) {
+		case error:
+			for _, err := range errs {
+				if Is(e, err) {
+					return
+				}
+			}
+		}
+		panic(r)
+	}
+}
+
+func Recover(doctors map[error]func(error) bool) {
+	if r := recover(); r != nil {
+		switch e := r.(type) {
+		case error:
+			for err, docter := range(doctors) {
+				if Is(e, err) {
+					if docter(e) {
+						return
+					}
+				}
+			}
+		}
+		panic(r)
+	}
 }

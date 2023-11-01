@@ -13,6 +13,7 @@ import (
 )
 
 func Run(ch chan error) {
+	signal.InitRouter()
 	if !config.Conf().SignalEnable {
 		ch <- errors.Ok()
 	}

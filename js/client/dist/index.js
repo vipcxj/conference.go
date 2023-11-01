@@ -35,10 +35,27 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
+var __asyncValues = (this && this.__asyncValues) || function (o) {
+    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
+    var m = o[Symbol.asyncIterator], i;
+    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
+    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
+    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
+};
+var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
+    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+            ar[i] = from[i];
+        }
+    }
+    return to.concat(ar || Array.prototype.slice.call(from));
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConferenceClient = void 0;
 require("webrtc-adapter");
 var socket_io_client_1 = require("socket.io-client");
+var emittery_1 = require("emittery");
 function splitUrl(url) {
     var spos = url.indexOf('://');
     var startPos = 0;
@@ -108,6 +125,13 @@ var ConferenceClient = /** @class */ (function () {
                     }
                     _this.socket.emit("candidate", msg);
                 };
+                peer_1.ontrack = function (evt) { return __awaiter(_this, void 0, void 0, function () {
+                    return __generator(this, function (_a) {
+                        this.emitter.emit("subscribed", [evt.track, evt.streams]);
+                        console.log("Received track ".concat(evt.track.id, " with stream id ").concat(evt.streams[0].id));
+                        return [2 /*return*/];
+                    });
+                }); };
                 _this.socket.on("sdp", function (msg, ark) { return __awaiter(_this, void 0, void 0, function () {
                     var offerCollision, _i, _a, pending, desc, send_msg;
                     return __generator(this, function (_b) {
@@ -211,6 +235,127 @@ var ConferenceClient = /** @class */ (function () {
                 return [2 /*return*/];
             });
         }); };
+        this.resolveSubscribed = function (track) {
+            if (!_this.peer) {
+                return null;
+            }
+            for (var _i = 0, _a = _this.peer.getReceivers(); _i < _a.length; _i++) {
+                var receiver = _a[_i];
+                if (receiver.track.id == track.id) {
+                    return receiver.track;
+                }
+            }
+            return null;
+        };
+        this.subscribeOne = function (track) { return __awaiter(_this, void 0, void 0, function () {
+            var result;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this.subscribeMany([track])];
+                    case 1:
+                        result = _a.sent();
+                        return [2 /*return*/, result[track.globalId]];
+                }
+            });
+        }); };
+        this.subscribeMany = function (tracks) { return __awaiter(_this, void 0, void 0, function () {
+            var msg, subscribed, result, pendingResult, resolved, _i, _a, track, st, _b, _c, _d, msg_1, st, _, _e, pendingResult_1, track, e_1_1;
+            var _f, e_1, _g, _h;
+            return __generator(this, function (_j) {
+                switch (_j.label) {
+                    case 0:
+                        this.socket.connect();
+                        this.makeSurePeer();
+                        msg = {
+                            tracks: tracks,
+                        };
+                        this.socket.emit('subscribe', msg);
+                        return [4 /*yield*/, this.wait('subscribed')];
+                    case 1:
+                        subscribed = _j.sent();
+                        result = {};
+                        pendingResult = [];
+                        resolved = 0;
+                        for (_i = 0, _a = subscribed.tracks; _i < _a.length; _i++) {
+                            track = _a[_i];
+                            st = this.resolveSubscribed(track);
+                            if (st) {
+                                result[track.globalId] = st;
+                                ++resolved;
+                            }
+                            else {
+                                pendingResult.push(track);
+                            }
+                        }
+                        if (resolved == subscribed.tracks.length) {
+                            return [2 /*return*/, result];
+                        }
+                        _j.label = 2;
+                    case 2:
+                        _j.trys.push([2, 7, 8, 13]);
+                        _b = true, _c = __asyncValues(this.emitter.events('subscribed'));
+                        _j.label = 3;
+                    case 3: return [4 /*yield*/, _c.next()];
+                    case 4:
+                        if (!(_d = _j.sent(), _f = _d.done, !_f)) return [3 /*break*/, 6];
+                        _h = _d.value;
+                        _b = false;
+                        try {
+                            msg_1 = _h;
+                            st = msg_1[0], _ = msg_1[1];
+                            for (_e = 0, pendingResult_1 = pendingResult; _e < pendingResult_1.length; _e++) {
+                                track = pendingResult_1[_e];
+                                if (st.id == track.id) {
+                                    result[track.globalId] = st;
+                                    ++resolved;
+                                }
+                            }
+                            if (resolved == subscribed.tracks.length) {
+                                return [2 /*return*/, result];
+                            }
+                        }
+                        finally {
+                            _b = true;
+                        }
+                        _j.label = 5;
+                    case 5: return [3 /*break*/, 3];
+                    case 6: return [3 /*break*/, 13];
+                    case 7:
+                        e_1_1 = _j.sent();
+                        e_1 = { error: e_1_1 };
+                        return [3 /*break*/, 13];
+                    case 8:
+                        _j.trys.push([8, , 11, 12]);
+                        if (!(!_b && !_f && (_g = _c.return))) return [3 /*break*/, 10];
+                        return [4 /*yield*/, _g.call(_c)];
+                    case 9:
+                        _j.sent();
+                        _j.label = 10;
+                    case 10: return [3 /*break*/, 12];
+                    case 11:
+                        if (e_1) throw e_1.error;
+                        return [7 /*endfinally*/];
+                    case 12: return [7 /*endfinally*/];
+                    case 13: return [2 /*return*/];
+                }
+            });
+        }); };
+        this.onTracks = function (callback) { return __awaiter(_this, void 0, void 0, function () {
+            return __generator(this, function (_a) {
+                this.onTrasksCallbacks.push(callback);
+                return [2 /*return*/];
+            });
+        }); };
+        this.offTracks = function (callback) { return __awaiter(_this, void 0, void 0, function () {
+            var i;
+            return __generator(this, function (_a) {
+                i = this.onTrasksCallbacks.indexOf(callback);
+                if (i != -1) {
+                    this.onTrasksCallbacks.splice(i, 1);
+                }
+                return [2 /*return*/];
+            });
+        }); };
         this.wait = function (evt, _a) {
             var _b = _a === void 0 ? {} : _a, arkData = _b.arkData, timeout = _b.timeout;
             return new Promise(function (resolve) {
@@ -250,11 +395,14 @@ var ConferenceClient = /** @class */ (function () {
             });
         };
         var _a = splitUrl(signalUrl), host = _a[0], path = _a[1];
+        this.name = '';
+        this.emitter = new emittery_1.default();
         this.makingOffer = false;
         this.ignoreOffer = false;
         this.polite = polite;
         this.pendingCandidates = [];
-        this.streams = [];
+        this.tracks = [];
+        this.onTrasksCallbacks = [];
         this.socket = (0, socket_io_client_1.io)(host, {
             auth: {
                 token: token,
@@ -269,16 +417,43 @@ var ConferenceClient = /** @class */ (function () {
             }
         });
         this.socket.on('stream', function (msg, ark) {
+            var _a;
             if (msg.op == "add") {
-                console.log("Add stream with id ".concat(msg.stream.id, " and stream id ").concat(msg.stream.streamId));
-                _this.streams.push(msg.stream);
+                for (var _i = 0, _b = msg.tracks; _i < _b.length; _i++) {
+                    var track = _b[_i];
+                    console.log("Add stream with id ".concat(track.id, " and stream id ").concat(track.streamId));
+                }
+                (_a = _this.tracks).push.apply(_a, msg.tracks);
             }
             else {
-                console.log("Remove stream with id ".concat(msg.stream.id, " and stream id ").concat(msg.stream.streamId));
-                _this.streams = _this.streams.filter(function (st) { return st.id == msg.stream.id && st.streamId == msg.stream.streamId; });
+                for (var _c = 0, _d = msg.tracks; _c < _d.length; _c++) {
+                    var track = _d[_c];
+                    console.log("Remove stream with id ".concat(track.id, " and stream id ").concat(track.streamId));
+                }
+                _this.tracks = _this.tracks.filter(function (tr) {
+                    for (var _i = 0, _a = msg.tracks; _i < _a.length; _i++) {
+                        var _tr = _a[_i];
+                        if (tr.globalId == _tr.globalId && tr.id == _tr.id && tr.streamId == _tr.streamId) {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+            }
+            for (var _e = 0, _f = _this.onTrasksCallbacks; _e < _f.length; _e++) {
+                var cb = _f[_e];
+                cb({
+                    tracks: _this.tracks,
+                    add: msg.op == 'add' ? msg.tracks : [],
+                    remove: msg.op == 'remove' ? msg.tracks : []
+                });
+            }
+            if (ark) {
+                ark();
             }
         });
         this.socket.onAny(function (evt) {
+            var _a;
             var args = [];
             for (var _i = 1; _i < arguments.length; _i++) {
                 args[_i - 1] = arguments[_i];
@@ -294,6 +469,10 @@ var ConferenceClient = /** @class */ (function () {
             else {
                 ark = function () { return undefined; };
             }
+            if (evt == "want" || evt == "state") {
+                (_a = _this.socket).emit.apply(_a, __spreadArray([evt], args, false));
+                return;
+            }
             console.log("Received event ".concat(evt, " with args ").concat(args.join(",")));
             ark();
         });
@@ -301,3 +480,4 @@ var ConferenceClient = /** @class */ (function () {
     return ConferenceClient;
 }());
 exports.ConferenceClient = ConferenceClient;
+//# sourceMappingURL=index.js.map

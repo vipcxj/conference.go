@@ -3,13 +3,17 @@ module github.com/vipcxj/conference.go
 go 1.21.3
 
 require (
+	github.com/alphadose/itogami v0.4.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.1
 	github.com/gookit/config/v2 v2.2.4
+	github.com/vizee/asm v0.0.0-20190408014923-fe8be7debce3
 	github.com/zishang520/socket.io/v2 v2.0.4
 )
 
 require (
+	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
+	github.com/alphadose/haxmap v1.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
 	github.com/pion/dtls/v2 v2.2.7 // indirect
@@ -29,6 +33,7 @@ require (
 	github.com/pion/turn/v3 v3.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
+	golang.org/x/exp v0.0.0-20221031165847-c99f073a8326 // indirect
 )
 
 require (
@@ -78,4 +83,5 @@ require (
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	lukechampine.com/frand v1.4.2
 )

@@ -18,7 +18,7 @@ type ErrorMessage struct {
 type SdpMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	Type          string `json:"type" mapstructure:"type"`
-	Sdp           string         `json:"sdp" mapstructure:"sdp"`
+	Sdp           string `json:"sdp" mapstructure:"sdp"`
 }
 
 type CandidateMessage struct {
@@ -27,18 +27,36 @@ type CandidateMessage struct {
 	Candidate     webrtc.ICECandidateInit `json:"candidate" mapstructure:"candidate"`
 }
 
-type Stream struct {
+type Track struct {
+	GlobalId string `json:"globalId" mapstructure:"globalId"`
 	Id       string `json:"id" mapstructure:"id"`
 	StreamId string `json:"streamId" mapstructure:"streamId"`
 }
 
-type StreamMessage struct {
+type TrackMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	Op            string `json:"op" mapstructure:"op"`
-	Stream        Stream `json:"stream" mapstructure:"stream"`
+	Op            string   `json:"op" mapstructure:"op"`
+	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
+}
+
+type WantMessage struct {
+	SignalMessage `mapstructure:",squash"`
+	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
+	TransportId   string
+}
+
+type StateMessage struct {
+	SignalMessage `mapstructure:",squash"`
+	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
+	Addr          string   `json:"addr" mapstructure:"addr"`
 }
 
 type SubscribeMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	Stream        Stream `json:"stream" mapstructure:"stream"`
+	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
+}
+
+type SubscribedMessage struct {
+	SignalMessage `mapstructure:",squash"`
+	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
 }
