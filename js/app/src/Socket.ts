@@ -21,9 +21,9 @@ export async function testSocket() {
     const token0 = await getToken("user0", 'user0', 'student', 'room0', 12345)
     const client0 = new ConferenceClient("http://localhost:8080/socket.io", token0);
     client0.name = "client0"
-    const token1 = await getToken("user1", 'user1', 'student', 'room0', 12345)
-    const client1 = new ConferenceClient("http://localhost:8080/socket.io", token1);
-    client1.name = "client1"
+    // const token1 = await getToken("user1", 'user1', 'student', 'room0', 12345)
+    // const client1 = new ConferenceClient("http://localhost:8080/socket.io", token1);
+    // client1.name = "client1"
     const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
     });
@@ -34,10 +34,10 @@ export async function testSocket() {
             console.log(`subscribed ${gid} by client 0`);
         }
     });
-    client1.onTracks(async ({ tracks }) => {
-        const results = await client1.subscribeMany(tracks);
-        for (const gid in results) {
-            console.log(`subscribed ${gid} by client 1`);
-        }
-    });
+    // client1.onTracks(async ({ tracks }) => {
+    //     const results = await client1.subscribeMany(tracks);
+    //     for (const gid in results) {
+    //         console.log(`subscribed ${gid} by client 1`);
+    //     }
+    // });
 }

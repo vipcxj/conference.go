@@ -193,6 +193,18 @@ export class ConferenceClient {
                 }
                 this.socket.emit("candidate", msg);
             }
+            peer.onconnectionstatechange = () => {
+                console.log(`[${this.name}] connection state changed to ${peer.connectionState}`);
+            }
+            peer.oniceconnectionstatechange = () => {
+                console.log(`[${this.name}] ice connection state changed to ${peer.iceConnectionState}`);
+            }
+            peer.onsignalingstatechange = () => {
+                console.log(`[${this.name}] signaling state changed to ${peer.signalingState}`);
+            }
+            peer.onicegatheringstatechange = () => {
+                console.log(`[${this.name}] ice gathering state changed to ${peer.signalingState}`);
+            }
             peer.ontrack = async (evt) => {
                 this.emitter.emit("subscribed", [evt.track, evt.streams]);
                 console.log(`Received track ${evt.track.id} with stream id ${evt.streams[0].id}`)
@@ -209,6 +221,8 @@ export class ConferenceClient {
                     type: msg.type,
                     sdp: msg.sdp,
                 });
+                console.log(`[${this.name}]:`)
+                console.log(peer.remoteDescription.sdp)
                 for (const pending of this.pendingCandidates) {
                     await this.addCandidate(peer, pending);
                 }
