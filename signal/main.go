@@ -74,7 +74,7 @@ func InitSignal(s *socket.Socket) error {
 			ctx.cand_mux.Lock()
 			if peer.RemoteDescription() == nil {
 				defer ctx.cand_mux.Unlock()
-				ctx.PendingCandidates = append(ctx.PendingCandidates, &msg)
+				ctx.pendingCandidates = append(ctx.pendingCandidates, &msg)
 				return
 			} else {
 				ctx.cand_mux.Unlock()
@@ -105,7 +105,7 @@ func InitSignal(s *socket.Socket) error {
 		}
 		r := GetRouter()
 		for _, track := range msg.Tracks {
-			r.SubscribeTrackIfWanted(track.GlobalId, track.Id, track.StreamId, msg.Addr)
+			r.SubscribeTrackIfWanted(track.GlobalId, track.LocalId, track.StreamId, msg.Addr)
 		}
 	})
 	s.On("want", func(args ...any) {
@@ -127,12 +127,12 @@ func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, c
 	ctx.cand_mux.Lock()
 	defer ctx.cand_mux.Unlock()
 	var err error
-	for _, msg := range ctx.PendingCandidates {
+	for _, msg := range ctx.pendingCandidates {
 		if e := processCandidateMsg(s, peer, msg); e != nil {
 			err = e
 		}
 	}
-	ctx.PendingCandidates = nil
+	ctx.pendingCandidates = nil
 	return err
 }
 

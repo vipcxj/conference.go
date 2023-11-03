@@ -251,42 +251,54 @@ type SubscribationWant struct {
 	ctx *SingalContext
 }
 
-type Subscribation struct {
-	track *webrtc.TrackLocalStaticRTP
+type Accepter struct {
+	track  *webrtc.TrackLocalStaticRTP
 	closed bool
-	closers []func()
-	mu sync.Mutex
+	subs   map[string]*Subscription
+	mu     sync.Mutex
 }
 
-func NewSubscribation() *Subscribation {
-	track, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{
+func NewAccepter(track *Track) *Accepter {
+	trackLocal, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{
 		MimeType: webrtc.MimeTypeVP8,
-	}, uuid.NewString(), uuid.NewString())
+	}, track.LocalId, track.StreamId)
 	if err != nil {
 		panic(err)
 	}
-	return &Subscribation{
-		track: track,
-		closers: []func(){},
+	return &Accepter{
+		track: trackLocal,
 	}
 }
 
-func (sub *Subscribation) Write(to []byte) (int, error) {
+func (a *Accepter) BindSub(sub *Subscription) {
 	sub.mu.Lock()
 	defer sub.mu.Unlock()
-	if sub.closed {
+	if a.subs == nil {
+		a.subs = map[string]*Subscription{}
+	}
+	_, ok := a.subs[sub.id]
+	if !ok {
+		a.subs[sub.id] = sub
+	}
+}
+
+func (a *Accepter) Write(to []byte) (int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
 		return 0, io.ErrClosedPipe
 	}
-	return sub.track.Write(to)
+	return a.track.Write(to)
 }
 
-func (sub *Subscribation) Close() {
-	sub.mu.Lock()
-	defer sub.mu.Unlock()
-	sub.closed = true
-	for _, closer := range sub.closers {
-		closer()
+func (a *Accepter) Close() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.closed = true
+	for _, sub := range a.subs {
+		sub.UnbindAccepter(a)
 	}
+	a.subs = nil
 }
 
 type Router struct {
@@ -298,8 +310,8 @@ type Router struct {
 	curChan       int
 	// track id -> transport id set
 	track2transports *haxmap.Map[string, *haxmap.Map[string, int]]
-	track2subscribations     *haxmap.Map[string, *Subscribation]
-	pendingSubscribations     map[string]map[SubscribationWant]bool
+	track2accepters  *haxmap.Map[string, *Accepter]
+	wants            map[*SingalContext]bool
 	// transport id -> udp addr
 	addrMap *haxmap.Map[string, string]
 	// addr -> conn
@@ -319,7 +331,7 @@ func InitRouter() error {
 		ROUTER.incomingChans[i] = make(chan *Packet, CHAN_BUF_SIZE)
 	}
 	ROUTER.track2transports = haxmap.New[string, *haxmap.Map[string, int]]()
-	ROUTER.track2subscribations = haxmap.New[string, *Subscribation]()
+	ROUTER.track2accepters = haxmap.New[string, *Accepter]()
 	ROUTER.pendingSubscribations = map[string]map[SubscribationWant]bool{}
 	ROUTER.addrMap = haxmap.New[string, string]()
 	ROUTER.externalTransports = map[string]*net.UDPConn{}
@@ -407,7 +419,7 @@ func (r *Router) run(ser *net.UDPConn) {
 						return true
 					})
 				}
-				sub, ok := r.track2subscribations.Get(packet.TrackId)
+				sub, ok := r.track2accepters.Get(packet.TrackId)
 				if ok {
 					if packet.IsEOF() {
 						r.CloseSubscribation(packet.TrackId)
@@ -424,7 +436,7 @@ func (r *Router) run(ser *net.UDPConn) {
 }
 
 func (r *Router) CloseSubscribation(trackId string) {
-	sub, ok := r.track2subscribations.GetAndDel(trackId)
+	sub, ok := r.track2accepters.GetAndDel(trackId)
 	if ok {
 		sub.Close()
 	}
@@ -476,9 +488,9 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 	go func() {
 		for {
 			select {
-			case <- chArk:
+			case <-chArk:
 				return
-			case <- chClose:
+			case <-chClose:
 				return
 			default:
 				conn.Write(NewSetupPacketBuf(&r.id))
@@ -511,7 +523,7 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 				if err != nil {
 					panic(err)
 				}
-				sub, ok := r.track2subscribations.Get(trackId)
+				sub, ok := r.track2accepters.Get(trackId)
 				if ok {
 					sub.Write(rtpData)
 				}
@@ -524,7 +536,7 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 				if err != nil {
 					panic(err)
 				}
-				_, ok := r.track2subscribations.Get(trackId)
+				_, ok := r.track2accepters.Get(trackId)
 				if ok {
 					r.CloseSubscribation(trackId)
 				}
@@ -544,8 +556,15 @@ func (r *Router) WantTracks(tracks []*Track, ctx *SingalContext) {
 			peers = map[SubscribationWant]bool{}
 			r.pendingSubscribations[track.GlobalId] = peers
 		}
-		peers[SubscribationWant{ ctx: ctx }] = true
+		peers[SubscribationWant{ctx: ctx}] = true
 	}
+}
+
+func (r *Router) AcceptTrack(track *Track) *Accepter {
+	accepter, _ := r.track2accepters.GetOrCompute(track.GlobalId, func() *Accepter {
+		return NewAccepter(track)
+	})
+	return accepter
 }
 
 func (r *Router) SubscribeTrackIfWanted(globalId string, trackId string, streamId string, addr string) (track *webrtc.TrackLocalStaticRTP) {
@@ -562,8 +581,8 @@ func (r *Router) SubscribeTrackIfWanted(globalId string, trackId string, streamI
 	if addr != "" {
 		r.makeSureExternelConn(addr)
 	}
-	sub, _ := r.track2subscribations.GetOrCompute(globalId, func() *Subscribation {
-		return NewSubscribation()
+	sub, _ := r.track2accepters.GetOrCompute(globalId, func() *Accepter {
+		return NewAccepter()
 	})
 	for want, _ := range wants {
 		want.ctx.Subscribed(sub, globalId)
