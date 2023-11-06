@@ -30,21 +30,58 @@ interface CandidateMessage extends SignalMessage {
     candidate?: RTCIceCandidateInit;
 }
 
+interface CallFrame {
+    filename: string;
+    line: number;
+    funcname: string;
+}
+
 interface ErrorMessage extends SignalMessage {
     msg: string;
     cause: string;
     fatal: boolean;
+    callFrames?: CallFrame[]
+}
+
+interface Labels {
+    [key: string]: string
 }
 
 interface Track {
+    pubId: string
     globalId: string
-    id: string;
+    bindId: string
+    rid: string
     streamId: string;
+    labels?: Labels;
 }
 
 interface TrackMessage extends SignalMessage {
     op: "add" | "remove";
     tracks: Track[];
+}
+
+const PUB_OP_ADD = 0;
+const PUB_OP_REMOVE = 1;
+
+interface PublishAddMessage extends SignalMessage {
+    op: typeof PUB_OP_ADD;
+    tracks: {
+        bindId: string;
+        rid: string;
+        sid: string;
+        labels?: Labels;
+    }
+}
+
+interface PublishRemoveMessage extends SignalMessage {
+    op: typeof PUB_OP_REMOVE;
+    id: string;
+}
+
+interface PublishedMessage extends SignalMessage {
+    id: string;
+    
 }
 
 interface SubscribeMessage extends SignalMessage {

@@ -332,7 +332,6 @@ func InitRouter() error {
 	}
 	ROUTER.track2transports = haxmap.New[string, *haxmap.Map[string, int]]()
 	ROUTER.track2accepters = haxmap.New[string, *Accepter]()
-	ROUTER.pendingSubscribations = map[string]map[SubscribationWant]bool{}
 	ROUTER.addrMap = haxmap.New[string, string]()
 	ROUTER.externalTransports = map[string]*net.UDPConn{}
 	return nil
@@ -410,7 +409,7 @@ func (r *Router) run(ser *net.UDPConn) {
 					transports.ForEach(func(transport string, v int) bool {
 						addrStr, ok := r.addrMap.Get(transport)
 						if ok {
-							addr, err := net.ResolveUDPAddr("", addrStr)
+							addr, err := net.ResolveUDPAddr("udp", addrStr)
 							if err != nil {
 								panic(err)
 							}
@@ -446,12 +445,14 @@ func (r *Router) PublishTrack(trackId string, transportId string) chan *Packet {
 	r.makeSureServer()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ts, ok := r.track2transports.Get(trackId)
-	if !ok {
-		ts = haxmap.New[string, int]()
-		r.track2transports.Set(trackId, ts)
+	if transportId != r.id.String() {
+		ts, ok := r.track2transports.Get(trackId)
+		if !ok {
+			ts = haxmap.New[string, int]()
+			r.track2transports.Set(trackId, ts)
+		}
+		ts.Set(transportId, 0)
 	}
-	ts.Set(transportId, 0)
 	c := r.incomingChans[r.curChan]
 	r.curChan = (r.curChan + 1) % CHAN_COUNT
 	return c
@@ -547,19 +548,6 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 	return
 }
 
-func (r *Router) WantTracks(tracks []*Track, ctx *SingalContext) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, track := range tracks {
-		peers, ok := r.pendingSubscribations[track.GlobalId]
-		if !ok {
-			peers = map[SubscribationWant]bool{}
-			r.pendingSubscribations[track.GlobalId] = peers
-		}
-		peers[SubscribationWant{ctx: ctx}] = true
-	}
-}
-
 func (r *Router) AcceptTrack(track *Track) *Accepter {
 	accepter, _ := r.track2accepters.GetOrCompute(track.GlobalId, func() *Accepter {
 		return NewAccepter(track)
@@ -567,26 +555,3 @@ func (r *Router) AcceptTrack(track *Track) *Accepter {
 	return accepter
 }
 
-func (r *Router) SubscribeTrackIfWanted(globalId string, trackId string, streamId string, addr string) (track *webrtc.TrackLocalStaticRTP) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	wants, ok := r.pendingSubscribations[globalId]
-	if !ok {
-		return
-	}
-	if len(wants) == 0 {
-		return
-	}
-	r.makeSureServer()
-	if addr != "" {
-		r.makeSureExternelConn(addr)
-	}
-	sub, _ := r.track2accepters.GetOrCompute(globalId, func() *Accepter {
-		return NewAccepter()
-	})
-	for want, _ := range wants {
-		want.ctx.Subscribed(sub, globalId)
-	}
-	delete(r.pendingSubscribations, globalId)
-	return
-}

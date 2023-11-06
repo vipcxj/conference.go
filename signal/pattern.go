@@ -16,6 +16,7 @@ const (
 	PATTERN_OP_PUBLISH_ID
 	PATTERN_OP_STREAM_ID
 	PATTERN_OP_TRACK_ID
+	PATTERN_OP_TRACK_RID
 	PATTERN_OP_TRACK_LABEL_ALL_MATCH
 	PATTERN_OP_TRACK_LABEL_SOME_MATCH
 	PATTERN_OP_TRACK_LABEL_NONE_MATCH
@@ -31,6 +32,7 @@ const (
 	pt_op_pid_str             = "PUBLISH_ID"
 	pt_op_sid_str             = "STREAM_ID"
 	pt_op_tid_str             = "TRACK_ID"
+	pt_op_rid_str             = "TRACK_RID"
 	pt_op_t_lb_all_match_str  = "TRACK_LABEL_ALL_MATCH"
 	pt_op_t_lb_some_match_str = "TRACK_LABEL_SOME_MATCH"
 	pt_op_t_lb_none_match_str = "TRACK_LABEL_NONE_MATCH"
@@ -54,6 +56,8 @@ func (op PatternOp) String() string {
 		return pt_op_sid_str
 	case PATTERN_OP_TRACK_ID:
 		return pt_op_tid_str
+	case PATTERN_OP_TRACK_RID:
+		return pt_op_rid_str
 	case PATTERN_OP_TRACK_LABEL_ALL_MATCH:
 		return pt_op_t_lb_all_match_str
 	case PATTERN_OP_TRACK_LABEL_SOME_MATCH:
@@ -106,19 +110,19 @@ func (me *PublicationPattern) Validate() error {
 		}
 	default:
 		if len(me.Children) > 0 {
-			return errors.InvalidPubPattern(fmt.Sprintf("The pub pattern op '%v' accept zero child, but gotten %v", me.Children))
+			return errors.InvalidPubPattern("The pub pattern op '%v' accept zero child, but gotten %v", me.Op, me.Children)
 		}
 		switch me.Op {
-		case PATTERN_OP_PUBLISH_ID, PATTERN_OP_STREAM_ID, PATTERN_OP_TRACK_ID, PATTERN_OP_TRACK_LABEL_ALL_HAS, PATTERN_OP_TRACK_LABEL_SOME_HAS, PATTERN_OP_TRACK_LABEL_NONE_HAS:
+		case PATTERN_OP_PUBLISH_ID, PATTERN_OP_STREAM_ID, PATTERN_OP_TRACK_ID, PATTERN_OP_TRACK_RID, PATTERN_OP_TRACK_LABEL_ALL_HAS, PATTERN_OP_TRACK_LABEL_SOME_HAS, PATTERN_OP_TRACK_LABEL_NONE_HAS:
 			if err = me.checkArgsNum(1, true); err != nil {
 				return err
 			}
 		case PATTERN_OP_TRACK_LABEL_ALL_MATCH, PATTERN_OP_TRACK_LABEL_SOME_MATCH, PATTERN_OP_TRACK_LABEL_NONE_MATCH:
 			if l := len(me.Args); l < 2 || l%2 != 0 {
-				return errors.InvalidPubPattern(fmt.Sprintf("The pub pattern op '%v' accept at least 2 even number of args, but gotten %v", me.Children))
+				return errors.InvalidPubPattern("The pub pattern op '%v' accept at least 2 even number of args, but gotten %v", me.Op, me.Children)
 			}
 		default:
-			return errors.InvalidPubPattern(fmt.Sprintf("Unkonwn op: %d", me.Op))
+			return errors.InvalidPubPattern("Unkonwn op: %d", me.Op)
 		}
 	}
 	return nil
@@ -153,6 +157,8 @@ func (me *PublicationPattern) Match(track *Track) bool {
 		return utils.InSlice(me.Args, track.StreamId, nil)
 	case PATTERN_OP_TRACK_ID:
 		return utils.InSlice(me.Args, track.GlobalId, nil)
+	case PATTERN_OP_TRACK_RID:
+		return utils.InSlice(me.Args, track.RId, nil)
 	case PATTERN_OP_TRACK_LABEL_ALL_MATCH:
 		for i := 0; i < len(me.Args); {
 			key := me.Args[i]

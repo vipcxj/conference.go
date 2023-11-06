@@ -19,16 +19,16 @@ const (
 )
 
 type CallFrame struct {
-	Filename string `json:"filename"`
-	Line     int    `json:"line"`
-	FuncName string `json:"funcname"`
+	Filename string `json:"filename" mapstructure:"filename"`
+	Line     int    `json:"line" mapstructure:"line"`
+	FuncName string `json:"funcname" mapstructure:"funcname"`
 }
 
 type ConferenceError struct {
-	Code       int         `json:"code"`
-	Msg        string      `json:"msg"`
-	Data       interface{} `json:"data"`
-	CallFrames []CallFrame `json:"callFrames"`
+	Code       int         `json:"code" mapstructure:"code"`
+	Msg        string      `json:"msg" mapstructure:"msg"`
+	Data       interface{} `json:"data" mapstructure:"data"`
+	CallFrames []CallFrame `json:"callFrames" mapstructure:"callFrames"`
 }
 
 func (e *ConferenceError) GenCallStacks() *ConferenceError {

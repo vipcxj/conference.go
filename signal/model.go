@@ -141,10 +141,39 @@ func (s *Subscription) Close() {
 }
 
 type Publication struct {
-	id     string
-	mu     sync.Mutex
-	closed bool
-	tracks []*PublishedTrack
+	id      string
+	mu      sync.Mutex
+	closeCh chan struct{}
+	ctx     *SingalContext
+	tracks  *haxmap.Map[string, *PublishedTrack]
+}
+
+func (me *Publication) Bind() bool {
+	done := false
+	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
+		if pt.Bind() {
+			*&done = true
+			return false
+		} else {
+			return true
+		}
+	})
+	return done
+}
+
+func (me *Publication) Satify(want *WantMessage) []*Track {
+	satifiedMap := map[string]*PublishedTrack{}
+	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
+		if pt.Satify(want) {
+			satifiedMap[pt.GlobalId()] = pt
+		}
+		return true
+	})
+	var satified []*Track
+	for _, pt := range satifiedMap {
+		satified = append(satified, pt.track)
+	}
+	return satified
 }
 
 type PublishedTrack struct {
@@ -174,39 +203,103 @@ func (me *PublishedTrack) Remote() *webrtc.TrackRemote {
 	return me.remote
 }
 
+func (me *PublishedTrack) RId() string {
+	return me.track.RId
+}
+
 func (me *PublishedTrack) BindId() string {
 	return me.track.BindId
 }
 
-func (me *PublishedTrack) Satify(pattern *PublicationPattern) {
+func (pt *PublishedTrack) Bind() bool {
+	ctx := pt.pub.ctx
+	peer, err := ctx.MakeSurePeer()
+	if err != nil {
+		panic(err)
+	}
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	rt := ctx.findTracksRemoteByMidAndRid(peer, pt.StreamId(), pt.BindId(), pt.RId())
+	if rt != nil {
+		if rt == pt.remote {
+			return false
+		}
+		pt.remote = rt
+		ctx.Socket.Emit("published", &PublishedMessage{
+			Track: pt.Track(),
+		})
+		return true
+	}
+	return false
+}
 
+func (me *PublishedTrack) Satify(want *WantMessage) bool {
+	if !want.Pattern.Match(me.track) {
+		return false
+	}
+	me.mu.Lock()
+	defer me.mu.Unlock()
+	ctx := me.pub.ctx
+	peer, err := ctx.MakeSurePeer()
+	if err != nil {
+		panic(err)
+	}
+	tr := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
+	if tr != nil {
+		go func() {
+			r := GetRouter()
+			ch := r.PublishTrack(me.GlobalId(), want.TransportId)
+			defer r.RemoveTrack(me.GlobalId())
+			buf := make([]byte, PACKET_MAX_SIZE)
+			for {
+				select {
+				case <-me.pub.closeCh:
+					return
+				default:
+					n, _, err := tr.Read(buf)
+					if err != nil {
+						if err == io.EOF {
+							return
+						}
+						panic(err)
+					}
+					p, err := NewPacketFromBuf(me.GlobalId(), buf[0:n])
+					if err != nil {
+						panic(err)
+					}
+					ch <- p
+				}
+			}
+		}()
+		return true
+	} else {
+		return false
+	}
 }
 
 type SingalContext struct {
-	Socket              *socket.Socket
-	AuthInfo            *auth.AuthInfo
-	Peer                *webrtc.PeerConnection
-	polite              bool
-	makingOffer         bool
-	pendingCandidates   []*CandidateMessage
-	cand_mux            sync.Mutex
-	pendingTracks       map[string]*webrtc.TrackRemote
-	track_mux           sync.Mutex
-	peer_mux            sync.Mutex
-	sub_mux             sync.RWMutex
-	subscriptions       *haxmap.Map[string, *Subscription]
-	publications        *haxmap.Map[string, *Publication]
-	gid2publishedTracks *haxmap.Map[string, *PublishedTrack]
-	gid2pub             map[string]bool
-	pub_mux             sync.Mutex
+	Socket            *socket.Socket
+	AuthInfo          *auth.AuthInfo
+	Peer              *webrtc.PeerConnection
+	polite            bool
+	makingOffer       bool
+	pendingCandidates []*CandidateMessage
+	cand_mux          sync.Mutex
+	pendingTracks     map[string]*webrtc.TrackRemote
+	track_mux         sync.Mutex
+	peer_mux          sync.Mutex
+	sub_mux           sync.RWMutex
+	subscriptions     *haxmap.Map[string, *Subscription]
+	publications      *haxmap.Map[string, *Publication]
+	gid2pub           map[string]bool
+	pub_mux           sync.Mutex
 }
 
 func newSignalContext(socket *socket.Socket, authInfo *auth.AuthInfo) *SingalContext {
 	return &SingalContext{
-		Socket:              socket,
-		AuthInfo:            authInfo,
-		gid2publishedTracks: haxmap.New[string, *PublishedTrack](),
-		gid2pub:             map[string]bool{},
+		Socket:   socket,
+		AuthInfo: authInfo,
+		gid2pub:  map[string]bool{},
 	}
 }
 
@@ -251,84 +344,6 @@ func getMidFromSender(peer *webrtc.PeerConnection, sender *webrtc.RTPSender) str
 	} else {
 		return ""
 	}
-}
-
-func (ctx *SingalContext) findRemoteTrack(gid string) (*webrtc.TrackRemote, error) {
-	pub, ok := ctx.gid2publishedTracks.Get(gid)
-	if ok {
-		peer, err := ctx.MakeSurePeer()
-		if err != nil {
-			return nil, err
-		}
-		var track *webrtc.TrackRemote
-		for _, _receiver := range peer.GetReceivers() {
-			_tr := _receiver.Track()
-			if _tr != nil && _tr.ID() == pub.Id && _tr.StreamID() == pub.StreamId {
-				track = _tr
-				break
-			}
-		}
-		if track == nil {
-			return nil, nil
-		}
-		return track, nil
-	} else {
-		return nil, nil
-	}
-}
-
-func (ctx *SingalContext) TryPublish(gid string, transportId string) {
-	ctx.pub_mux.Lock()
-	defer ctx.pub_mux.Unlock()
-	_, ok := ctx.gid2pub[gid]
-	if ok {
-		return
-	}
-	ctx.gid2pub[gid] = true
-	go func() {
-		defer func() {
-			ctx.pub_mux.Lock()
-			defer ctx.pub_mux.Unlock()
-			delete(ctx.gid2pub, gid)
-		}()
-		track, err := ctx.findRemoteTrack(gid)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		if track == nil {
-			return
-		}
-		router := GetRouter()
-		ch := router.PublishTrack(gid, transportId)
-		if transportId != router.id.String() {
-			ctx.Socket.To(ctx.Rooms()...).Emit("state", &StateMessage{
-				Tracks: []*Track{{
-					GlobalId: gid,
-					LocalId:  track.ID(),
-					StreamId: track.StreamID(),
-				}},
-				Addr: router.Addr(),
-			})
-		} else {
-			router.SubscribeTrackIfWanted(gid, track.ID(), track.StreamID(), router.Addr())
-		}
-		buf := make([]byte, PACKET_MAX_SIZE)
-		for {
-			n, _, err := track.Read(buf)
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				panic(err)
-			}
-			p, err := NewPacketFromBuf(gid, buf[0:n])
-			if err != nil {
-				panic(err)
-			}
-			ch <- p
-		}
-	}()
 }
 
 func (ctx *SingalContext) Subscribe(message *SubscribeMessage) error {
@@ -378,15 +393,108 @@ func (ctx *SingalContext) Subscribe(message *SubscribeMessage) error {
 	return nil
 }
 
+func (ctx *SingalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnection, sid string, mid string, rid string) *webrtc.TrackRemote {
+	for _, transceiver := range peer.GetTransceivers() {
+		if transceiver.Mid() == mid {
+			r := transceiver.Receiver()
+			if r != nil {
+				tracks := r.Tracks()
+				if len(tracks) > 1 {
+					for _, t := range tracks {
+						if t.RID() == rid {
+							if t.StreamID() == sid {
+								return t
+							} else {
+								return nil
+							}
+						}
+					}
+					return nil
+				} else if len(tracks) == 0 {
+					return nil
+				} else {
+					track := tracks[0]
+					if rid != "" {
+						if track.RID() == rid {
+							if track.StreamID() == sid {
+								return track
+							} else {
+								return nil
+							}
+						} else {
+							return nil
+						}
+					} else {
+						if track.StreamID() == sid {
+							return track
+						} else {
+							return nil
+						}
+					}
+				}
+			} else {
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
 func (ctx *SingalContext) Publish(message *PublishMessage) error {
 	err := message.Validate()
 	if err != nil {
 		return err
 	}
+	if message.Op != PUB_OP_ADD {
+		return errors.ThisIsImpossible().GenCallStacks()
+	}
+	var pub *Publication
+	var loaded bool = true
+	for loaded {
+		pubId := uuid.NewString()
+		pub, loaded = ctx.publications.GetOrCompute(pubId, func() *Publication {
+			pub := &Publication{
+				id:     pubId,
+				ctx:    ctx,
+				tracks: haxmap.New[string, *PublishedTrack](),
+			}
+			for _, t := range message.Tracks {
+				tid := uuid.NewString()
+				pub.tracks.Set(tid, &PublishedTrack{
+					pub: pub,
+					track: &Track{
+						PubId:    pubId,
+						GlobalId: tid,
+						BindId:   t.BindId,
+						RId:      t.RId,
+						StreamId: t.SId,
+						Labels:   t.Labels,
+					},
+				})
+			}
+			return pub
+		})
+	}
+	pub.Bind()
+	return nil
 }
 
 func (ctx *SingalContext) SatifyWant(message *WantMessage) {
-
+	var satified []*Track
+	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
+		satified = append(satified, pub.Satify(message)...)
+		return true
+	})
+	if len(satified) > 0 {
+		r := GetRouter()
+		msg := &StateMessage{
+			Tracks: satified,
+			Addr:   r.Addr(),
+		}
+		// to all in room include self
+		ctx.Socket.To(ctx.Rooms()...).Emit("state", msg)
+		ctx.Socket.Emit("state", msg)
+	}
 }
 
 func (ctx *SingalContext) MakeSurePeer() (*webrtc.PeerConnection, error) {
@@ -442,23 +550,13 @@ func (ctx *SingalContext) MakeSurePeer() (*webrtc.PeerConnection, error) {
 				}
 			})
 			peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
-				gid := uuid.NewString()
-				if err != nil {
-					panic(err)
-				}
-				st := Track{
-					GlobalId: gid,
-					LocalId:  tr.ID(),
-					StreamId: tr.StreamID(),
-				}
-				msg := TrackMessage{
-					Op:     "add",
-					Tracks: []*Track{&st},
-				}
-				ctx.gid2publishedTracks.Set(gid, &st)
-				fmt.Println("On track with stream id ", tr.StreamID(), " and id ", tr.ID())
-				ctx.Socket.To(ctx.Rooms()...).Emit("stream", msg)
-				ctx.Socket.Emit("stream", msg)
+				ctx.publications.ForEach(func(pid string, pub *Publication) bool {
+					if pub.Bind() {
+						return false
+					} else {
+						return true
+					}
+				})
 			})
 
 			lastState := []webrtc.PeerConnectionState{peer.ConnectionState()}

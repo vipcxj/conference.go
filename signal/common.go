@@ -4,9 +4,10 @@ type Track struct {
 	PubId    string `json:"pubId" mapstructure:"pubId"`
 	GlobalId string `json:"globalId" mapstructure:"globalId"`
 	// only vaild in local
-	LocalId string `json:"localId" mapstructure:"localId"`
+	LocalId string `json:"-" mapstructure:"-"`
 	// used to bind local and remote track
 	BindId   string            `json:"bindId" mapstructure:"bindId"`
+	RId      string            `json:"rid" mapstructure:"rid"`
 	StreamId string            `json:"streamId" mapstructure:"streamId"`
 	Labels   map[string]string `json:"labels" mapstructure:"labels"`
 }

@@ -93,7 +93,10 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		ctx.Subscribe(msg.Tracks)
+		err = ctx.Subscribe(&msg)
+		if err != nil {
+			panic(err)
+		}
 	})
 	s.On("state", func(args ...any) {
 		defer CatchFatalAndClose(ctx.Socket, "subscribe")
@@ -103,9 +106,8 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		r := GetRouter()
 		for _, track := range msg.Tracks {
-			r.SubscribeTrackIfWanted(track.GlobalId, track.LocalId, track.StreamId, msg.Addr)
+			ctx.AcceptTrack(track, msg.Addr)
 		}
 	})
 	s.On("want", func(args ...any) {
@@ -116,9 +118,7 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		for _, track := range msg.Tracks {
-			ctx.TryPublish(track.GlobalId, msg.TransportId)
-		}
+		ctx.SatifyWant(&msg)
 	})
 	return nil
 }

@@ -18,6 +18,46 @@ func InSlice[T comparable](slice []T, target T, comparer func(T, T) bool) bool {
 	return false
 }
 
+func MapSlice[T any, O any](slice []T, mapper func(T) (mapped O, remove bool)) []O {
+	if slice == nil {
+		return nil
+	}
+	out := make([]O, len(slice))
+	pos := 0
+	for i := 0; i < len(slice); i++ {
+		o, remove := mapper(slice[i])
+		if !remove {
+			out[pos] = o
+			pos++
+		}
+	}
+	return out[0:pos]
+}
+
+func SliceToMap[T any, K comparable, V any](slice []T, mapper func(T) (key K, value V, remove bool), merger func(old V, new V) V) map[K]V {
+	if slice == nil {
+		return nil
+	}
+	if merger == nil {
+		merger = func(v1, v2 V) V {
+			return v2
+		}
+	}
+	out := map[K]V{}
+	for _, t := range slice {
+		k, v, remove := mapper(t)
+		if !remove {
+			old, ok := out[k]
+			if ok {
+				out[k] = merger(old, v)
+			} else {
+				out[k] = v
+			}
+		}
+	}
+	return out
+}
+
 func XOrBytes(bytes1 []byte, bytes2 []byte, out []byte) {
 	if out == nil {
 		panic(errors.FatalError("to xor two bytes array, the output must not be nil"))

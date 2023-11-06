@@ -1,7 +1,9 @@
 package signal
 
 import (
+	"fmt"
 	"reflect"
+	"runtime/debug"
 	"time"
 
 	"github.com/mitchellh/mapstructure"
@@ -19,9 +21,20 @@ func FatalErrorAndClose(s *socket.Socket, msg string, cause string) {
 	})
 }
 
+func ErrToMsg(err any) string {
+	var msg string
+	switch e := err.(type) {
+	case error:
+		msg = e.Error()
+	default:
+		msg = fmt.Sprint(e)
+	}
+	return fmt.Sprintf("%s\n%s\n", msg, string(debug.Stack()))
+}
+
 func CatchFatalAndClose(s *socket.Socket, cause string) {
 	if err := recover(); err != nil {
-		FatalErrorAndClose(s, err.(error).Error(), cause)
+		FatalErrorAndClose(s, ErrToMsg(err), cause)
 	}
 }
 

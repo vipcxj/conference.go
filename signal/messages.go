@@ -11,9 +11,10 @@ type SignalMessage struct {
 
 type ErrorMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	Msg           string `json:"msg" mapstructure:"msg"`
-	Cause         string `json:"cause" mapstructure:"cause"`
-	Fatal         bool   `json:"fatal" mapstructure:"fatal"`
+	Msg           string             `json:"msg" mapstructure:"msg"`
+	Cause         string             `json:"cause" mapstructure:"cause"`
+	Fatal         bool               `json:"fatal" mapstructure:"fatal"`
+	CallFrames    []errors.CallFrame `json:"callFrames" mapstructure:"callFrames"`
 }
 
 type SdpMessage struct {
@@ -64,14 +65,18 @@ func (op PublishOp) String() string {
 	}
 }
 
+type TrackToPublish struct {
+	BindId string            `json:"bindId" mapstructure:"bindId"`
+	RId    string            `json:"rid" mapstructure:"rid"`
+	SId    string            `json:"sid" mapstructure:"sid"`
+	Labels map[string]string `json:"labels" mapstructure:"labels"`
+}
+
 type PublishMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	Op            PublishOp `json:"op" mapstructure:"op"`
-	Id            string    `json:"id" mapstructure:"id"`
-	Tracks        []struct {
-		BindId string            `json:"bindId" mapstructure:"bindId"`
-		Labels map[string]string `json:"labels" mapstructure:"labels"`
-	} `json:"tracks" mapstructure:"tracks"`
+	Op            PublishOp        `json:"op" mapstructure:"op"`
+	Id            string           `json:"id" mapstructure:"id"`
+	Tracks        []TrackToPublish `json:"tracks" mapstructure:"tracks"`
 }
 
 func (m *PublishMessage) Validate() error {
@@ -104,8 +109,7 @@ func (m *PublishMessage) Validate() error {
 
 type PublishedMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	Id            string   `json:"id" mapstructure:"id"`
-	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
+	Track         *Track `json:"track" mapstructure:"track"`
 }
 
 type SubscribeOp int

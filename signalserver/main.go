@@ -28,11 +28,11 @@ func Run(ch chan error) {
 		socket := clients[0].(*socket.Socket)
 		err := signal.JoinRoom(socket)
 		if err != nil {
-			signal.FatalErrorAndClose(socket, err.Error(), "join room")
+			signal.FatalErrorAndClose(socket, signal.ErrToMsg(err), "join room")
 		}
 		err = signal.InitSignal(socket)
 		if err != nil {
-			signal.FatalErrorAndClose(socket, err.Error(), "init signal")
+			signal.FatalErrorAndClose(socket, signal.ErrToMsg(err), "init signal")
 		}
 		utils.Log().Info(`socket %s connected`, socket.Id())
 
