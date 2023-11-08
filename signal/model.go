@@ -3,6 +3,8 @@ package signal
 import (
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -11,7 +13,6 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/errors"
-	"github.com/vipcxj/conference.go/utils"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
@@ -26,85 +27,108 @@ type SubscribedTrack struct {
 }
 
 func (st *SubscribedTrack) Remove() {
+	// ignore error
 	st.sub.ctx.Peer.RemoveTrack(st.sender)
 	delete(st.sub.acceptedTrack, st.pubTrack.GlobalId)
 }
 
 type Subscription struct {
 	id            string
-	idBytes       []byte
 	mu            sync.Mutex
 	closed        bool
+	reqTypes      []string
 	pattern       *PublicationPattern
 	ctx           *SingalContext
+	acceptedPubId string
 	acceptedTrack map[string]*SubscribedTrack
 }
 
-func (s *Subscription) newUUID(id string) string {
-	newId := uuid.MustParse(id)
-	if s.idBytes == nil {
-		parsed := uuid.MustParse(s.id)
-		s.idBytes = parsed[:]
-	}
-	utils.XOrBytes(newId[:], s.idBytes, newId[:])
-	return newId.String()
-}
-
-func (s *Subscription) AcceptTrack(track *Track, addr string) (subscribedTrack *SubscribedTrack, isNew bool) {
+func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return nil, false
+		return
 	}
-	if s.acceptedTrack == nil {
-		s.acceptedTrack = map[string]*SubscribedTrack{}
+	if s.acceptedPubId != "" && s.acceptedPubId != msg.PubId {
+		return
 	}
-	subscribedTrack, ok := s.acceptedTrack[track.GlobalId]
-	if ok {
-		if s.pattern.Match(track) {
-			return subscribedTrack, false
-		} else {
-			subscribedTrack.Remove()
-			return nil, false
+	matcheds, unmatcheds := s.pattern.MatchTracks(msg.Tracks, s.reqTypes)
+	if s.acceptedPubId == msg.PubId {
+		for _, unmatch := range unmatcheds {
+			subscribedTrack, ok := s.acceptedTrack[unmatch.GlobalId]
+			if ok {
+				subscribedTrack.Remove()
+			}
 		}
-	} else if !s.pattern.Match(track) {
-		return nil, false
 	}
+	if len(matcheds) == 0 {
+		return
+	}
+	s.acceptedPubId = msg.PubId
 	router := GetRouter()
 	// accept track from addr
-	router.makeSureExternelConn(addr)
-	accepter := router.AcceptTrack(track)
-	// accept track
+	router.makeSureExternelConn(msg.Addr)
 	peer, err := s.ctx.MakeSurePeer()
 	if err != nil {
 		panic(err)
 	}
-	sender, err := peer.AddTrack(accepter.track)
-	if err != nil {
-		panic(err)
+	if s.acceptedTrack == nil {
+		s.acceptedTrack = map[string]*SubscribedTrack{}
 	}
-	mid := getMidFromSender(peer, sender)
-	sid := s.newUUID(track.StreamId)
-	subscribedTrack = &SubscribedTrack{
-		sub:      s,
-		sid:      sid,
-		pubTrack: track,
-		bindId:   mid,
-		accepter: accepter,
-		sender:   sender,
-		labels:   track.Labels,
+	for _, matched := range matcheds {
+		subscribedTrack, ok := s.acceptedTrack[matched.GlobalId]
+		if !ok {
+			accepter := router.AcceptTrack(matched)
+			sender, err := peer.AddTrack(accepter.track)
+			if err != nil {
+				panic(err)
+			}
+			// Read incoming RTCP packets
+			// Before these packets are returned they are processed by interceptors. For things
+			// like NACK this needs to be called.
+			go func() {
+				rtcpBuf := make([]byte, 1600)
+				for {
+					if _, _, err := sender.Read(rtcpBuf); err != nil {
+						return
+					}
+				}
+			}()
+			mid := getMidFromSender(peer, sender)
+			sid := accepter.track.StreamID()
+			subscribedTrack = &SubscribedTrack{
+				sub:      s,
+				sid:      sid,
+				pubTrack: matched,
+				bindId:   mid,
+				accepter: accepter,
+				sender:   sender,
+				labels:   matched.Labels,
+			}
+			s.acceptedTrack[matched.GlobalId] = subscribedTrack
+			accepter.BindSub(s)
+			matched.LocalId = accepter.track.ID()
+			matched.BindId = mid
+			matched.StreamId = sid
+		} else {
+			matched.LocalId = subscribedTrack.accepter.track.ID()
+			matched.BindId = subscribedTrack.bindId
+			matched.StreamId = subscribedTrack.sid
+		}
 	}
-	s.acceptedTrack[track.GlobalId] = subscribedTrack
-	accepter.BindSub(s)
+	selMsg := &SelectMessage{
+		PubId:       msg.PubId,
+		Tracks:      matcheds,
+		TransportId: router.id.String(),
+	}
+	s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
+	s.ctx.Socket.Emit("select", selMsg)
 	respMsg := &SubscribedMessage{
-		SubId: s.id,
-		Track: *track,
+		SubId:  s.id,
+		PubId:  msg.PubId,
+		Tracks: matcheds,
 	}
-	respMsg.Track.LocalId = sender.Track().ID()
-	respMsg.Track.BindId = mid
-	respMsg.Track.StreamId = sid
 	s.ctx.Socket.Emit("subscribed", respMsg)
-	return subscribedTrack, true
 }
 
 func (s *Subscription) UnbindAccepter(accepter *Accepter) {
@@ -134,6 +158,7 @@ func (s *Subscription) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
+	s.ctx.subscriptions.Del(s.id)
 	for _, track := range s.acceptedTrack {
 		track.Remove()
 	}
@@ -142,7 +167,6 @@ func (s *Subscription) Close() {
 
 type Publication struct {
 	id      string
-	mu      sync.Mutex
 	closeCh chan struct{}
 	ctx     *SingalContext
 	tracks  *haxmap.Map[string, *PublishedTrack]
@@ -152,7 +176,7 @@ func (me *Publication) Bind() bool {
 	done := false
 	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
 		if pt.Bind() {
-			*&done = true
+			done = true
 			return false
 		} else {
 			return true
@@ -161,10 +185,10 @@ func (me *Publication) Bind() bool {
 	return done
 }
 
-func (me *Publication) Satify(want *WantMessage) []*Track {
+func (me *Publication) State(want *WantMessage) []*Track {
 	satifiedMap := map[string]*PublishedTrack{}
 	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
-		if pt.Satify(want) {
+		if pt.StateWant(want) {
 			satifiedMap[pt.GlobalId()] = pt
 		}
 		return true
@@ -174,6 +198,29 @@ func (me *Publication) Satify(want *WantMessage) []*Track {
 		satified = append(satified, pt.track)
 	}
 	return satified
+}
+
+func (me *Publication) SatifySelect(sel *SelectMessage) {
+	for _, t := range sel.Tracks {
+		pt, ok := me.tracks.Get(t.GlobalId)
+		if ok {
+			pt.SatifySelect(sel)
+		}
+	}
+}
+
+func (me *Publication) IsClosed() bool {
+	select {
+	case <-me.closeCh:
+		return true
+	default:
+		return false
+	}
+}
+
+func (me *Publication) Close() {
+	me.ctx.publications.Del(me.id)
+	close(me.closeCh)
 }
 
 type PublishedTrack struct {
@@ -225,6 +272,9 @@ func (pt *PublishedTrack) Bind() bool {
 			return false
 		}
 		pt.remote = rt
+		codec := rt.Codec()
+		pt.track.Codec = NewRTPCodecParameters(&codec)
+		pt.track.LocalId = rt.ID()
 		ctx.Socket.Emit("published", &PublishedMessage{
 			Track: pt.Track(),
 		})
@@ -233,7 +283,7 @@ func (pt *PublishedTrack) Bind() bool {
 	return false
 }
 
-func (me *PublishedTrack) Satify(want *WantMessage) bool {
+func (me *PublishedTrack) StateWant(want *WantMessage) bool {
 	if !want.Pattern.Match(me.track) {
 		return false
 	}
@@ -246,28 +296,66 @@ func (me *PublishedTrack) Satify(want *WantMessage) bool {
 	}
 	tr := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
 	if tr != nil {
+		if me.track.LocalId == "" {
+			me.track.LocalId = tr.ID()
+		}
+		return true
+	} else {
+		return false
+	}
+}
+
+func (me *PublishedTrack) SatifySelect(sel *SelectMessage) bool {
+	if me.pub.IsClosed() {
+		return false
+	}
+	ctx := me.pub.ctx
+	peer, err := ctx.MakeSurePeer()
+	if err != nil {
+		panic(err)
+	}
+	me.mu.Lock()
+	defer me.mu.Unlock()
+	tr := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
+	fmt.Println("Accepting track with codec ", tr.Codec().MimeType)
+	if tr != nil {
 		go func() {
 			r := GetRouter()
-			ch := r.PublishTrack(me.GlobalId(), want.TransportId)
+			if me.pub.IsClosed() {
+				return
+			}
+			ch := r.PublishTrack(me.GlobalId(), sel.TransportId)
 			defer r.RemoveTrack(me.GlobalId())
 			buf := make([]byte, PACKET_MAX_SIZE)
 			for {
 				select {
 				case <-me.pub.closeCh:
-					return
-				default:
-					n, _, err := tr.Read(buf)
-					if err != nil {
-						if err == io.EOF {
-							return
-						}
-						panic(err)
-					}
-					p, err := NewPacketFromBuf(me.GlobalId(), buf[0:n])
+					p, err := NewEOFPacket(me.GlobalId())
 					if err != nil {
 						panic(err)
 					}
 					ch <- p
+					return
+				default:
+					n, _, err := tr.Read(buf)
+					if err != nil {
+						if err == io.EOF || err == io.ErrClosedPipe || err.Error() == "interceptor is closed" {
+							p, err := NewEOFPacket(me.GlobalId())
+							if err != nil {
+								panic(err)
+							}
+							ch <- p
+							return
+						}
+						panic(err)
+					}
+					if n > 0 {
+						p, err := NewPacketFromBuf(me.GlobalId(), buf[0:n])
+						if err != nil {
+							panic(err)
+						}
+						ch <- p
+					}
 				}
 			}
 		}()
@@ -285,21 +373,18 @@ type SingalContext struct {
 	makingOffer       bool
 	pendingCandidates []*CandidateMessage
 	cand_mux          sync.Mutex
-	pendingTracks     map[string]*webrtc.TrackRemote
-	track_mux         sync.Mutex
 	peer_mux          sync.Mutex
-	sub_mux           sync.RWMutex
 	subscriptions     *haxmap.Map[string, *Subscription]
 	publications      *haxmap.Map[string, *Publication]
-	gid2pub           map[string]bool
-	pub_mux           sync.Mutex
+	peerClosed        bool
 }
 
 func newSignalContext(socket *socket.Socket, authInfo *auth.AuthInfo) *SingalContext {
 	return &SingalContext{
-		Socket:   socket,
-		AuthInfo: authInfo,
-		gid2pub:  map[string]bool{},
+		Socket:        socket,
+		AuthInfo:      authInfo,
+		subscriptions: haxmap.New[string, *Subscription](),
+		publications:  haxmap.New[string, *Publication](),
 	}
 }
 
@@ -319,64 +404,87 @@ func (ctx *SingalContext) Rooms() []socket.Room {
 	}
 }
 
-func (ctx *SingalContext) AcceptTrack(track *Track, addr string) {
+func (ctx *SingalContext) Close() {
+	fmt.Println("ctx closing")
+	ctx.closePeer()
+	ctx.publications.ForEach(func(k string, pub *Publication) bool {
+		pub.Close()
+		return true
+	})
 	ctx.subscriptions.ForEach(func(k string, sub *Subscription) bool {
-		sub.AcceptTrack(track, addr)
+		sub.Close()
+		return true
+	})
+	ctx.Socket.Disconnect(true)
+}
+
+func (ctx *SingalContext) AcceptTrack(msg *StateMessage) {
+	ctx.subscriptions.ForEach(func(k string, sub *Subscription) bool {
+		sub.AcceptTrack(msg)
 		return true
 	})
 }
 
-func findTransiverBySender(peer *webrtc.PeerConnection, sender *webrtc.RTPSender) *webrtc.RTPTransceiver {
+func findTransiverBySender(peer *webrtc.PeerConnection, sender *webrtc.RTPSender) (*webrtc.RTPTransceiver, int) {
 	if transceivers := peer.GetTransceivers(); transceivers != nil {
-		for _, transceiver := range transceivers {
+		for i, transceiver := range transceivers {
 			if transceiver.Sender() == sender {
-				return transceiver
+				return transceiver, i
 			}
 		}
 	}
-	return nil
+	return nil, -1
 }
 
 func getMidFromSender(peer *webrtc.PeerConnection, sender *webrtc.RTPSender) string {
-	transceiver := findTransiverBySender(peer, sender)
+	transceiver, pos := findTransiverBySender(peer, sender)
 	if transceiver != nil {
-		return transceiver.Mid()
+		if transceiver.Mid() != "" {
+			return transceiver.Mid()
+		} else {
+			return fmt.Sprintf("pos:%d", pos)
+		}
 	} else {
 		return ""
 	}
 }
 
-func (ctx *SingalContext) Subscribe(message *SubscribeMessage) error {
-	err := message.Validate()
+func (ctx *SingalContext) Subscribe(message *SubscribeMessage) (subId string, err error) {
+	err = message.Validate()
 	if err != nil {
-		return err
+		return
 	}
 	switch message.Op {
 	case SUB_OP_ADD:
 		var loaded = true
 		for loaded {
-			subId := uuid.NewString()
+			subId = uuid.NewString()
 			_, loaded = ctx.subscriptions.GetOrCompute(subId, func() *Subscription {
 				return &Subscription{
-					id:      subId,
-					pattern: &message.Pattern,
-					ctx:     ctx,
+					id:       subId,
+					reqTypes: message.ReqTypes,
+					pattern:  &message.Pattern,
+					ctx:      ctx,
 				}
 			})
 		}
 	case SUB_OP_UPDATE:
 		sub, ok := ctx.subscriptions.Get(message.Id)
 		if !ok {
-			return errors.SubNotExist(message.Id)
+			err = errors.SubNotExist(message.Id)
+			return
 		}
 		sub.UpdatePattern(&message.Pattern)
+		subId = sub.id
 	case SUB_OP_REMOVE:
 		sub, ok := ctx.subscriptions.GetAndDel(message.Id)
 		if !ok {
-			return errors.SubNotExist(message.Id)
+			err = errors.SubNotExist(message.Id)
+			return
 		}
 		sub.Close()
-		return nil
+		subId = sub.id
+		return
 	default:
 		panic(errors.ThisIsImpossible().GenCallStacks())
 	}
@@ -389,13 +497,21 @@ func (ctx *SingalContext) Subscribe(message *SubscribeMessage) error {
 	// broadcast to the room to request the sub
 	ctx.Socket.To(ctx.Rooms()...).Emit("want", want)
 	// broadcast above not include self, the pub in self may satify the sub too. so check self here.
-	ctx.SatifyWant(want)
-	return nil
+	ctx.StateWant(want)
+	return
 }
 
 func (ctx *SingalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnection, sid string, mid string, rid string) *webrtc.TrackRemote {
-	for _, transceiver := range peer.GetTransceivers() {
-		if transceiver.Mid() == mid {
+	var pos int = -1
+	var err error
+	if strings.HasPrefix(mid, "pos:") {
+		pos, err = strconv.Atoi(mid[4:])
+		if err != nil {
+			panic(err)
+		}
+	}
+	for i, transceiver := range peer.GetTransceivers() {
+		if (pos == -1 && transceiver.Mid() == mid) || pos == i {
 			r := transceiver.Receiver()
 			if r != nil {
 				tracks := r.Tracks()
@@ -440,29 +556,32 @@ func (ctx *SingalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnectio
 	return nil
 }
 
-func (ctx *SingalContext) Publish(message *PublishMessage) error {
-	err := message.Validate()
+func (ctx *SingalContext) Publish(message *PublishMessage) (pubId string, err error) {
+	err = message.Validate()
 	if err != nil {
-		return err
+		return
 	}
 	if message.Op != PUB_OP_ADD {
-		return errors.ThisIsImpossible().GenCallStacks()
+		err = errors.ThisIsImpossible().GenCallStacks()
+		return
 	}
 	var pub *Publication
 	var loaded bool = true
 	for loaded {
-		pubId := uuid.NewString()
+		pubId = uuid.NewString()
 		pub, loaded = ctx.publications.GetOrCompute(pubId, func() *Publication {
 			pub := &Publication{
-				id:     pubId,
-				ctx:    ctx,
-				tracks: haxmap.New[string, *PublishedTrack](),
+				id:      pubId,
+				ctx:     ctx,
+				tracks:  haxmap.New[string, *PublishedTrack](),
+				closeCh: make(chan struct{}),
 			}
 			for _, t := range message.Tracks {
 				tid := uuid.NewString()
 				pub.tracks.Set(tid, &PublishedTrack{
 					pub: pub,
 					track: &Track{
+						Type:     t.Type,
 						PubId:    pubId,
 						GlobalId: tid,
 						BindId:   t.BindId,
@@ -476,98 +595,128 @@ func (ctx *SingalContext) Publish(message *PublishMessage) error {
 		})
 	}
 	pub.Bind()
-	return nil
+	return
 }
 
-func (ctx *SingalContext) SatifyWant(message *WantMessage) {
-	var satified []*Track
+func (ctx *SingalContext) StateWant(message *WantMessage) {
+	r := GetRouter()
 	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
-		satified = append(satified, pub.Satify(message)...)
+		satified := pub.State(message)
+		if len(satified) > 0 {
+			msg := &StateMessage{
+				PubId:  pub.id,
+				Tracks: satified,
+				Addr:   r.Addr(),
+			}
+			// to all in room include self
+			ctx.Socket.To(ctx.Rooms()...).Emit("state", msg)
+			ctx.Socket.Emit("state", msg)
+		}
 		return true
 	})
-	if len(satified) > 0 {
-		r := GetRouter()
-		msg := &StateMessage{
-			Tracks: satified,
-			Addr:   r.Addr(),
-		}
-		// to all in room include self
-		ctx.Socket.To(ctx.Rooms()...).Emit("state", msg)
-		ctx.Socket.Emit("state", msg)
+}
+
+func (ctx *SingalContext) SatifySelect(message *SelectMessage) {
+	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
+		pub.SatifySelect(message)
+		return true
+	})
+}
+
+func (ctx *SingalContext) closePeer() {
+	if ctx.peerClosed {
+		return
+	}
+	ctx.peer_mux.Lock()
+	defer ctx.peer_mux.Unlock()
+	if ctx.peerClosed {
+		return
+	}
+	ctx.peerClosed = true
+	if ctx.Peer != nil {
+		// ignore error
+		ctx.Peer.Close()
 	}
 }
 
-func (ctx *SingalContext) MakeSurePeer() (*webrtc.PeerConnection, error) {
-	if ctx.Peer != nil {
-		return ctx.Peer, nil
-	} else {
-		ctx.peer_mux.Lock()
-		defer ctx.peer_mux.Unlock()
-		var peer *webrtc.PeerConnection
-		var err error
-		if peer = ctx.Peer; peer == nil {
-			// only support impolite because pion webrtc not support rollback.
-			ctx.polite = false
-			peer, err = webrtc.NewPeerConnection(webrtc.Configuration{})
-			if err != nil {
-				return nil, err
-			}
-			peer.OnNegotiationNeeded(func() {
-				defer CatchFatalAndClose(ctx.Socket, "on negotiation")
-				ctx.makingOffer = true
-				defer func() {
-					ctx.makingOffer = false
-				}()
-				offer, err := peer.CreateOffer(nil)
-				if err != nil {
-					panic(err)
-				}
-				err = peer.SetLocalDescription(offer)
-				if err != nil {
-					panic(err)
-				}
-				desc := peer.LocalDescription()
-				ctx.Socket.Emit("sdp", SdpMessage{
-					Type: desc.Type.String(),
-					Sdp:  desc.SDP,
-				})
-			})
-			peer.OnICECandidate(func(i *webrtc.ICECandidate) {
-				defer CatchFatalAndClose(ctx.Socket, "on candidate")
-				var err error
-				if i == nil {
-					err = ctx.Socket.Emit("candidate", CandidateMessage{
-						Op: "end",
-					})
-				} else {
-					err = ctx.Socket.Emit("candidate", &CandidateMessage{
-						Op:        "add",
-						Candidate: i.ToJSON(),
-					})
-				}
-				if err != nil {
-					panic(err)
-				}
-			})
-			peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
-				ctx.publications.ForEach(func(pid string, pub *Publication) bool {
-					if pub.Bind() {
-						return false
-					} else {
-						return true
-					}
-				})
-			})
-
-			lastState := []webrtc.PeerConnectionState{peer.ConnectionState()}
-			peer.OnConnectionStateChange(func(pcs webrtc.PeerConnectionState) {
-				fmt.Println("peer connect state changed to ", pcs, " from ", lastState[0])
-				lastState[0] = pcs
-			})
-			ctx.Peer = peer
-		}
-		return peer, nil
+func (ctx *SingalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error) {
+	if ctx.peerClosed {
+		err = webrtc.ErrConnectionClosed
+		return
 	}
+	ctx.peer_mux.Lock()
+	defer ctx.peer_mux.Unlock()
+	if ctx.peerClosed {
+		err = webrtc.ErrConnectionClosed
+		return
+	}
+	if ctx.Peer != nil {
+		peer = ctx.Peer
+	} else {
+		// only support impolite because pion webrtc not support rollback.
+		ctx.polite = false
+		peer, err = webrtc.NewPeerConnection(webrtc.Configuration{})
+		if err != nil {
+			return
+		}
+		peer.OnNegotiationNeeded(func() {
+			defer CatchFatalAndClose(ctx.Socket, "on negotiation")
+			ctx.makingOffer = true
+			defer func() {
+				ctx.makingOffer = false
+			}()
+			offer, err := peer.CreateOffer(nil)
+			if err != nil {
+				panic(err)
+			}
+			err = peer.SetLocalDescription(offer)
+			if err != nil {
+				panic(err)
+			}
+			desc := peer.LocalDescription()
+			ctx.Socket.Emit("sdp", SdpMessage{
+				Type: desc.Type.String(),
+				Sdp:  desc.SDP,
+			})
+		})
+		peer.OnICECandidate(func(i *webrtc.ICECandidate) {
+			defer CatchFatalAndClose(ctx.Socket, "on candidate")
+			var err error
+			if i == nil {
+				err = ctx.Socket.Emit("candidate", CandidateMessage{
+					Op: "end",
+				})
+			} else {
+				err = ctx.Socket.Emit("candidate", &CandidateMessage{
+					Op:        "add",
+					Candidate: i.ToJSON(),
+				})
+			}
+			if err != nil {
+				panic(err)
+			}
+		})
+		peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
+			ctx.publications.ForEach(func(pid string, pub *Publication) bool {
+				if pub.Bind() {
+					return false
+				} else {
+					return true
+				}
+			})
+		})
+
+		lastState := peer.ConnectionState()
+		peer.OnConnectionStateChange(func(pcs webrtc.PeerConnectionState) {
+			fmt.Println("peer connect state changed from ", lastState, " to ", pcs)
+			lastState = pcs
+			if pcs == webrtc.PeerConnectionStateClosed {
+				ctx.Close()
+			}
+		})
+		ctx.Peer = peer
+	}
+	return
 }
 
 func GetSingalContext(s *socket.Socket) *SingalContext {

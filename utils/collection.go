@@ -18,6 +18,24 @@ func InSlice[T comparable](slice []T, target T, comparer func(T, T) bool) bool {
 	return false
 }
 
+func InSlice2[T any](slice []T, tester func(T) bool) bool {
+	for _, e := range slice {
+		if tester(e) {
+			return true
+		}
+	}
+	return false
+}
+
+func InMap[K comparable, T any](m map[K]T,  tester func(T) bool) bool {
+	for _, e := range m {
+		if tester(e) {
+			return true
+		}
+	}
+	return false
+}
+
 func MapSlice[T any, O any](slice []T, mapper func(T) (mapped O, remove bool)) []O {
 	if slice == nil {
 		return nil

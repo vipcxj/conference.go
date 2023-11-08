@@ -144,11 +144,11 @@ type Packet struct {
 }
 
 func (p *Packet) IsEOF() bool {
-	return IsEofPacket(p.data[:])
+	return IsEofPacket(p.data[:p.n])
 }
 
 func (p *Packet) IsData() bool {
-	return IsDataPacket(p.data[:])
+	return IsDataPacket(p.data[:p.n])
 }
 
 var packetPool = sync.Pool{
@@ -247,10 +247,6 @@ const CHAN_COUNT = 4
 const CHAN_BUF_SIZE = 512
 const DEFAULT_MTU = 1500
 
-type SubscribationWant struct {
-	ctx *SingalContext
-}
-
 type Accepter struct {
 	track  *webrtc.TrackLocalStaticRTP
 	closed bool
@@ -259,9 +255,17 @@ type Accepter struct {
 }
 
 func NewAccepter(track *Track) *Accepter {
-	trackLocal, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{
-		MimeType: webrtc.MimeTypeVP8,
-	}, track.LocalId, track.StreamId)
+	var capability webrtc.RTPCodecCapability
+	if track.Codec != nil {
+		capability = track.Codec.ToWebrtc().RTPCodecCapability
+	} else {
+		capability = webrtc.RTPCodecCapability{
+			MimeType: webrtc.MimeTypeVP8,
+		}
+	}
+	newId := NewUUID(track.LocalId, track.PubId)
+	newSId := NewUUID(track.StreamId, track.PubId)
+	trackLocal, err := webrtc.NewTrackLocalStaticRTP(capability, newId, newSId)
 	if err != nil {
 		panic(err)
 	}
@@ -271,8 +275,8 @@ func NewAccepter(track *Track) *Accepter {
 }
 
 func (a *Accepter) BindSub(sub *Subscription) {
-	sub.mu.Lock()
-	defer sub.mu.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.subs == nil {
 		a.subs = map[string]*Subscription{}
 	}
@@ -282,13 +286,14 @@ func (a *Accepter) BindSub(sub *Subscription) {
 	}
 }
 
-func (a *Accepter) Write(to []byte) (int, error) {
+func (a *Accepter) Write(buf []byte) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
-		return 0, io.ErrClosedPipe
+		return io.ErrClosedPipe
 	}
-	return a.track.Write(to)
+	_, err := a.track.Write(buf)
+	return err
 }
 
 func (a *Accepter) Close() {
@@ -418,12 +423,12 @@ func (r *Router) run(ser *net.UDPConn) {
 						return true
 					})
 				}
-				sub, ok := r.track2accepters.Get(packet.TrackId)
+				accepter, ok := r.track2accepters.Get(packet.TrackId)
 				if ok {
 					if packet.IsEOF() {
-						r.CloseSubscribation(packet.TrackId)
+						r.CloseAccepter(packet.TrackId)
 					} else {
-						_, err := sub.Write(packet.data[PACKET_TRACK_HEADER_SIZE:packet.n])
+						err := accepter.Write(packet.data[PACKET_TRACK_HEADER_SIZE:packet.n])
 						if err != nil {
 							panic(err)
 						}
@@ -434,10 +439,10 @@ func (r *Router) run(ser *net.UDPConn) {
 	}()
 }
 
-func (r *Router) CloseSubscribation(trackId string) {
-	sub, ok := r.track2accepters.GetAndDel(trackId)
+func (r *Router) CloseAccepter(trackId string) {
+	accepter, ok := r.track2accepters.GetAndDel(trackId)
 	if ok {
-		sub.Close()
+		accepter.Close()
 	}
 }
 
@@ -485,7 +490,7 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 	}
 
 	chArk := make(chan bool)
-	chClose := make(chan bool)
+	chClose := make(chan interface{})
 	go func() {
 		for {
 			select {
@@ -501,18 +506,21 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 	}()
 	go func() {
 		buf := make([]byte, PACKET_MAX_SIZE)
+		closer := func() {
+			close(chClose)
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			oldConn, ok := r.externalTransports[addr]
+			if ok && oldConn == conn {
+				delete(r.externalTransports, addr)
+			}
+			// ignore close error, who care.
+			conn.Close()
+		}
 		for {
 			n, err := conn.Read(buf)
 			if err == io.EOF {
-				chClose <- true
-				r.mu.Lock()
-				defer r.mu.Unlock()
-				oldConn, ok := r.externalTransports[addr]
-				if ok && oldConn == conn {
-					delete(r.externalTransports, addr)
-				}
-				// ignore close error, who care.
-				conn.Close()
+				closer()
 				return
 			}
 			if err != nil {
@@ -524,9 +532,12 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 				if err != nil {
 					panic(err)
 				}
-				sub, ok := r.track2accepters.Get(trackId)
+				accepter, ok := r.track2accepters.Get(trackId)
 				if ok {
-					sub.Write(rtpData)
+					err = accepter.Write(rtpData)
+					if err != nil {
+						panic(err)
+					}
 				}
 			} else if IsSetupArk(s) {
 				if IsSetup(s) {
@@ -539,7 +550,7 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 				}
 				_, ok := r.track2accepters.Get(trackId)
 				if ok {
-					r.CloseSubscribation(trackId)
+					r.CloseAccepter(trackId)
 				}
 			}
 		}
@@ -554,4 +565,3 @@ func (r *Router) AcceptTrack(track *Track) *Accepter {
 	})
 	return accepter
 }
-

@@ -6,8 +6,10 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/utils"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
@@ -38,7 +40,7 @@ func CatchFatalAndClose(s *socket.Socket, cause string) {
 	}
 }
 
-func parseArgs[R any, PR *R](out PR, args ...any) (func(...any), error) {
+func parseArgs[R any, PR *R](out PR, args ...any) (func([]any, error), error) {
 	if len(args) == 0 {
 		if out == nil {
 			return nil, nil
@@ -47,9 +49,9 @@ func parseArgs[R any, PR *R](out PR, args ...any) (func(...any), error) {
 		}
 	}
 	last := args[len(args)-1]
-	var ark func(...any) = nil
+	var ark func([]any, error) = nil
 	if reflect.TypeOf(last).Kind() == reflect.Func {
-		ark = last.(func(...any))
+		ark = last.(func([]any, error))
 		args = args[0 : len(args)-1]
 	}
 	if len(args) == 0 {
@@ -63,8 +65,15 @@ func parseArgs[R any, PR *R](out PR, args ...any) (func(...any), error) {
 	return ark, err
 }
 
-func doArk(ark func(...any), payload any) {
+func doArk(ark func([]any, error), payload any) {
 	if ark != nil {
-		ark(payload)
+		ark([]any{payload}, nil)
 	}
+}
+
+func NewUUID(id string, base string) string {
+	newBytes := uuid.MustParse(id)
+	baseBytes := uuid.MustParse(base)
+	utils.XOrBytes(newBytes[:], baseBytes[:], newBytes[:])
+	return newBytes.String()
 }

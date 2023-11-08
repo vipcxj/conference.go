@@ -8,6 +8,7 @@
         "/dist"
     ],
     "dependencies": {
+        "async-mutex": "^0.4.0",
         "emittery": "^1.0.1",
         "socket.io-client": "^4.7.2",
         "webrtc-adapter": "^8.2.3"

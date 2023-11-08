@@ -23,6 +23,7 @@ const (
 	PATTERN_OP_TRACK_LABEL_ALL_HAS
 	PATTERN_OP_TRACK_LABEL_SOME_HAS
 	PATTERN_OP_TRACK_LABEL_NONE_HAS
+	PATTERN_OP_TRACK_TYPE
 )
 
 const (
@@ -39,6 +40,7 @@ const (
 	pt_op_t_lb_all_has_str    = "TRACK_LABEL_ALL_HAS"
 	pt_op_t_lb_some_has_str   = "TRACK_LABEL_SOME_HAS"
 	pt_op_t_lb_none_has_str   = "TRACK_LABEL_NONE_HAS"
+	pt_op_t_type_str          = "TRACK_TYPE"
 	pt_op_unknown_str         = "UNKNOWN"
 )
 
@@ -70,15 +72,17 @@ func (op PatternOp) String() string {
 		return pt_op_t_lb_some_has_str
 	case PATTERN_OP_TRACK_LABEL_NONE_HAS:
 		return pt_op_t_lb_none_has_str
+	case PATTERN_OP_TRACK_TYPE:
+		return pt_op_t_type_str
 	default:
 		return pt_op_unknown_str
 	}
 }
 
 type PublicationPattern struct {
-	Op       PatternOp
-	Args     []string
-	Children []PublicationPattern
+	Op       PatternOp            `json:"op" mapstructure:"op"`
+	Args     []string             `json:"args" mapstructure:"args"`
+	Children []PublicationPattern `json:"children" mapstructure:"children"`
 }
 
 func (me *PublicationPattern) String() string {
@@ -93,6 +97,10 @@ func (me *PublicationPattern) checkArgsNum(n int, atLeast bool) error {
 	} else {
 		return nil
 	}
+}
+
+func isBoolStr(arg string) bool {
+	return arg == "true" || arg == "false"
 }
 
 func (me *PublicationPattern) Validate() error {
@@ -113,9 +121,15 @@ func (me *PublicationPattern) Validate() error {
 			return errors.InvalidPubPattern("The pub pattern op '%v' accept zero child, but gotten %v", me.Op, me.Children)
 		}
 		switch me.Op {
-		case PATTERN_OP_PUBLISH_ID, PATTERN_OP_STREAM_ID, PATTERN_OP_TRACK_ID, PATTERN_OP_TRACK_RID, PATTERN_OP_TRACK_LABEL_ALL_HAS, PATTERN_OP_TRACK_LABEL_SOME_HAS, PATTERN_OP_TRACK_LABEL_NONE_HAS:
+		case PATTERN_OP_PUBLISH_ID, PATTERN_OP_STREAM_ID, PATTERN_OP_TRACK_ID, PATTERN_OP_TRACK_RID, PATTERN_OP_TRACK_LABEL_ALL_HAS, PATTERN_OP_TRACK_LABEL_SOME_HAS, PATTERN_OP_TRACK_LABEL_NONE_HAS, PATTERN_OP_TRACK_TYPE:
 			if err = me.checkArgsNum(1, true); err != nil {
 				return err
+			}
+			if me.Op == PATTERN_OP_TRACK_TYPE {
+				t := me.Args[0]
+				if t != "video" && t != "audio" {
+					return errors.InvalidPubPattern("The pub pattern op '%v' accept only \"video\" and \"audio\", but gotten %v", me.Op, me.Args)
+				}
 			}
 		case PATTERN_OP_TRACK_LABEL_ALL_MATCH, PATTERN_OP_TRACK_LABEL_SOME_MATCH, PATTERN_OP_TRACK_LABEL_NONE_MATCH:
 			if l := len(me.Args); l < 2 || l%2 != 0 {
@@ -210,7 +224,47 @@ func (me *PublicationPattern) Match(track *Track) bool {
 			}
 		}
 		return true
+	case PATTERN_OP_TRACK_TYPE:
+		return utils.InSlice(me.Args, track.Type, nil)
 	default:
 		return false
 	}
+}
+
+func (me *PublicationPattern) MatchTracks(tracks []*Track, reqTypes []string) (matched []*Track, unmatched []*Track) {
+	tracksByPub := map[string][]*Track{}
+	unmatched = []*Track{}
+	for _, track := range(tracks) {
+		if me.Match(track) {
+			ts := tracksByPub[track.PubId]
+			tracksByPub[track.PubId] = append(ts, track)
+		} else {
+			unmatched = append(unmatched, track)
+		}
+	}
+	reqVideo := utils.InSlice(reqTypes, "video", nil)
+	reqAudio := utils.InSlice(reqTypes, "audio", nil)
+	matched = []*Track{}
+	for _, ts := range tracksByPub {
+		videoCond := !reqVideo
+		audioCond := !reqAudio
+		if !videoCond || !audioCond {
+			for _, track := range ts {
+				if track.Type == "video" {
+					videoCond = true
+				} else if track.Type == "audio" {
+					audioCond = true
+				}
+				if videoCond && audioCond {
+					break
+				}
+			}
+		}
+		if !videoCond || !audioCond {
+			unmatched = append(unmatched, ts...)
+		} else {
+			matched = append(matched, ts...)
+		}
+	}
+	return
 }

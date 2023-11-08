@@ -37,14 +37,23 @@ type TrackMessage struct {
 
 type WantMessage struct {
 	SignalMessage `mapstructure:",squash"`
+	ReqTypes      []string           `json:"reqTypes" mapstructure:"reqTypes"`
 	Pattern       PublicationPattern `json:"pattern" mapstructure:"pattern"`
 	TransportId   string             `json:"transportId" mapstructure:"transportId"`
 }
 
 type StateMessage struct {
 	SignalMessage `mapstructure:",squash"`
+	PubId         string   `json:"pubId" mapstructure:"pubId"`
 	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
 	Addr          string   `json:"addr" mapstructure:"addr"`
+}
+
+type SelectMessage struct {
+	SignalMessage `mapstructure:",squash"`
+	PubId         string   `json:"pubId" mapstructure:"pubId"`
+	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
+	TransportId   string   `json:"transportId" mapstructure:"transportId"`
 }
 
 type PublishOp int
@@ -66,6 +75,7 @@ func (op PublishOp) String() string {
 }
 
 type TrackToPublish struct {
+	Type   string            `json:"type" mapstructure:"type"`
 	BindId string            `json:"bindId" mapstructure:"bindId"`
 	RId    string            `json:"rid" mapstructure:"rid"`
 	SId    string            `json:"sid" mapstructure:"sid"`
@@ -107,6 +117,10 @@ func (m *PublishMessage) Validate() error {
 	return nil
 }
 
+type PublishResultMessage struct {
+	Id string `json:"id" mapstructure:"id"`
+}
+
 type PublishedMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	Track         *Track `json:"track" mapstructure:"track"`
@@ -137,6 +151,7 @@ type SubscribeMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	Op            SubscribeOp        `json:"op" mapstructure:"op"`
 	Id            string             `json:"id" mapstructure:"id"`
+	ReqTypes      []string           `json:"reqTypes" mapstructure:"reqTypes"`
 	Pattern       PublicationPattern `json:"pattern" mapstructure:"pattern"`
 }
 
@@ -168,8 +183,13 @@ func (m *SubscribeMessage) Validate() error {
 	return nil
 }
 
+type SubscribeResultMessage struct {
+	Id string `json:"id" mapstructure:"id"`
+}
+
 type SubscribedMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	SubId         string `json:"subId" mapstructure:"subId"`
-	Track         Track  `json:"track" mapstructure:"track"`
+	SubId         string   `json:"subId" mapstructure:"subId"`
+	PubId         string   `json:"pubId" mapstructure:"pubId"`
+	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
 }

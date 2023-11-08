@@ -13,6 +13,12 @@ func InitSignal(s *socket.Socket) error {
 	if ctx == nil {
 		return errors.FatalError("unable to find the signal context")
 	}
+	s.On("disconnect", func(args ...any) {
+		reason := args[0].(string)
+		if reason == "server namespace disconnect" || reason == "client namespace disconnect" || reason == "server shutting down" {
+			ctx.Close()
+		}
+	})
 	s.On("sdp", func(args ...any) {
 		defer CatchFatalAndClose(ctx.Socket, "on sdp")
 		msg := SdpMessage{}
@@ -85,18 +91,35 @@ func InitSignal(s *socket.Socket) error {
 			panic(err)
 		}
 	})
+	s.On("publish", func(args ...any) {
+		defer CatchFatalAndClose(ctx.Socket, "publish")
+		msg := PublishMessage{}
+		ark, err := parseArgs(&msg, args...)
+		if err != nil {
+			panic(err)
+		}
+		pubId, err := ctx.Publish(&msg)
+		if err != nil {
+			panic(err)
+		}
+		doArk(ark, &PublishResultMessage{
+			Id: pubId,
+		})
+	})
 	s.On("subscribe", func(args ...any) {
 		defer CatchFatalAndClose(ctx.Socket, "subscribe")
 		msg := SubscribeMessage{}
 		ark, err := parseArgs(&msg, args...)
-		doArk(ark, nil)
 		if err != nil {
 			panic(err)
 		}
-		err = ctx.Subscribe(&msg)
+		subId, err := ctx.Subscribe(&msg)
 		if err != nil {
 			panic(err)
 		}
+		doArk(ark, &SubscribeResultMessage{
+			Id: subId,
+		})
 	})
 	s.On("state", func(args ...any) {
 		defer CatchFatalAndClose(ctx.Socket, "subscribe")
@@ -106,9 +129,7 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		for _, track := range msg.Tracks {
-			ctx.AcceptTrack(track, msg.Addr)
-		}
+		ctx.AcceptTrack(&msg)
 	})
 	s.On("want", func(args ...any) {
 		defer CatchFatalAndClose(ctx.Socket, "want")
@@ -118,7 +139,17 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		ctx.SatifyWant(&msg)
+		ctx.StateWant(&msg)
+	})
+	s.On("select", func(args ...any) {
+		defer CatchFatalAndClose(ctx.Socket, "select")
+		msg := SelectMessage{}
+		ark, err := parseArgs(&msg, args...)
+		doArk(ark, nil)
+		if err != nil {
+			panic(err)
+		}
+		ctx.SatifySelect(&msg)
 	})
 	return nil
 }
