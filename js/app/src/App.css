@@ -36,3 +36,25 @@
     transform: rotate(360deg);
   }
 }
+
+.Video-Container {
+  position: relative;
+  width: 400px;
+  height: 300px;
+}
+
+.Video {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  width: 400px;
+  height: 300px;
+}
+
+.Video-Title {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  width: 100%;
+  text-align: center;
+}

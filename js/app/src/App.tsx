@@ -1,22 +1,59 @@
-import React from 'react';
 import logo from './logo.svg';
 import './App.css';
+import 'flexboxgrid'
+import { Video, VideoProps, useCreateOnce } from './Socket'
 
-import { testSocket, useDelay } from './Socket'
+const ROW = 10;
+const COL = 3;
+const COL_SIZE = 12 / COL;
 
 function App() {
-  const inputVideoRef = React.useRef<HTMLVideoElement>(null);
-  const outputVideoRef0 = React.useRef<HTMLVideoElement>(null);
-  const outputVideoRef1 = React.useRef<HTMLVideoElement>(null);
-  const outputVideoRefs = [outputVideoRef0, outputVideoRef1]
-  useDelay(testSocket, inputVideoRef, outputVideoRefs);
+  const props: Array<VideoProps> = [];
+  const stream = useCreateOnce(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+    });
+    return stream;
+  });
+  for (let i = 0; i < ROW * COL; ++i) {
+    props[i] = {
+      name: `client${i}`,
+      stream: stream,
+      auth: {
+        uid: `${i}`,
+        uname: `user${i}`,
+        role: 'student',
+        room: `room${i % ROW}`,
+      },
+      publish: {
+        labels: {
+          uid: `${i}`,
+        },
+      },
+      subscribe: {
+        labels: {
+          uid: `${(i + ROW) % (ROW * COL)}`,
+        },
+      },
+      signalHost: 'http://localhost:8080',
+      authHost: 'http://localhost:3100',
+    }
+  }
   return (
     <div className="App">
       <header className="App-header">
         <img src={logo} className="App-logo" alt="logo" />
-        <video ref={inputVideoRef} autoPlay controls/>
-        <video ref={outputVideoRefs[0]} autoPlay controls/>
-        <video ref={outputVideoRefs[1]} autoPlay controls/>
+        <div>
+          { [ ...Array(ROW).keys() ].map(r => (
+            <div className='row' key={r}>
+              { [ ...Array(COL).keys() ].map(c => (
+                <div className={`col-xs-${COL_SIZE}`} key={c}>
+                  <Video {...props[c * ROW + r]}/>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
         <p>
           Edit <code>src/App.tsx</code> and save to reload.
         </p>

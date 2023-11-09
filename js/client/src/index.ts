@@ -165,27 +165,35 @@ interface EventData {
     published: PublishedMessage;
 }
 
+export interface Configuration {
+    signalUrl: string;
+    token: string;
+    polite?: boolean;
+    rtcConfig?: RTCConfiguration;
+    name?: string;
+}
+
 export class ConferenceClient {
+    private config: Configuration;
     private socket: Socket<ListenEventMap, EmitEventMap>;
-    private polite: boolean;
     private makingOffer: boolean;
     private ignoreOffer: boolean;
     private pendingCandidates: CandidateMessage[];
     private peer: RTCPeerConnection;
-    private tracks: Track[];
     private onTrasksCallbacks: OnTrack[];
     private emitter: Emittery<EventData>;
-    name: string;
 
-    constructor(signalUrl: string, token: string, polite: boolean = true) {
+    constructor(config: Configuration) {
+        this.config = config;
+        const {
+            signalUrl,
+            token,
+        } = config;
         const [host, path] = splitUrl(signalUrl);
-        this.name = '';
         this.emitter = new Emittery()
         this.makingOffer = false;
         this.ignoreOffer = false;
-        this.polite = polite;
         this.pendingCandidates = [];
-        this.tracks = [];
         this.onTrasksCallbacks = [];
         this.socket = io(host, {
             auth: {
@@ -252,7 +260,7 @@ export class ConferenceClient {
 
     makeSurePeer = () => {
         if (!this.peer) {
-            const peer = new RTCPeerConnection();
+            const peer = new RTCPeerConnection(this.config.rtcConfig);
             peer.onnegotiationneeded = async () => {
                 try {
                     this.makingOffer = true;
@@ -284,16 +292,16 @@ export class ConferenceClient {
                 this.socket.emit("candidate", msg);
             }
             peer.onconnectionstatechange = () => {
-                console.log(`[${this.name}] connection state changed to ${peer.connectionState}`);
+                console.log(`[${this.config.name}] connection state changed to ${peer.connectionState}`);
             }
             peer.oniceconnectionstatechange = () => {
-                console.log(`[${this.name}] ice connection state changed to ${peer.iceConnectionState}`);
+                console.log(`[${this.config.name}] ice connection state changed to ${peer.iceConnectionState}`);
             }
             peer.onsignalingstatechange = () => {
-                console.log(`[${this.name}] signaling state changed to ${peer.signalingState}`);
+                console.log(`[${this.config.name}] signaling state changed to ${peer.signalingState}`);
             }
             peer.onicegatheringstatechange = () => {
-                console.log(`[${this.name}] ice gathering state changed to ${peer.signalingState}`);
+                console.log(`[${this.config.name}] ice gathering state changed to ${peer.signalingState}`);
             }
             peer.ontrack = async (evt) => {
                 evt.track.onmute = (evt0) => {
@@ -312,7 +320,8 @@ export class ConferenceClient {
                 this.ark(ark);
                 const offerCollision = msg.type === "offer" 
                 && (this.makingOffer || peer.signalingState !== "stable");
-                this.ignoreOffer = !this.polite && offerCollision;
+                const { polite = true } = this.config;
+                this.ignoreOffer = !polite && offerCollision;
                 if (this.ignoreOffer) {
                     return;
                 }
@@ -320,7 +329,7 @@ export class ConferenceClient {
                     type: msg.type,
                     sdp: msg.sdp,
                 });
-                console.log(`[${this.name}]:`)
+                console.log(`[${this.config.name}]:`)
                 console.log(peer.remoteDescription.sdp)
                 for (const pending of this.pendingCandidates) {
                     await this.addCandidate(peer, pending);

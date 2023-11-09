@@ -3,17 +3,17 @@ module github.com/vipcxj/conference.go
 go 1.21.3
 
 require (
+	github.com/alphadose/haxmap v1.3.0
 	github.com/alphadose/itogami v0.4.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.1
 	github.com/gookit/config/v2 v2.2.4
-	github.com/vizee/asm v0.0.0-20190408014923-fe8be7debce3
+	github.com/pion/rtp v1.8.2
 	github.com/zishang520/socket.io/v2 v2.0.4
 )
 
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
-	github.com/alphadose/haxmap v1.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
 	github.com/pion/dtls/v2 v2.2.7 // indirect
@@ -23,7 +23,6 @@ require (
 	github.com/pion/mdns v0.0.8 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/rtcp v1.2.10 // indirect
-	github.com/pion/rtp v1.8.2 // indirect
 	github.com/pion/sctp v1.8.9 // indirect
 	github.com/pion/sdp/v3 v3.0.6 // indirect
 	github.com/pion/srtp/v3 v3.0.0 // indirect

@@ -172,11 +172,40 @@ type Publication struct {
 	tracks  *haxmap.Map[string, *PublishedTrack]
 }
 
+func (me *Publication) isAllBind() bool {
+	res := true
+	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
+		if !pt.isBind() {
+			res = false
+			return false
+		} else {
+			return true
+		}
+	})
+	return res
+}
+
 func (me *Publication) Bind() bool {
 	done := false
 	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
 		if pt.Bind() {
 			done = true
+			if me.isAllBind() {
+				r := GetRouter()
+				var tracks []*Track
+				me.tracks.ForEach(func(_ string, pt0 *PublishedTrack) bool {
+					tracks = append(tracks, pt0.track)
+					return true
+				})
+				msg := &StateMessage{
+					PubId:  me.id,
+					Tracks: tracks,
+					Addr:   r.Addr(),
+				}
+				// to all in room include self
+				me.ctx.Socket.To(me.ctx.Rooms()...).Emit("state", msg)
+				me.ctx.Socket.Emit("state", msg)
+			}
 			return false
 		} else {
 			return true
@@ -258,6 +287,10 @@ func (me *PublishedTrack) BindId() string {
 	return me.track.BindId
 }
 
+func (pt *PublishedTrack) isBind() bool {
+	return pt.remote != nil
+}
+
 func (pt *PublishedTrack) Bind() bool {
 	ctx := pt.pub.ctx
 	peer, err := ctx.MakeSurePeer()
@@ -273,7 +306,9 @@ func (pt *PublishedTrack) Bind() bool {
 		}
 		pt.remote = rt
 		codec := rt.Codec()
-		pt.track.Codec = NewRTPCodecParameters(&codec)
+		if codec.MimeType != "" {
+			pt.track.Codec = NewRTPCodecParameters(&codec)
+		}
 		pt.track.LocalId = rt.ID()
 		ctx.Socket.Emit("published", &PublishedMessage{
 			Track: pt.Track(),
