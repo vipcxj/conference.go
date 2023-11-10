@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, RefObject } from "react"
-import { ConferenceClient, PT } from "conference.go/dist"
-import type { Labels } from 'conference.go/dist/pattern'
+import { ConferenceClient, PT } from "conference.go/lib"
+import type { Labels } from 'conference.go/lib/pattern'
 
 export function useOnce(effect: () => void | Promise<void>, readyFunc: () => boolean = () => true) {
     const initialized = useRef(false)
@@ -25,6 +25,7 @@ export function useCreateOnce<T>(factory: () => Promise<T>): T | undefined {
 
 export interface VideoProps {
     stream?: MediaStream;
+    rtcConfig?: RTCConfiguration;
     auth: {
         uid: string;
         uname: string;
@@ -51,6 +52,7 @@ export const Video = (pros: VideoProps) => {
         signalHost = "http://localhost:8080",
         authHost = "http://localhost:3100",
         stream,
+        rtcConfig,
     } = pros;
     const { uid, uname, role, room } = auth;
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -61,6 +63,7 @@ export const Video = (pros: VideoProps) => {
             name,
             signalUrl: `${signalHost}/socket.io`,
             token,
+            rtcConfig,
         });
         await client.publish({
             stream: stream!,

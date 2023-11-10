@@ -4,7 +4,7 @@
         "declaration": true,
         "lib": ["DOM", "ESNext"],
         "target": "ES5",
-        "outDir": "./dist",
+        "outDir": "./lib",
         "sourceMap": true
     },
     "include": [

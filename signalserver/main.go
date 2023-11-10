@@ -6,9 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/middleware"
 	"github.com/vipcxj/conference.go/signal"
-	"github.com/zishang520/engine.io/utils"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
@@ -34,11 +34,11 @@ func Run(ch chan error) {
 		if err != nil {
 			signal.FatalErrorAndClose(socket, signal.ErrToMsg(err), "init signal")
 		}
-		utils.Log().Info(`socket %s connected`, socket.Id())
+		log.Sugar().Infof(`socket %s connected`, socket.Id())
 
 		// upon disconnection
 		socket.On("disconnect", func(reason ...any) {
-			utils.Log().Info(`socket %s disconnected due to %s`, socket.Id(), reason[0])
+			log.Sugar().Infof(`socket %s disconnected due to %s`, socket.Id(), reason[0])
 		})
 	})
 	handler := io.ServeHandler(nil)

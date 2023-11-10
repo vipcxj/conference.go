@@ -1,10 +1,9 @@
 package signal
 
 import (
-	"fmt"
-
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/log"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
@@ -170,10 +169,10 @@ func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, c
 func processCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, msg *CandidateMessage) error {
 	var err error
 	if msg.Op == "add" {
-		fmt.Println("Received candidate ", msg.Candidate.Candidate)
+		log.Sugar().Debugf("Received candidate ", msg.Candidate.Candidate)
 		err = peer.AddICECandidate(msg.Candidate)
 	} else {
-		fmt.Println("Received candidate completed")
+		log.Sugar().Debugf("Received candidate completed")
 		err = peer.AddICECandidate(webrtc.ICECandidateInit{})
 	}
 	return err

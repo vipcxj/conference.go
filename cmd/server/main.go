@@ -1,32 +1,32 @@
 package main
 
 import (
-	"log"
-	"os"
-
 	"github.com/vipcxj/conference.go/authserver"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/signalserver"
 )
 
 func main() {
+	// init depend on empty confg
+	log.Init()
 	err := config.Init()
 	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
+		log.Sugar().Fatalln(err)
 		return
 	}
+	// init depend on inited confg
+	log.Init()
+
 	ch := make(chan error)
 	go authserver.Run(ch)
 	go signalserver.Run(ch)
 	n := 2
 	for {
-		err = <- ch
+		err = <-ch
 		if !errors.IsOk(err) {
-			log.Fatal(err)
-			n = 0
-			os.Exit(1)
+			log.Sugar().Fatalln(err)
 			return
 		}
 		n--

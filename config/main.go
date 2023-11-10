@@ -20,7 +20,6 @@ func Init() error {
 	config.AddDriver(yamlv3.Driver)
 	config.AddDriver(toml.Driver)
 	var err error
-	config.LoadOSEnvs(ENVS)
 	confPath, ok := os.LookupEnv("CONF_CONFIG_PATH")
 	if ok && confPath != "" {
 		err = config.LoadFiles(confPath)

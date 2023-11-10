@@ -14,6 +14,7 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/log"
 )
 
 const MAGIC_SETUP = "consetup"
@@ -347,9 +348,9 @@ func GetRouter() *Router {
 }
 
 func (r *Router) Addr() string {
-	ser := r.server
-	if ser == nil {
-		return ""
+	ser, err := r.makeSureServer()
+	if err != nil {
+		panic(err)
 	}
 	addr, _ := ser.LocalAddr().(*net.UDPAddr)
 	port := addr.Port
@@ -370,6 +371,7 @@ func (r *Router) makeSureServer() (*net.UDPConn, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Sugar().Infof("start server on ", ser.LocalAddr())
 	r.server = ser
 	go r.run(ser)
 	return r.server, nil
@@ -381,13 +383,13 @@ func (r *Router) run(ser *net.UDPConn) {
 		for {
 			n, addr, err := ser.ReadFromUDP(buf)
 			if err != nil {
-				fmt.Println("error happened when read from udp: ", err)
+				log.Sugar().Errorf("error happened when read from udp: ", err)
 				continue
 			}
 			setup := NewSetupPacket(nil)
 			err = DecodeSetupPacket(buf, n, setup)
 			if err != nil {
-				fmt.Println(err.Error())
+				log.Sugar().Errorln(err)
 				continue
 			}
 			connId, _ := uuid.FromBytes(setup.TransportId[:])
@@ -488,7 +490,7 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 	if err != nil {
 		panic(err)
 	}
-
+	log.Sugar().Infof("set up external udp connect from %v to %v", r.Addr(), addr)
 	chArk := make(chan bool)
 	chClose := make(chan interface{})
 	go func() {

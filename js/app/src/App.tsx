@@ -11,7 +11,11 @@ function App() {
   const props: Array<VideoProps> = [];
   const stream = useCreateOnce(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
+      video: {
+        width: 320,
+        height: 240,
+        frameRate: 6,
+      },
     });
     return stream;
   });
@@ -19,6 +23,13 @@ function App() {
     props[i] = {
       name: `client${i}`,
       stream: stream,
+      rtcConfig: {
+        iceServers: [{
+          urls: 'turn:192.168.1.233:5349',
+          username: 'admin',
+          credential: '123456',
+        }]
+      },
       auth: {
         uid: `${i}`,
         uname: `user${i}`,
@@ -35,8 +46,8 @@ function App() {
           uid: `${(i + ROW) % (ROW * COL)}`,
         },
       },
-      signalHost: 'http://localhost:8080',
-      authHost: 'http://localhost:3100',
+      signalHost: 'http://192.168.1.233:8080',
+      authHost: 'http://192.168.1.233:3100',
     }
   }
   return (
