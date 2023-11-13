@@ -53,11 +53,11 @@ interface ErrorMessage extends SignalMessage {
 }
 
 interface Track {
-    type: string
-    pubId: string
-    globalId: string
-    bindId: string
-    rid: string
+    type: string;
+    pubId: string;
+    globalId: string;
+    bindId: string;
+    rid: string;
     streamId: string;
     labels?: Labels;
 }
