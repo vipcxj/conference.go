@@ -26,6 +26,10 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
+		if msg.Type == webrtc.SDPTypeAnswer.String() && ctx.CurrentSdpMsgId() != msg.Mid {
+			log.Sugar().Warn("received unmatched sdp answer msg with msg id ", msg.Mid)
+			return
+		}
 		peer, err := ctx.MakeSurePeer()
 		if err != nil {
 			panic(err)
@@ -57,6 +61,7 @@ func InitSignal(s *socket.Socket) error {
 			err = s.Emit("sdp", SdpMessage{
 				Type: answer.Type.String(),
 				Sdp:  answer.SDP,
+				Mid:  msg.Mid,
 			})
 			if err != nil {
 				panic(err)

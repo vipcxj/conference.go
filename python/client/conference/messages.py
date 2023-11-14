@@ -14,6 +14,12 @@ class SignalMessage:
     pass
 
 @dataclass(kw_only=True)
+class SdpMessage(SignalMessage):
+    type: Literal['answer', 'offer', 'pranswer', 'rollback']
+    sdp: str
+    msgId: int
+    
+@dataclass(kw_only=True)
 class SubscribeAddMessage(SignalMessage):
     op: Literal[SubOp.ADD] = SubOp.ADD
     reqTypes: list[str] | None = None
@@ -27,4 +33,5 @@ class SubscribeResultMessage(SignalMessage):
 class SubscribedMessage(SignalMessage):
     subId: str
     pubId: str
+    sdpId: int
     tracks: list[Track]

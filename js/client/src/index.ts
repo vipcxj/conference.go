@@ -27,11 +27,13 @@ interface LocalStream {
 
 interface SignalMessage {
     to?: string
+    msgId?: number
 }
 
 interface SdpMessage extends SignalMessage {
     type: RTCSdpType;
     sdp: string;
+    
 }
 
 interface CandidateMessage extends SignalMessage {
@@ -125,6 +127,7 @@ interface SubscribeResultMessage extends SignalMessage {
 interface SubscribedMessage extends SignalMessage {
     subId: string;
     pubId: string;
+    sdpId: number;
     tracks: Track[];
 }
 
@@ -182,6 +185,7 @@ export class ConferenceClient {
     private peer: RTCPeerConnection;
     private onTrasksCallbacks: OnTrack[];
     private emitter: Emittery<EventData>;
+    private sdpMsgId: number;
 
     constructor(config: Configuration) {
         this.config = config;
@@ -195,6 +199,7 @@ export class ConferenceClient {
         this.ignoreOffer = false;
         this.pendingCandidates = [];
         this.onTrasksCallbacks = [];
+        this.sdpMsgId = 0;
         this.socket = io(host, {
             auth: {
                 token,
@@ -252,6 +257,10 @@ export class ConferenceClient {
         // });
     }
 
+    nextSdpMsgId = () => {
+        return ++this.sdpMsgId;
+    }
+
     ark = (func?: Ark) => {
         if (func) {
             func();
@@ -267,14 +276,15 @@ export class ConferenceClient {
                     await peer.setLocalDescription();
                     const desc = peer.localDescription;
                     const msg: SdpMessage = {
-                      type: desc.type,
-                      sdp: desc.sdp,
+                        msgId: this.nextSdpMsgId(),
+                        type: desc.type,
+                        sdp: desc.sdp,
                     }
                     this.socket.emit("sdp", msg)
                 } catch (err) {
                     console.error(err);
                 } finally {
-                      this.makingOffer = false;
+                    this.makingOffer = false;
                 }
             };
             peer.onicecandidate = (evt) => {
@@ -444,10 +454,12 @@ export class ConferenceClient {
         });
         const subEvts = this.emitter.events('subscribed');
         let tracks: Track[]
+        let sdpId: number = 0
         const trackEvts = this.emitter.events('track');
         for await (const subEvt of subEvts) {
             if (subEvt.subId == subId) {
                 tracks = subEvt.tracks;
+                sdpId = subEvt.sdpId;
                 subEvts.return();
                 break;
             }

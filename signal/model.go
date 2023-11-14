@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/alphadose/haxmap"
@@ -79,6 +80,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	if s.acceptedTrack == nil {
 		s.acceptedTrack = map[string]*SubscribedTrack{}
 	}
+	sdpId := s.ctx.NextSdpMsgId()
 	for _, matched := range matcheds {
 		subscribedTrack, ok := s.acceptedTrack[matched.GlobalId]
 		if !ok {
@@ -127,9 +129,11 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	}
 	s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
 	s.ctx.Socket.Emit("select", selMsg)
+	s.ctx.StartNegotiate(peer, sdpId)
 	respMsg := &SubscribedMessage{
 		SubId:  s.id,
 		PubId:  msg.PubId,
+		SdpId: sdpId,
 		Tracks: matcheds,
 	}
 	s.ctx.Socket.Emit("subscribed", respMsg)
@@ -413,9 +417,11 @@ type SingalContext struct {
 	pendingCandidates []*CandidateMessage
 	cand_mux          sync.Mutex
 	peer_mux          sync.Mutex
+	neg_mux           sync.Mutex
 	subscriptions     *haxmap.Map[string, *Subscription]
 	publications      *haxmap.Map[string, *Publication]
 	peerClosed        bool
+	sdpMsgId          atomic.Int32
 }
 
 func newSignalContext(socket *socket.Socket, authInfo *auth.AuthInfo) *SingalContext {
@@ -441,6 +447,14 @@ func (ctx *SingalContext) Rooms() []socket.Room {
 	} else {
 		return []socket.Room{}
 	}
+}
+
+func (ctx *SingalContext) NextSdpMsgId() int {
+	return int(ctx.sdpMsgId.Add(1))
+}
+
+func (ctx *SingalContext) CurrentSdpMsgId() int {
+	return int(ctx.sdpMsgId.Load())
 }
 
 func (ctx *SingalContext) Close() {
@@ -678,6 +692,26 @@ func (ctx *SingalContext) closePeer() {
 	}
 }
 
+func (ctx *SingalContext) StartNegotiate(peer *webrtc.PeerConnection, msgId int) (err error) {
+	ctx.neg_mux.Lock()
+	defer ctx.neg_mux.Unlock()
+	offer, err := peer.CreateOffer(nil)
+	if err != nil {
+		return
+	}
+	err = peer.SetLocalDescription(offer)
+	if err != nil {
+		return
+	}
+	desc := peer.LocalDescription()
+	err = ctx.Socket.Emit("sdp", SdpMessage{
+		Type: desc.Type.String(),
+		Sdp:  desc.SDP,
+		Mid:  msgId,
+	})
+	return
+}
+
 func createPeer() (*webrtc.PeerConnection, error) {
 	m := &webrtc.MediaEngine{}
 	if err := m.RegisterDefaultCodecs(); err != nil {
@@ -727,26 +761,6 @@ func (ctx *SingalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 		if err != nil {
 			return
 		}
-		peer.OnNegotiationNeeded(func() {
-			defer CatchFatalAndClose(ctx.Socket, "on negotiation")
-			ctx.makingOffer = true
-			defer func() {
-				ctx.makingOffer = false
-			}()
-			offer, err := peer.CreateOffer(nil)
-			if err != nil {
-				panic(err)
-			}
-			err = peer.SetLocalDescription(offer)
-			if err != nil {
-				panic(err)
-			}
-			desc := peer.LocalDescription()
-			ctx.Socket.Emit("sdp", SdpMessage{
-				Type: desc.Type.String(),
-				Sdp:  desc.SDP,
-			})
-		})
 		peer.OnICECandidate(func(i *webrtc.ICECandidate) {
 			defer CatchFatalAndClose(ctx.Socket, "on candidate")
 			var err error

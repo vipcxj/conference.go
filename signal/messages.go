@@ -21,6 +21,7 @@ type SdpMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	Type          string `json:"type" mapstructure:"type"`
 	Sdp           string `json:"sdp" mapstructure:"sdp"`
+	Mid           int    `json:"mid" mapstructure:"mid"`
 }
 
 type CandidateMessage struct {
@@ -191,5 +192,6 @@ type SubscribedMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	SubId         string   `json:"subId" mapstructure:"subId"`
 	PubId         string   `json:"pubId" mapstructure:"pubId"`
+	SdpId         int      `json:"sdpId" mapstructure:"sdpId"`
 	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
 }
