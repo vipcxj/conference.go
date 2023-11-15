@@ -69,6 +69,14 @@ interface TrackMessage extends SignalMessage {
     tracks: Track[];
 }
 
+interface JoinMessage extends SignalMessage {
+    rooms?: string[]
+}
+
+interface LeaveMessage extends SignalMessage {
+    rooms?: string[]
+}
+
 const PUB_OP_ADD = 0;
 const PUB_OP_REMOVE = 1;
 
@@ -153,6 +161,8 @@ interface ListenEventMap {
 }
 
 interface EmitEventMap {
+    join: (msg: JoinMessage, ark: (res: any) => void) => void
+    leave: (msg: LeaveMessage, ark: (res: any) => void) => void
     subscribe: (msg: SubscribeAddMessage, ark: (res: SubscribeResultMessage) => void) => void;
     publish: (msg: PublishAddMessage, ark: (res: PublishResultMessage) => void) => void;
     sdp: (msg: SdpMessage) => void;
@@ -381,7 +391,7 @@ export class ConferenceClient {
         }
     }
 
-    getMid = (peer: RTCPeerConnection, transceiver: RTCRtpTransceiver): string => {
+    private getMid = (peer: RTCPeerConnection, transceiver: RTCRtpTransceiver): string => {
         if (transceiver.mid) {
             return transceiver.mid;
         } else {
@@ -392,6 +402,20 @@ export class ConferenceClient {
             }
             return `pos:${pos}`;
         }
+    }
+
+    join = async (...rooms: string[]) => {
+        this.socket.connect()
+        const res = await this.socket.emitWithAck('join', {
+            rooms,
+        });
+    }
+
+    leave = async (...rooms: string[]) => {
+        this.socket.connect()
+        await this.socket.emitWithAck('leave', {
+            rooms,
+        });
     }
 
     publish = async (stream: LocalStream) => {

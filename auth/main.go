@@ -10,17 +10,19 @@ import (
 	"io"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 )
 
 type AuthInfo struct {
-	UID string `json:"uid"`
-	UName string `json:"uname"`
-	Role string `json:"role"`
-	Rooms []string `json:"rooms"`
-	Nonce int32 `json:"nonce"`
+	UID      string   `json:"uid"`
+	UName    string   `json:"uname"`
+	Role     string   `json:"role"`
+	Rooms    []string `json:"rooms"`
+	AutoJoin bool     `json:"autoJoin"`
+	Nonce    int32    `json:"nonce"`
 }
 
 func NewAuthInfoFromForm(form url.Values) (*AuthInfo, error) {
@@ -38,10 +40,14 @@ func NewAuthInfoFromForm(form url.Values) (*AuthInfo, error) {
 	}
 	var rooms []string
 	rooms, ok := form["room"]
-	if !ok {
+	if !ok || rooms == nil {
 		return nil, errors.InvalidParam("The param room is required for creating auth info.")
-	} else if rooms == nil {
-		rooms = []string{}
+	}
+	var autoJoin bool
+	autoJoinStr := form.Get("autojoin")
+	autoJoinStr = strings.ToLower(autoJoinStr)
+	if autoJoinStr == "1" || autoJoinStr == "on" || autoJoinStr == "true" || autoJoinStr == "yes" {
+		autoJoin = true
 	}
 	strNonce := form.Get("nonce")
 	if strNonce == "" {
@@ -52,73 +58,74 @@ func NewAuthInfoFromForm(form url.Values) (*AuthInfo, error) {
 		return nil, err
 	}
 	return &AuthInfo{
-		UID: uid,
-		UName: uname,
-		Role: role,
-		Rooms: rooms,
-		Nonce: int32(nonce),
+		UID:      uid,
+		UName:    uname,
+		Role:     role,
+		Rooms:    rooms,
+		AutoJoin: autoJoin,
+		Nonce:    int32(nonce),
 	}, nil
 }
 
 func _sha1(data []byte) ([]byte, error) {
-    h := sha1.New()
-    _, err := h.Write(data)
+	h := sha1.New()
+	_, err := h.Write(data)
 	if err != nil {
 		return nil, nil
 	}
-    return h.Sum(nil), nil
+	return h.Sum(nil), nil
 }
 
 func genAesKey(pass string) ([]byte, error) {
-    data := []byte(pass)
+	data := []byte(pass)
 	hashs, err := _sha1(data)
 	if err != nil {
 		return nil, err
 	}
-    hashs, err = _sha1(hashs)
+	hashs, err = _sha1(hashs)
 	if err != nil {
 		return nil, err
 	}
-    return hashs[0:16], nil
+	return hashs[0:16], nil
 }
 
 func encrypt(plaintext []byte, key []byte) ([]byte, error) {
-    c, err := aes.NewCipher(key)
-    if err != nil {
-        return nil, err
-    }
+	c, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
 
-    gcm, err := cipher.NewGCM(c)
-    if err != nil {
-        return nil, err
-    }
+	gcm, err := cipher.NewGCM(c)
+	if err != nil {
+		return nil, err
+	}
 
-    nonce := make([]byte, gcm.NonceSize())
-    if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
-        return nil, err
-    }
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
 
-    return gcm.Seal(nonce, nonce, plaintext, nil), nil
+	return gcm.Seal(nonce, nonce, plaintext, nil), nil
 }
 
 func decrypt(ciphertext []byte, key []byte) ([]byte, error) {
-    c, err := aes.NewCipher(key)
-    if err != nil {
-        return nil, err
-    }
+	c, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
 
-    gcm, err := cipher.NewGCM(c)
-    if err != nil {
-        return nil, err
-    }
+	gcm, err := cipher.NewGCM(c)
+	if err != nil {
+		return nil, err
+	}
 
-    nonceSize := gcm.NonceSize()
-    if len(ciphertext) < nonceSize {
-        return nil, errors.FatalError("ciphertext too short")
-    }
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, errors.FatalError("ciphertext too short")
+	}
 
-    nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-    return gcm.Open(nil, nonce, ciphertext, nil)
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	return gcm.Open(nil, nonce, ciphertext, nil)
 }
 
 func Encode(authInfo *AuthInfo) (string, error) {

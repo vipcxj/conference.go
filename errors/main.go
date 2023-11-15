@@ -14,6 +14,7 @@ const (
 	BAD_PACKET          = 10000
 	INVALID_PUB_PATTERN = 11000
 	SUB_NOT_EXIST       = 12000
+	ROOM_NO_RIGHT       = 13000
 
 	INVALID_STATE = 10000000
 )
@@ -91,6 +92,10 @@ func BadPacket(msg string, args ...any) *ConferenceError {
 
 func InvalidPubPattern(msg string, args ...any) *ConferenceError {
 	return NewError(INVALID_PUB_PATTERN, msg, args...)
+}
+
+func RoomNoRight(room string) *ConferenceError {
+	return NewError(ROOM_NO_RIGHT, "no right for room %s", room)
 }
 
 func SubNotExist(subId string) *ConferenceError {

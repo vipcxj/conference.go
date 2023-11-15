@@ -12,17 +12,46 @@ func InitSignal(s *socket.Socket) error {
 	if ctx == nil {
 		return errors.FatalError("unable to find the signal context")
 	}
+	auth := ctx.AuthInfo
+	if auth == nil {
+		return errors.ThisIsImpossible().GenCallStacks()
+	}
+	if auth.AutoJoin {
+		if err := ctx.JoinRoom(); err != nil {
+			return err
+		}
+	}
 	s.On("disconnect", func(args ...any) {
 		reason := args[0].(string)
 		if reason == "server namespace disconnect" || reason == "client namespace disconnect" || reason == "server shutting down" {
 			ctx.Close()
 		}
 	})
+	s.On("join", func(args ...any) {
+		msg := JoinMessage{}
+		ark, err := parseArgs(&msg, args...)
+		defer FinallyResponse(ctx.Socket, ark, nil, "join")
+		if err != nil {
+			panic(err)
+		}
+		err = ctx.JoinRoom(msg.Rooms...)
+		if err != nil {
+			panic(err)
+		}
+	})
+	s.On("leave", func(args ...any) {
+		msg := LeaveMessage{}
+		ark, err := parseArgs(&msg, args...)
+		defer FinallyResponse(ctx.Socket, ark, nil, "leave")
+		if err != nil {
+			panic(err)
+		}
+		ctx.LeaveRoom(msg.Rooms...)
+	})
 	s.On("sdp", func(args ...any) {
-		defer CatchFatalAndClose(ctx.Socket, "on sdp")
 		msg := SdpMessage{}
 		ark, err := parseArgs(&msg, args...)
-		doArk(ark, nil)
+		defer FinallyResponse(ctx.Socket, ark, nil, "sdp")
 		if err != nil {
 			panic(err)
 		}
@@ -69,10 +98,9 @@ func InitSignal(s *socket.Socket) error {
 		}
 	})
 	s.On("candidate", func(args ...any) {
-		defer CatchFatalAndClose(ctx.Socket, "candidate")
 		msg := CandidateMessage{}
 		ark, err := parseArgs(&msg, args...)
-		doArk(ark, nil)
+		defer FinallyResponse(ctx.Socket, ark, nil, "candidate")
 		if err != nil {
 			panic(err)
 		}
@@ -96,9 +124,10 @@ func InitSignal(s *socket.Socket) error {
 		}
 	})
 	s.On("publish", func(args ...any) {
-		defer CatchFatalAndClose(ctx.Socket, "publish")
 		msg := PublishMessage{}
 		ark, err := parseArgs(&msg, args...)
+		arkArgs := make([]any, 1)
+		defer FinallyResponse(ctx.Socket, ark, arkArgs, "publish")
 		if err != nil {
 			panic(err)
 		}
@@ -106,14 +135,15 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		doArk(ark, &PublishResultMessage{
+		arkArgs[0] = &PublishResultMessage{
 			Id: pubId,
-		})
+		}
 	})
 	s.On("subscribe", func(args ...any) {
-		defer CatchFatalAndClose(ctx.Socket, "subscribe")
 		msg := SubscribeMessage{}
 		ark, err := parseArgs(&msg, args...)
+		arkArgs := make([]any, 1)
+		defer FinallyResponse(ctx.Socket, ark, arkArgs, "subscribe")
 		if err != nil {
 			panic(err)
 		}
@@ -121,35 +151,32 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		doArk(ark, &SubscribeResultMessage{
+		arkArgs[0] = &SubscribeResultMessage{
 			Id: subId,
-		})
+		}
 	})
 	s.On("state", func(args ...any) {
-		defer CatchFatalAndClose(ctx.Socket, "subscribe")
 		msg := StateMessage{}
 		ark, err := parseArgs(&msg, args...)
-		doArk(ark, nil)
+		defer FinallyResponse(ctx.Socket, ark, nil, "subscribe")
 		if err != nil {
 			panic(err)
 		}
 		ctx.AcceptTrack(&msg)
 	})
 	s.On("want", func(args ...any) {
-		defer CatchFatalAndClose(ctx.Socket, "want")
 		msg := WantMessage{}
 		ark, err := parseArgs(&msg, args...)
-		doArk(ark, nil)
+		defer FinallyResponse(ctx.Socket, ark, nil, "want")
 		if err != nil {
 			panic(err)
 		}
 		ctx.StateWant(&msg)
 	})
 	s.On("select", func(args ...any) {
-		defer CatchFatalAndClose(ctx.Socket, "select")
 		msg := SelectMessage{}
 		ark, err := parseArgs(&msg, args...)
-		doArk(ark, nil)
+		defer FinallyResponse(ctx.Socket, ark, nil, "select")
 		if err != nil {
 			panic(err)
 		}

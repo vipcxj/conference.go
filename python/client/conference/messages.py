@@ -14,6 +14,10 @@ class SignalMessage:
     pass
 
 @dataclass(kw_only=True)
+class JoinMessage(SignalMessage):
+    rooms: list[str] | None = None
+
+@dataclass(kw_only=True)
 class SdpMessage(SignalMessage):
     type: Literal['answer', 'offer', 'pranswer', 'rollback']
     sdp: str

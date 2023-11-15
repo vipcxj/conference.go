@@ -9,7 +9,7 @@ from aiortc import RTCPeerConnection, RTCConfiguration, RTCSessionDescription, M
 
 from conference.utils import splitUrl
 from conference.pattern import Pattern
-from conference.messages import SdpMessage, SignalMessage, SubscribeAddMessage, SubscribeResultMessage, SubscribedMessage, Track
+from conference.messages import JoinMessage, SdpMessage, SignalMessage, SubscribeAddMessage, SubscribeResultMessage, SubscribedMessage, Track
 
 @dataclass
 class SocketConfigure:
@@ -314,6 +314,15 @@ class ConferenceClient():
             except:
                 pass
             await self.io.disconnect()
+            
+    async def join(self, rooms: list[str]):
+        await self.__makesure_socket_connect()
+        async with self.ark_lock:
+            ark_fut: aio.Future[Any] = aio.Future()
+            def ark(msg: Any):
+                ark_fut.set_result(msg)
+            await self.io.emit('join', JoinMessage(rooms=rooms), callback=ark)
+            await ark_fut
         
     async def subscribe(self, pattern: Pattern, reqTypes: list[str] | None = None):
         await self.__makesure_socket_connect()

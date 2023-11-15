@@ -25,7 +25,7 @@ func SocketIOAuthHandler() func(*socket.Socket, func(*socket.ExtendedError)) {
 		}
 		token, ok := tokenAny.(string)
 		if !ok {
-			panic(errors.FatalError(fmt.Sprintf("Invalid token type %v", reflect.TypeOf(token))))
+			panic(errors.FatalError("Invalid token type %v", reflect.TypeOf(token)))
 		}
 		authInfo := &auth.AuthInfo{}
 		err := auth.Decode(token, authInfo)

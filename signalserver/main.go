@@ -26,11 +26,7 @@ func Run(ch chan error) {
 	io.Use(middleware.SocketIOAuthHandler())
 	io.On("connection", func(clients ...any) {
 		socket := clients[0].(*socket.Socket)
-		err := signal.JoinRoom(socket)
-		if err != nil {
-			signal.FatalErrorAndClose(socket, signal.ErrToMsg(err), "join room")
-		}
-		err = signal.InitSignal(socket)
+		err := signal.InitSignal(socket)
 		if err != nil {
 			signal.FatalErrorAndClose(socket, signal.ErrToMsg(err), "init signal")
 		}

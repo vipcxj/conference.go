@@ -133,7 +133,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	respMsg := &SubscribedMessage{
 		SubId:  s.id,
 		PubId:  msg.PubId,
-		SdpId: sdpId,
+		SdpId:  sdpId,
 		Tracks: matcheds,
 	}
 	s.ctx.Socket.Emit("subscribed", respMsg)
@@ -412,6 +412,7 @@ type SingalContext struct {
 	Socket            *socket.Socket
 	AuthInfo          *auth.AuthInfo
 	Peer              *webrtc.PeerConnection
+	rooms             []socket.Room
 	polite            bool
 	makingOffer       bool
 	pendingCandidates []*CandidateMessage
@@ -437,16 +438,12 @@ func (ctx *SingalContext) Authed() bool {
 	return ctx.AuthInfo != nil
 }
 
+func (ctx *SingalContext) RoomPaterns() []string {
+	return ctx.AuthInfo.Rooms
+}
+
 func (ctx *SingalContext) Rooms() []socket.Room {
-	if ctx.AuthInfo != nil {
-		if rooms := ctx.AuthInfo.Rooms; len(rooms) > 0 {
-			return unsafe.Slice((*socket.Room)(unsafe.Pointer(&rooms[0])), len(rooms))
-		} else {
-			return []socket.Room{}
-		}
-	} else {
-		return []socket.Room{}
-	}
+	return ctx.rooms
 }
 
 func (ctx *SingalContext) NextSdpMsgId() int {
@@ -762,7 +759,6 @@ func (ctx *SingalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 			return
 		}
 		peer.OnICECandidate(func(i *webrtc.ICECandidate) {
-			defer CatchFatalAndClose(ctx.Socket, "on candidate")
 			var err error
 			if i == nil {
 				err = ctx.Socket.Emit("candidate", CandidateMessage{
@@ -775,7 +771,7 @@ func (ctx *SingalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 				})
 			}
 			if err != nil {
-				panic(err)
+				log.Sugar().Error(err)
 			}
 		})
 		peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
@@ -801,6 +797,47 @@ func (ctx *SingalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 	return
 }
 
+func (ctx *SingalContext) HasRoomRight(room string) bool {
+	for _, p := range ctx.RoomPaterns() {
+		if MatchRoom(p, room) {
+			return true
+		}
+	}
+	return false
+}
+
+func (ctx *SingalContext) JoinRoom(rooms ...string) error {
+	var s_rooms []socket.Room
+	if len(rooms) == 0 {
+		for _, p := range ctx.RoomPaterns() {
+			if !strings.Contains(p, "*") {
+				s_rooms = append(s_rooms, socket.Room(p))
+			}
+		}
+		if len(s_rooms) == 0 {
+			return errors.InvalidParam("room is not provided")
+		}
+	} else {
+		for _, room := range rooms {
+			if !ctx.HasRoomRight(room) {
+				return errors.RoomNoRight(room)
+			}
+		}
+		s_rooms = make([]socket.Room, len(rooms))
+		for i, room := range rooms {
+			s_rooms[i] = socket.Room(room)
+		}
+	}
+	ctx.Socket.Join(s_rooms...)
+	return nil
+}
+
+func (ctx *SingalContext) LeaveRoom(rooms ...string) {
+	for _, room := range rooms {
+		ctx.Socket.Leave(socket.Room(room))
+	}
+}
+
 func GetSingalContext(s *socket.Socket) *SingalContext {
 	d := s.Data()
 	if d != nil {
@@ -818,17 +855,4 @@ func SetAuthInfo(s *socket.Socket, authInfo *auth.AuthInfo) {
 	} else {
 		raw.(*SingalContext).AuthInfo = authInfo
 	}
-}
-
-func JoinRoom(s *socket.Socket) error {
-	ctx := GetSingalContext(s)
-	if ctx == nil {
-		return errors.Unauthorized("")
-	}
-	rooms := ctx.Rooms()
-	if len(rooms) == 0 {
-		return errors.InvalidParam("room is not provided")
-	}
-	s.Join(rooms...)
-	return nil
 }

@@ -30,6 +30,16 @@ type CandidateMessage struct {
 	Candidate     webrtc.ICECandidateInit `json:"candidate" mapstructure:"candidate"`
 }
 
+type JoinMessage struct {
+	SignalMessage `mapstructure:",squash"`
+	Rooms         []string `json:"rooms" mapstructure:"rooms"`
+}
+
+type LeaveMessage struct {
+	SignalMessage `mapstructure:",squash"`
+	Rooms         []string `json:"rooms" mapstructure:"rooms"`
+}
+
 type TrackMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	Op            string   `json:"op" mapstructure:"op"`
