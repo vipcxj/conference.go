@@ -3,7 +3,6 @@ package signal
 import (
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/errors"
-	"github.com/vipcxj/conference.go/log"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
@@ -55,47 +54,50 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		if msg.Type == webrtc.SDPTypeAnswer.String() && ctx.CurrentSdpMsgId() != msg.Mid {
-			log.Sugar().Warn("received unmatched sdp answer msg with msg id ", msg.Mid)
-			return
-		}
 		peer, err := ctx.MakeSurePeer()
 		if err != nil {
 			panic(err)
 		}
-		offerCollision := msg.Type == webrtc.SDPTypeOffer.String() && (ctx.makingOffer || peer.SignalingState() != webrtc.SignalingStateStable)
-		if ctx.polite && offerCollision {
-			return
-		}
-		err = peer.SetRemoteDescription(webrtc.SessionDescription{
-			Type: webrtc.NewSDPType(msg.Type),
-			SDP:  msg.Sdp,
-		})
-		if err != nil {
-			panic(err)
-		}
-		err = processPendingCandidateMsg(s, peer, ctx)
-		if err != nil {
-			panic(err)
-		}
-		if msg.Type == webrtc.SDPTypeOffer.String() {
-			answer, err := peer.CreateAnswer(nil)
-			if err != nil {
-				panic(err)
+		ctx.Sugar().Infof("accept %s sdp msg with id %d", msg.Type, msg.Mid)
+		go func() {
+			ctx.neg_mux.TryLock()
+			if msg.Type == webrtc.SDPTypeAnswer.String() && ctx.CurrentSdpMsgId() != msg.Mid {
+				ctx.Sugar().Warn("received unmatched sdp answer msg with msg id ", msg.Mid)
+				return
 			}
-			err = peer.SetLocalDescription(answer)
-			if err != nil {
-				panic(err)
-			}
-			err = s.Emit("sdp", SdpMessage{
-				Type: answer.Type.String(),
-				Sdp:  answer.SDP,
-				Mid:  msg.Mid,
+			err = peer.SetRemoteDescription(webrtc.SessionDescription{
+				Type: webrtc.NewSDPType(msg.Type),
+				SDP:  msg.Sdp,
 			})
 			if err != nil {
+				ctx.Sugar().Warn(err)
+				return
+			}
+			err = processPendingCandidateMsg(s, peer, ctx)
+			if err != nil {
 				panic(err)
 			}
-		}
+			if msg.Type == webrtc.SDPTypeOffer.String() {
+				answer, err := peer.CreateAnswer(nil)
+				if err != nil {
+					panic(err)
+				}
+				err = peer.SetLocalDescription(answer)
+				if err != nil {
+					panic(err)
+				}
+				err = s.Emit("sdp", SdpMessage{
+					Type: answer.Type.String(),
+					Sdp:  answer.SDP,
+					Mid:  msg.Mid,
+				})
+				if err != nil {
+					panic(err)
+				}
+			} else if msg.Type != webrtc.SDPTypeAnswer.String() {
+				panic(errors.FatalError("the sdp type %v is not supported", msg.Type))
+			}
+		}()
 	})
 	s.On("candidate", func(args ...any) {
 		msg := CandidateMessage{}
@@ -162,7 +164,7 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		ctx.AcceptTrack(&msg)
+		go ctx.AcceptTrack(&msg)
 	})
 	s.On("want", func(args ...any) {
 		msg := WantMessage{}
@@ -171,7 +173,7 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		ctx.StateWant(&msg)
+		go ctx.StateWant(&msg)
 	})
 	s.On("select", func(args ...any) {
 		msg := SelectMessage{}
@@ -180,12 +182,12 @@ func InitSignal(s *socket.Socket) error {
 		if err != nil {
 			panic(err)
 		}
-		ctx.SatifySelect(&msg)
+		go ctx.SatifySelect(&msg)
 	})
 	return nil
 }
 
-func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, ctx *SingalContext) error {
+func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, ctx *SignalContext) error {
 	ctx.cand_mux.Lock()
 	defer ctx.cand_mux.Unlock()
 	var err error
@@ -200,11 +202,12 @@ func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, c
 
 func processCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, msg *CandidateMessage) error {
 	var err error
+	ctx := GetSingalContext(s)
 	if msg.Op == "add" {
-		log.Sugar().Debugf("Received candidate ", msg.Candidate.Candidate)
+		ctx.Sugar().Debugf("Received candidate ", msg.Candidate.Candidate)
 		err = peer.AddICECandidate(msg.Candidate)
 	} else {
-		log.Sugar().Debugf("Received candidate completed")
+		ctx.Sugar().Debugf("Received candidate completed")
 		err = peer.AddICECandidate(webrtc.ICECandidateInit{})
 	}
 	return err

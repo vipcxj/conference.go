@@ -1,8 +1,11 @@
 import "webrtc-adapter";
 import { io, Socket } from 'socket.io-client';
+import { Mutex } from 'async-mutex'
 import Emittery from 'emittery';
+import log, { Logger } from 'loglevel';
 
 import PATTERN, { Labels, Pattern } from './pattern';
+import { getLogger } from './log';
 
 export const PT = PATTERN;
 
@@ -27,13 +30,12 @@ interface LocalStream {
 
 interface SignalMessage {
     to?: string
-    msgId?: number
 }
 
 interface SdpMessage extends SignalMessage {
     type: RTCSdpType;
     sdp: string;
-    
+    mid: number;
 }
 
 interface CandidateMessage extends SignalMessage {
@@ -173,9 +175,11 @@ interface EmitEventMap {
 }
 
 interface EventData {
+    connect: undefined;
     track: [MediaStreamTrack, readonly MediaStream[], RTCRtpTransceiver];
     subscribed: SubscribedMessage;
     published: PublishedMessage;
+    sdp: SdpMessage;
 }
 
 export interface Configuration {
@@ -189,13 +193,13 @@ export interface Configuration {
 export class ConferenceClient {
     private config: Configuration;
     private socket: Socket<ListenEventMap, EmitEventMap>;
-    private makingOffer: boolean;
     private ignoreOffer: boolean;
     private pendingCandidates: CandidateMessage[];
     private peer: RTCPeerConnection;
     private onTrasksCallbacks: OnTrack[];
     private emitter: Emittery<EventData>;
     private sdpMsgId: number;
+    private negMux: Mutex;
 
     constructor(config: Configuration) {
         this.config = config;
@@ -205,11 +209,11 @@ export class ConferenceClient {
         } = config;
         const [host, path] = splitUrl(signalUrl);
         this.emitter = new Emittery()
-        this.makingOffer = false;
         this.ignoreOffer = false;
         this.pendingCandidates = [];
         this.onTrasksCallbacks = [];
-        this.sdpMsgId = 0;
+        this.sdpMsgId = 1;
+        this.negMux = new Mutex()
         this.socket = io(host, {
             auth: {
                 token,
@@ -217,8 +221,11 @@ export class ConferenceClient {
             path,
             autoConnect: true,
         });
+        this.socket.on('connect', () => {
+            this.emitter.emit('connect');
+        });
         this.socket.on('error', (msg: ErrorMessage) => {
-            console.error(`Received${msg.fatal ? " fatal " : " "}error ${msg.msg} because of ${msg.cause}`)
+            this.logger().error(`Received${msg.fatal ? " fatal " : " "}error ${msg.msg} because of ${msg.cause}`)
         });
         this.socket.on('subscribed', (msg: SubscribedMessage) => {
             this.emitter.emit('subscribed', msg);
@@ -267,36 +274,64 @@ export class ConferenceClient {
         // });
     }
 
-    nextSdpMsgId = () => {
-        return ++this.sdpMsgId;
+    id = () => {
+        const _id = this.socket.id;
+        const _name = this.name();
+        if (_name && _id) {
+            return `${_name}-${_id}`;
+        } else if (_name) {
+            return _name;
+        } else if (_id) {
+            return _id;
+        } else {
+            return '';
+        }
     }
 
-    ark = (func?: Ark) => {
+    name = () => {
+        return this.config.name || '';
+    }
+
+    logger = () => {
+        const _id = this.socket.id;
+        if (_id) {
+            return getLogger(`conference-${this.id()}`);
+        } else {
+            return log;
+        }
+    }
+
+    private nextSdpMsgId = () => {
+        this.sdpMsgId += 2;
+        return this.sdpMsgId;
+    }
+
+    private ark = (func?: Ark) => {
         if (func) {
             func();
         }
     }
 
-    makeSurePeer = () => {
+    private makeSurePeer = () => {
         if (!this.peer) {
             const peer = new RTCPeerConnection(this.config.rtcConfig);
-            peer.onnegotiationneeded = async () => {
-                try {
-                    this.makingOffer = true;
-                    await peer.setLocalDescription();
-                    const desc = peer.localDescription;
-                    const msg: SdpMessage = {
-                        msgId: this.nextSdpMsgId(),
-                        type: desc.type,
-                        sdp: desc.sdp,
-                    }
-                    this.socket.emit("sdp", msg)
-                } catch (err) {
-                    console.error(err);
-                } finally {
-                    this.makingOffer = false;
-                }
-            };
+            // peer.onnegotiationneeded = async () => {
+            //     try {
+            //         this.makingOffer = true;
+            //         await peer.setLocalDescription();
+            //         const desc = peer.localDescription;
+            //         const msg: SdpMessage = {
+            //             msgId: this.nextSdpMsgId(),
+            //             type: desc.type,
+            //             sdp: desc.sdp,
+            //         }
+            //         this.socket.emit("sdp", msg)
+            //     } catch (err) {
+            //         console.error(err);
+            //     } finally {
+            //         this.makingOffer = false;
+            //     }
+            // };
             peer.onicecandidate = (evt) => {
                 let msg: CandidateMessage;
                 if (evt.candidate) {
@@ -312,57 +347,58 @@ export class ConferenceClient {
                 this.socket.emit("candidate", msg);
             }
             peer.onconnectionstatechange = () => {
-                console.log(`[${this.config.name}] connection state changed to ${peer.connectionState}`);
+                this.logger().log(`[${this.config.name}] connection state changed to ${peer.connectionState}`);
             }
             peer.oniceconnectionstatechange = () => {
-                console.log(`[${this.config.name}] ice connection state changed to ${peer.iceConnectionState}`);
+                this.logger().log(`[${this.config.name}] ice connection state changed to ${peer.iceConnectionState}`);
             }
             peer.onsignalingstatechange = () => {
-                console.log(`[${this.config.name}] signaling state changed to ${peer.signalingState}`);
+                this.logger().log(`[${this.config.name}] signaling state changed to ${peer.signalingState}`);
             }
             peer.onicegatheringstatechange = () => {
-                console.log(`[${this.config.name}] ice gathering state changed to ${peer.signalingState}`);
+                this.logger().log(`[${this.config.name}] ice gathering state changed to ${peer.signalingState}`);
             }
             peer.ontrack = async (evt) => {
                 evt.track.onmute = (evt0) => {
-                    console.log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is muted`);
+                    this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is muted`);
                 }
                 evt.track.onunmute = (evt0) => {
-                    console.log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is unmuted`);
+                    this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is unmuted`);
                 }
                 evt.track.onended = (evt0) => {
-                    console.log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is ended`);
+                    this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is ended`);
                 }
                 this.emitter.emit("track", [evt.track, evt.streams, evt.transceiver]);
-                console.log(`Received track ${evt.track.id} with stream id ${evt.streams[0].id}`)
+                this.logger().log(`Received track ${evt.track.id} with stream id ${evt.streams[0].id}`)
             }
             this.socket.on("sdp", async (msg: SdpMessage, ark?: Ark) => {
+                await this.emitter.emit('sdp', msg);
                 this.ark(ark);
-                const offerCollision = msg.type === "offer" 
-                && (this.makingOffer || peer.signalingState !== "stable");
-                const { polite = true } = this.config;
-                this.ignoreOffer = !polite && offerCollision;
-                if (this.ignoreOffer) {
-                    return;
-                }
-                await peer.setRemoteDescription({
-                    type: msg.type,
-                    sdp: msg.sdp,
-                });
-                console.log(`[${this.config.name}]:`)
-                console.log(peer.remoteDescription.sdp)
-                for (const pending of this.pendingCandidates) {
-                    await this.addCandidate(peer, pending);
-                }
-                if (msg.type === 'offer') {
-                    await peer.setLocalDescription();
-                    const desc = peer.localDescription
-                    const send_msg: SdpMessage = {
-                        type: desc.type,
-                        sdp: desc.sdp,
-                    };
-                    this.socket.emit("sdp", send_msg);
-                }
+                // const offerCollision = msg.type === "offer" 
+                // && (this.makingOffer || peer.signalingState !== "stable");
+                // const { polite = true } = this.config;
+                // this.ignoreOffer = !polite && offerCollision;
+                // if (this.ignoreOffer) {
+                //     return;
+                // }
+                // await peer.setRemoteDescription({
+                //     type: msg.type,
+                //     sdp: msg.sdp,
+                // });
+                // console.log(`[${this.config.name}]:`)
+                // console.log(peer.remoteDescription.sdp)
+                // for (const pending of this.pendingCandidates) {
+                //     await this.addCandidate(peer, pending);
+                // }
+                // if (msg.type === 'offer') {
+                //     await peer.setLocalDescription();
+                //     const desc = peer.localDescription
+                //     const send_msg: SdpMessage = {
+                //         type: desc.type,
+                //         sdp: desc.sdp,
+                //     };
+                //     this.socket.emit("sdp", send_msg);
+                // }
             });
             this.socket.on("candidate", async (msg: CandidateMessage, ark?: Ark) => {
                 this.ark(ark);
@@ -375,6 +411,14 @@ export class ConferenceClient {
             this.peer = peer;
         }
         return this.peer
+    }
+
+    private makeSureSocket = async () => {
+        if (this.socket.connected) {
+            return
+        }
+        this.socket.connect();
+        await this.emitter.once('connect');
     }
 
     private addCandidate = async (peer: RTCPeerConnection, msg: CandidateMessage) => {
@@ -405,56 +449,146 @@ export class ConferenceClient {
     }
 
     join = async (...rooms: string[]) => {
-        this.socket.connect()
+        await this.makeSureSocket();
         const res = await this.socket.emitWithAck('join', {
             rooms,
         });
     }
 
     leave = async (...rooms: string[]) => {
-        this.socket.connect()
+        await this.makeSureSocket();
         await this.socket.emitWithAck('leave', {
             rooms,
         });
     }
 
-    publish = async (stream: LocalStream) => {
-        this.socket.connect()
+    private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<SdpMessage> | null = null) => {
         const peer = this.makeSurePeer()
-        const tracks: TrackToPublish[] = [];
-        for (const track of stream.stream.getTracks()) {
-            const transceiver = peer.addTransceiver(track, {
-                direction: 'sendrecv',
-                streams: [stream.stream],
+        if (active) {
+            if (sdpEvts !== null) {
+                throw new Error(`sdpEvts should be null when active is true.`);
+            }
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+            const desc = peer.localDescription;
+            this.logger().debug(`create offer and set local desc`);
+            sdpEvts = this.emitter.events('sdp')
+            await this.socket.emit('sdp', {
+                type: desc.type,
+                sdp: desc.sdp,
+                mid: sdpId,
             });
-            tracks.push({
-                type: track.kind,
-                bindId: this.getMid(peer, transceiver),
-                sid: stream.stream.id,
-                labels: stream.labels,
-            });
-        }
-        if (tracks.length == 0) {
-            return
-        }
-        const { id: pubId } = await this.socket.emitWithAck('publish', {
-            op: PUB_OP_ADD,
-            tracks,
-        });
-        let pubNum = 0;
-        const evts = this.emitter.events('published')
-        for await (const evt of evts) {
-            if (evt.track.pubId == pubId) {
-                pubNum++;
-                if (pubNum == tracks.length) {
-                    evts.return();
+            while (true) {
+                let sdpMsg: SdpMessage;
+                for await (const evt of sdpEvts) {
+                    if (evt.mid == sdpId) {
+                        if (evt.type == 'answer' || evt.type == 'pranswer') {
+                            this.logger().debug(`receive remote ${evt.type} sdp`);
+                            sdpMsg = evt;
+                            break;
+                        } else {
+                            throw new Error(`Expect an answer or pranswer, but got ${evt.type}. The sdp:\n${evt.sdp}`);
+                        }
+                    }
+                }
+                this.logger().debug('set remote desc');
+                await peer.setRemoteDescription({
+                    type: sdpMsg.type,
+                    sdp: sdpMsg.sdp,
+                });
+                if (sdpMsg.type == 'answer') {
+                    await sdpEvts.return();
                     break;
                 }
+                for (const pending of this.pendingCandidates) {
+                    await this.addCandidate(peer, pending);
+                }
+                this.pendingCandidates = [];
             }
+        } else {
+            if (sdpEvts === null) {
+                throw new Error(`sdpEvts should not be null when active is false.`);
+            }
+            let sdpMsg: SdpMessage;
+            for await (const evt of sdpEvts) {
+                if (evt.mid == sdpId) {
+                    if (evt.type === 'offer') {
+                        this.logger().debug(`receive remote ${evt.type} sdp`);
+                        sdpMsg = evt;
+                        await sdpEvts.return()
+                        break;
+                    } else {
+                        throw new Error(`Expect an offer, but got ${evt.type}. The sdp:\n${evt.sdp}`);
+                    }
+                }
+            }
+            this.logger().debug('set remote desc');
+            await peer.setRemoteDescription({
+                type: sdpMsg.type,
+                sdp: sdpMsg.sdp,
+            });
+            for (const pending of this.pendingCandidates) {
+                await this.addCandidate(peer, pending);
+            }
+            this.pendingCandidates = [];
+            this.logger().debug('create answer');
+            const answer = await peer.createAnswer();
+            this.logger().debug('send answer');
+            await this.socket.emit('sdp', {
+                type: 'answer',
+                sdp: answer.sdp,
+                mid: sdpId,
+            });
+            this.logger().debug('set local desc');
+            await peer.setLocalDescription(answer);
         }
     }
 
-    checkTrack = (track: Track, transceiver: RTCRtpTransceiver) => {
+    publish = async (stream: LocalStream) => {
+        return this.negMux.runExclusive(async () => {
+            await this.makeSureSocket();
+            const peer = this.makeSurePeer();
+            this.logger().debug('start publish');
+            const tracks: TrackToPublish[] = [];
+            for (const track of stream.stream.getTracks()) {
+                const transceiver = peer.addTransceiver(track, {
+                    direction: 'sendrecv',
+                    streams: [stream.stream],
+                });
+                const t = {
+                    type: track.kind,
+                    bindId: this.getMid(peer, transceiver),
+                    sid: stream.stream.id,
+                    labels: stream.labels,
+                };
+                tracks.push(t);
+                this.logger().trace(`add track ${JSON.stringify(t)}`);
+            }
+            if (tracks.length == 0) {
+                return
+            }
+            const sdpId = this.nextSdpMsgId();
+            this.logger().debug(`gen sdp id ${sdpId}`);
+            await this.negotiate(sdpId, true, null);
+            const evts = this.emitter.events('published')
+            const { id: pubId } = await this.socket.emitWithAck('publish', {
+                op: PUB_OP_ADD,
+                tracks,
+            });
+            let pubNum = 0;
+            for await (const evt of evts) {
+                if (evt.track.pubId == pubId) {
+                    pubNum++;
+                    if (pubNum == tracks.length) {
+                        await evts.return();
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    private checkTrack = (track: Track, transceiver: RTCRtpTransceiver) => {
         if (track.bindId.startsWith("pos:")) {
             const transceivers = this.peer.getTransceivers();
             const pos = transceivers.indexOf(transceiver);
@@ -469,40 +603,42 @@ export class ConferenceClient {
     }
 
     subscribe = async (pattern: Pattern, reqTypes: string[] = []) => {
-        this.socket.connect()
-        const peer = this.makeSurePeer()
-        const { id: subId } = await this.socket.emitWithAck('subscribe', {
-            op: SUB_OP_ADD,
-            reqTypes,
-            pattern,
-        });
-        const subEvts = this.emitter.events('subscribed');
-        let tracks: Track[]
-        let sdpId: number = 0
-        const trackEvts = this.emitter.events('track');
-        for await (const subEvt of subEvts) {
-            if (subEvt.subId == subId) {
-                tracks = subEvt.tracks;
-                sdpId = subEvt.sdpId;
-                subEvts.return();
-                break;
+        return this.negMux.runExclusive(async () => {
+            await this.makeSureSocket();
+            const sdpEvts = this.emitter.events('sdp');
+            const subEvts = this.emitter.events('subscribed');
+            const trackEvts = this.emitter.events('track');
+            const { id: subId } = await this.socket.emitWithAck('subscribe', {
+                op: SUB_OP_ADD,
+                reqTypes,
+                pattern,
+            });
+            let subedMsg: SubscribedMessage;
+            for await (const subEvt of subEvts) {
+                if (subEvt.subId == subId) {
+                    subedMsg = subEvt;
+                    await subEvts.return();
+                    break;
+                }
             }
-        }
-        const resolved: Track[] = [];
-        let stream: MediaStream;
-        for await (const [_, streams, transceiver] of trackEvts) {
-            for (const t of tracks) {
-                if (this.checkTrack(t, transceiver)) {
-                    stream = streams[0]
-                    resolved.push(t)
+            const { tracks, sdpId } = subedMsg;
+            await this.negotiate(sdpId, false, sdpEvts);
+            const resolved: Track[] = [];
+            let stream: MediaStream;
+            for await (const [_, streams, transceiver] of trackEvts) {
+                for (const t of tracks) {
+                    if (this.checkTrack(t, transceiver)) {
+                        stream = streams[0]
+                        resolved.push(t)
+                        break
+                    }
+                }
+                if (resolved.length == tracks.length) {
                     break
                 }
             }
-            if (resolved.length == tracks.length) {
-                break
-            }
-        }
-        return stream;
+            return stream;
+        });
     }
 
     onTracks = async (callback: OnTrack) => {

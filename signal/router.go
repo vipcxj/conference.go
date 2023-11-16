@@ -317,7 +317,7 @@ type Router struct {
 	// track id -> transport id set
 	track2transports *haxmap.Map[string, *haxmap.Map[string, int]]
 	track2accepters  *haxmap.Map[string, *Accepter]
-	wants            map[*SingalContext]bool
+	wants            map[*SignalContext]bool
 	// transport id -> udp addr
 	addrMap *haxmap.Map[string, string]
 	// addr -> conn

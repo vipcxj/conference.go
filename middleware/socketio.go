@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"fmt"
 	"reflect"
 
 	"github.com/vipcxj/conference.go/auth"

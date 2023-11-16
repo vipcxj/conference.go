@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	"github.com/alphadose/haxmap"
 	"github.com/google/uuid"
@@ -19,6 +18,7 @@ import (
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/zishang520/socket.io/v2/socket"
+	"go.uber.org/zap"
 )
 
 type SubscribedTrack struct {
@@ -43,7 +43,7 @@ type Subscription struct {
 	closed        bool
 	reqTypes      []string
 	pattern       *PublicationPattern
-	ctx           *SingalContext
+	ctx           *SignalContext
 	acceptedPubId string
 	acceptedTrack map[string]*SubscribedTrack
 }
@@ -65,10 +65,15 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 				subscribedTrack.Remove()
 			}
 		}
+		if len(matcheds) == 0 {
+			s.acceptedPubId = ""
+			return
+		}
 	}
 	if len(matcheds) == 0 {
 		return
 	}
+	s.ctx.Sugar().Infof("accept pub %v", msg)
 	s.acceptedPubId = msg.PubId
 	router := GetRouter()
 	// accept track from addr
@@ -80,7 +85,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	if s.acceptedTrack == nil {
 		s.acceptedTrack = map[string]*SubscribedTrack{}
 	}
-	sdpId := s.ctx.NextSdpMsgId()
+	need_neg := false
 	for _, matched := range matcheds {
 		subscribedTrack, ok := s.acceptedTrack[matched.GlobalId]
 		if !ok {
@@ -89,6 +94,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 			if err != nil {
 				panic(err)
 			}
+			need_neg = true
 			// Read incoming RTCP packets
 			// Before these packets are returned they are processed by interceptors. For things
 			// like NACK this needs to be called.
@@ -122,21 +128,28 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 			matched.StreamId = subscribedTrack.sid
 		}
 	}
-	selMsg := &SelectMessage{
-		PubId:       msg.PubId,
-		Tracks:      matcheds,
-		TransportId: router.id.String(),
+	if need_neg {
+		sdpId := s.ctx.NextSdpMsgId()
+		s.ctx.Sugar().Infof("gen sdp id: %v", sdpId)
+
+		selMsg := &SelectMessage{
+			PubId:       msg.PubId,
+			Tracks:      matcheds,
+			TransportId: router.id.String(),
+		}
+		s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
+		s.ctx.Socket.Emit("select", selMsg)
+		respMsg := &SubscribedMessage{
+			SubId:  s.id,
+			PubId:  msg.PubId,
+			SdpId:  sdpId,
+			Tracks: matcheds,
+		}
+		s.ctx.Socket.Emit("subscribed", respMsg)
+		go func() {
+			s.ctx.StartNegotiate(peer, sdpId)
+		}()
 	}
-	s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
-	s.ctx.Socket.Emit("select", selMsg)
-	s.ctx.StartNegotiate(peer, sdpId)
-	respMsg := &SubscribedMessage{
-		SubId:  s.id,
-		PubId:  msg.PubId,
-		SdpId:  sdpId,
-		Tracks: matcheds,
-	}
-	s.ctx.Socket.Emit("subscribed", respMsg)
 }
 
 func (s *Subscription) UnbindAccepter(accepter *Accepter) {
@@ -176,7 +189,7 @@ func (s *Subscription) Close() {
 type Publication struct {
 	id      string
 	closeCh chan struct{}
-	ctx     *SingalContext
+	ctx     *SignalContext
 	tracks  *haxmap.Map[string, *PublishedTrack]
 }
 
@@ -360,7 +373,7 @@ func (me *PublishedTrack) SatifySelect(sel *SelectMessage) bool {
 	me.mu.Lock()
 	defer me.mu.Unlock()
 	tr := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
-	log.Sugar().Debugf("Accepting track with codec ", tr.Codec().MimeType)
+	ctx.Sugar().Debugf("Accepting track with codec ", tr.Codec().MimeType)
 	if tr != nil {
 		go func() {
 			r := GetRouter()
@@ -408,7 +421,7 @@ func (me *PublishedTrack) SatifySelect(sel *SelectMessage) bool {
 	}
 }
 
-type SingalContext struct {
+type SignalContext struct {
 	Socket            *socket.Socket
 	AuthInfo          *auth.AuthInfo
 	Peer              *webrtc.PeerConnection
@@ -423,39 +436,52 @@ type SingalContext struct {
 	publications      *haxmap.Map[string, *Publication]
 	peerClosed        bool
 	sdpMsgId          atomic.Int32
+	logger            *zap.Logger
+	sugar             *zap.SugaredLogger
 }
 
-func newSignalContext(socket *socket.Socket, authInfo *auth.AuthInfo) *SingalContext {
-	return &SingalContext{
+func newSignalContext(socket *socket.Socket, authInfo *auth.AuthInfo) *SignalContext {
+	logger := log.MustCreate(log.Logger(), zap.String("tag", "signal-context"), zap.String("id", string(socket.Id())))
+	return &SignalContext{
 		Socket:        socket,
 		AuthInfo:      authInfo,
 		subscriptions: haxmap.New[string, *Subscription](),
 		publications:  haxmap.New[string, *Publication](),
+		logger:        logger,
+		sugar:         logger.Sugar(),
 	}
 }
 
-func (ctx *SingalContext) Authed() bool {
+func (ctx *SignalContext) Logger() *zap.Logger {
+	return ctx.logger
+}
+
+func (ctx *SignalContext) Sugar() *zap.SugaredLogger {
+	return ctx.sugar
+}
+
+func (ctx *SignalContext) Authed() bool {
 	return ctx.AuthInfo != nil
 }
 
-func (ctx *SingalContext) RoomPaterns() []string {
+func (ctx *SignalContext) RoomPaterns() []string {
 	return ctx.AuthInfo.Rooms
 }
 
-func (ctx *SingalContext) Rooms() []socket.Room {
+func (ctx *SignalContext) Rooms() []socket.Room {
 	return ctx.rooms
 }
 
-func (ctx *SingalContext) NextSdpMsgId() int {
-	return int(ctx.sdpMsgId.Add(1))
+func (ctx *SignalContext) NextSdpMsgId() int {
+	return int(ctx.sdpMsgId.Add(2))
 }
 
-func (ctx *SingalContext) CurrentSdpMsgId() int {
+func (ctx *SignalContext) CurrentSdpMsgId() int {
 	return int(ctx.sdpMsgId.Load())
 }
 
-func (ctx *SingalContext) Close() {
-	log.Sugar().Debugf("signal context closing")
+func (ctx *SignalContext) Close() {
+	ctx.Sugar().Debugf("signal context closing")
 	ctx.closePeer()
 	ctx.publications.ForEach(func(k string, pub *Publication) bool {
 		pub.Close()
@@ -468,7 +494,7 @@ func (ctx *SingalContext) Close() {
 	ctx.Socket.Disconnect(true)
 }
 
-func (ctx *SingalContext) AcceptTrack(msg *StateMessage) {
+func (ctx *SignalContext) AcceptTrack(msg *StateMessage) {
 	ctx.subscriptions.ForEach(func(k string, sub *Subscription) bool {
 		sub.AcceptTrack(msg)
 		return true
@@ -499,7 +525,7 @@ func getMidFromSender(peer *webrtc.PeerConnection, sender *webrtc.RTPSender) str
 	}
 }
 
-func (ctx *SingalContext) Subscribe(message *SubscribeMessage) (subId string, err error) {
+func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, err error) {
 	err = message.Validate()
 	if err != nil {
 		return
@@ -547,11 +573,11 @@ func (ctx *SingalContext) Subscribe(message *SubscribeMessage) (subId string, er
 	// broadcast to the room to request the sub
 	ctx.Socket.To(ctx.Rooms()...).Emit("want", want)
 	// broadcast above not include self, the pub in self may satify the sub too. so check self here.
-	ctx.StateWant(want)
+	go ctx.StateWant(want)
 	return
 }
 
-func (ctx *SingalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnection, sid string, mid string, rid string) *webrtc.TrackRemote {
+func (ctx *SignalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnection, sid string, mid string, rid string) *webrtc.TrackRemote {
 	var pos int = -1
 	var err error
 	if strings.HasPrefix(mid, "pos:") {
@@ -606,7 +632,7 @@ func (ctx *SingalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnectio
 	return nil
 }
 
-func (ctx *SingalContext) Publish(message *PublishMessage) (pubId string, err error) {
+func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err error) {
 	err = message.Validate()
 	if err != nil {
 		return
@@ -648,7 +674,7 @@ func (ctx *SingalContext) Publish(message *PublishMessage) (pubId string, err er
 	return
 }
 
-func (ctx *SingalContext) StateWant(message *WantMessage) {
+func (ctx *SignalContext) StateWant(message *WantMessage) {
 	r := GetRouter()
 	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
 		satified := pub.State(message)
@@ -666,14 +692,14 @@ func (ctx *SingalContext) StateWant(message *WantMessage) {
 	})
 }
 
-func (ctx *SingalContext) SatifySelect(message *SelectMessage) {
+func (ctx *SignalContext) SatifySelect(message *SelectMessage) {
 	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
 		pub.SatifySelect(message)
 		return true
 	})
 }
 
-func (ctx *SingalContext) closePeer() {
+func (ctx *SignalContext) closePeer() {
 	if ctx.peerClosed {
 		return
 	}
@@ -689,9 +715,8 @@ func (ctx *SingalContext) closePeer() {
 	}
 }
 
-func (ctx *SingalContext) StartNegotiate(peer *webrtc.PeerConnection, msgId int) (err error) {
+func (ctx *SignalContext) StartNegotiate(peer *webrtc.PeerConnection, msgId int) (err error) {
 	ctx.neg_mux.Lock()
-	defer ctx.neg_mux.Unlock()
 	offer, err := peer.CreateOffer(nil)
 	if err != nil {
 		return
@@ -738,7 +763,7 @@ func createPeer() (*webrtc.PeerConnection, error) {
 	return peer, err
 }
 
-func (ctx *SingalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error) {
+func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error) {
 	if ctx.peerClosed {
 		err = webrtc.ErrConnectionClosed
 		return
@@ -771,7 +796,7 @@ func (ctx *SingalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 				})
 			}
 			if err != nil {
-				log.Sugar().Error(err)
+				ctx.Sugar().Error(err)
 			}
 		})
 		peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
@@ -786,10 +811,19 @@ func (ctx *SingalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 
 		lastState := peer.ConnectionState()
 		peer.OnConnectionStateChange(func(pcs webrtc.PeerConnectionState) {
-			log.Sugar().Debugf("peer connect state changed from ", lastState, " to ", pcs)
+			ctx.Sugar().Info("peer connect state changed from ", lastState, " to ", pcs)
 			lastState = pcs
 			if pcs == webrtc.PeerConnectionStateClosed {
 				ctx.Close()
+			}
+		})
+		lastSignalingState := peer.SignalingState()
+		peer.OnSignalingStateChange(func(ss webrtc.SignalingState) {
+			ctx.Sugar().Info("peer signaling state changed from ", lastSignalingState, " to ", ss)
+			lastSignalingState = ss
+			if ss == webrtc.SignalingStateStable {
+				ctx.neg_mux.TryLock()
+				ctx.neg_mux.Unlock()
 			}
 		})
 		ctx.Peer = peer
@@ -797,7 +831,7 @@ func (ctx *SingalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 	return
 }
 
-func (ctx *SingalContext) HasRoomRight(room string) bool {
+func (ctx *SignalContext) HasRoomRight(room string) bool {
 	for _, p := range ctx.RoomPaterns() {
 		if MatchRoom(p, room) {
 			return true
@@ -806,7 +840,7 @@ func (ctx *SingalContext) HasRoomRight(room string) bool {
 	return false
 }
 
-func (ctx *SingalContext) JoinRoom(rooms ...string) error {
+func (ctx *SignalContext) JoinRoom(rooms ...string) error {
 	var s_rooms []socket.Room
 	if len(rooms) == 0 {
 		for _, p := range ctx.RoomPaterns() {
@@ -832,16 +866,16 @@ func (ctx *SingalContext) JoinRoom(rooms ...string) error {
 	return nil
 }
 
-func (ctx *SingalContext) LeaveRoom(rooms ...string) {
+func (ctx *SignalContext) LeaveRoom(rooms ...string) {
 	for _, room := range rooms {
 		ctx.Socket.Leave(socket.Room(room))
 	}
 }
 
-func GetSingalContext(s *socket.Socket) *SingalContext {
+func GetSingalContext(s *socket.Socket) *SignalContext {
 	d := s.Data()
 	if d != nil {
-		return s.Data().(*SingalContext)
+		return s.Data().(*SignalContext)
 	} else {
 		return nil
 	}
@@ -853,6 +887,6 @@ func SetAuthInfo(s *socket.Socket, authInfo *auth.AuthInfo) {
 		ctx := newSignalContext(s, authInfo)
 		s.SetData(ctx)
 	} else {
-		raw.(*SingalContext).AuthInfo = authInfo
+		raw.(*SignalContext).AuthInfo = authInfo
 	}
 }

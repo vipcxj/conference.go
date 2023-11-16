@@ -43,6 +43,16 @@ export interface VideoProps {
     authHost: string
 }
 
+const TIME_OUT = {};
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+    return Promise.race([promise, new Promise<null>((resolve, reject) => {
+        setTimeout(() => {
+            reject(TIME_OUT);
+        }, ms);
+    })]);
+}
+
 export const Video = (pros: VideoProps) => {
     const {
         name,
@@ -58,17 +68,24 @@ export const Video = (pros: VideoProps) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     useOnce(async () => {
         const nonce = Math.floor(Math.random() * 100000);
-        const token = await fetch(`${authHost}/token?uid=${uid}&uname=${uname}&role=${role}&room=${room}&nonce=${nonce}`).then(r => r.text());
+        const token = await fetch(`${authHost}/token?uid=${uid}&uname=${uname}&role=${role}&room=${room}&nonce=${nonce}&autojoin=true`).then(r => r.text());
         const client = new ConferenceClient({
             name,
             signalUrl: `${signalHost}/socket.io`,
             token,
             rtcConfig,
         });
-        await client.publish({
-            stream: stream!,
-            labels: publish.labels,
-        });
+        try {
+            await withTimeout(client.publish({
+                stream: stream!,
+                labels: publish.labels,
+            }), 9000);
+        } catch (e) {
+            if (e === TIME_OUT) {
+                console.error(`[${client.id()}] publish timeout.`);
+                return
+            }
+        }
         const ss = await client.subscribe(PT.All(
             PT.TrackTypeIn('video'),
             PT.LabelsAllMatch(subscribe.labels),
