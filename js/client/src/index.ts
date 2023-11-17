@@ -2,12 +2,39 @@ import "webrtc-adapter";
 import { io, Socket } from 'socket.io-client';
 import { Mutex } from 'async-mutex'
 import Emittery from 'emittery';
-import log, { Logger } from 'loglevel';
+import { v4 as uuidv4 } from 'uuid';
 
 import PATTERN, { Labels, Pattern } from './pattern';
+import { ERR_PEER_CLOSED, ERR_PEER_FAILED, ERR_PEER_DISCONNECTED, ERR_THIS_IS_IMPOSSIBLE } from './errors';
 import { getLogger } from './log';
 
 export const PT = PATTERN;
+
+class TimeOutError {
+    cleaned: boolean
+
+    constructor() {
+        this.cleaned = false;
+    }
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, cleaner: () => any = () => undefined): Promise<T> {
+    try {
+        return await Promise.race([promise, new Promise<T>((_, reject) => {
+            setTimeout(() => {
+                reject(new TimeOutError());
+            }, ms);
+        })])
+    } catch(e) {
+        if (e instanceof TimeOutError && !e.cleaned) {
+            e.cleaned = true;
+            if (cleaner) {
+                cleaner();
+            }
+        }
+        throw e;
+    }
+}
 
 function splitUrl(url: string) {
     const spos = url.indexOf('://');
@@ -176,6 +203,7 @@ interface EmitEventMap {
 
 interface EventData {
     connect: undefined;
+    connectState: RTCPeerConnectionState;
     track: [MediaStreamTrack, readonly MediaStream[], RTCRtpTransceiver];
     subscribed: SubscribedMessage;
     published: PublishedMessage;
@@ -200,6 +228,7 @@ export class ConferenceClient {
     private emitter: Emittery<EventData>;
     private sdpMsgId: number;
     private negMux: Mutex;
+    private _id: string;
 
     constructor(config: Configuration) {
         this.config = config;
@@ -213,13 +242,18 @@ export class ConferenceClient {
         this.pendingCandidates = [];
         this.onTrasksCallbacks = [];
         this.sdpMsgId = 1;
-        this.negMux = new Mutex()
+        this.negMux = new Mutex();
+        this._id = uuidv4();
         this.socket = io(host, {
             auth: {
                 token,
             },
             path,
             autoConnect: true,
+            extraHeaders: {
+                'Signal-Id': this._id,
+            },
+            rememberUpgrade: true,
         });
         this.socket.on('connect', () => {
             this.emitter.emit('connect');
@@ -275,14 +309,13 @@ export class ConferenceClient {
     }
 
     id = () => {
-        const _id = this.socket.id;
         const _name = this.name();
-        if (_name && _id) {
-            return `${_name}-${_id}`;
+        if (_name && this._id) {
+            return `${_name}-${this._id}`;
         } else if (_name) {
             return _name;
-        } else if (_id) {
-            return _id;
+        } else if (this._id) {
+            return this._id;
         } else {
             return '';
         }
@@ -293,12 +326,7 @@ export class ConferenceClient {
     }
 
     logger = () => {
-        const _id = this.socket.id;
-        if (_id) {
-            return getLogger(`conference-${this.id()}`);
-        } else {
-            return log;
-        }
+        return getLogger(`conference-${this.id()}`);
     }
 
     private nextSdpMsgId = () => {
@@ -347,16 +375,17 @@ export class ConferenceClient {
                 this.socket.emit("candidate", msg);
             }
             peer.onconnectionstatechange = () => {
-                this.logger().log(`[${this.config.name}] connection state changed to ${peer.connectionState}`);
+                this.logger().log(`connection state changed to ${peer.connectionState}`);
+                this.emitter.emit('connectState', this.peer.connectionState);
             }
             peer.oniceconnectionstatechange = () => {
-                this.logger().log(`[${this.config.name}] ice connection state changed to ${peer.iceConnectionState}`);
+                this.logger().log(`ice connection state changed to ${peer.iceConnectionState}`);
             }
             peer.onsignalingstatechange = () => {
-                this.logger().log(`[${this.config.name}] signaling state changed to ${peer.signalingState}`);
+                this.logger().log(`signaling state changed to ${peer.signalingState}`);
             }
             peer.onicegatheringstatechange = () => {
-                this.logger().log(`[${this.config.name}] ice gathering state changed to ${peer.signalingState}`);
+                this.logger().log(`ice gathering state changed to ${peer.signalingState}`);
             }
             peer.ontrack = async (evt) => {
                 evt.track.onmute = (evt0) => {
@@ -372,7 +401,7 @@ export class ConferenceClient {
                 this.logger().log(`Received track ${evt.track.id} with stream id ${evt.streams[0].id}`)
             }
             this.socket.on("sdp", async (msg: SdpMessage, ark?: Ark) => {
-                await this.emitter.emit('sdp', msg);
+                this.emitter.emit('sdp', msg);
                 this.ark(ark);
                 // const offerCollision = msg.type === "offer" 
                 // && (this.makingOffer || peer.signalingState !== "stable");
@@ -448,6 +477,27 @@ export class ConferenceClient {
         }
     }
 
+    private findTransceiverByBindId = (bindId: string): RTCRtpTransceiver | null => {
+        let pos = -1;
+        if (bindId.startsWith('pos:')) {
+            pos = Number.parseInt(bindId.substring(4));
+        }
+        const transceivers = this.peer.getTransceivers();
+        if (pos != -1) {
+            if (pos >= transceivers.length) {
+                throw new Error(`invalid bind id: ${bindId}, the extracted pos out of bound`);
+            }
+            return transceivers[pos];
+        } else {
+            for (const t of transceivers) {
+                if (t.mid == bindId) {
+                    return t;
+                }
+            }
+            return null;
+        }
+    }
+
     join = async (...rooms: string[]) => {
         await this.makeSureSocket();
         const res = await this.socket.emitWithAck('join', {
@@ -462,8 +512,40 @@ export class ConferenceClient {
         });
     }
 
+    private waitForEvt = async <E extends keyof EventData>(event: E, checker: (evt: EventData[E]) => boolean, initer: () => boolean) => {
+        if (initer()) {
+            return
+        }
+        const evts = this.emitter.events(event);
+        for await (const evt of evts) {
+            if (checker(evt)) {
+                await evts.return();
+            }
+        }
+    }
+
+    private waitForNotConnecting = async () => {
+        return this.waitForEvt(
+            'connectState',
+            (evt) => evt !== 'connecting',
+            () => this.peer.connectionState !== 'connecting',
+        );
+    }
+
+    private waitForNeitherNewNorConnecting = async () => {
+        return this.waitForEvt(
+            'connectState',
+            (evt) => evt !== 'new' && evt !== 'connecting',
+            () => this.peer.connectionState !== 'new' && this.peer.connectionState !== 'connecting',
+        );
+    }
+
     private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<SdpMessage> | null = null) => {
         const peer = this.makeSurePeer()
+        await this.waitForNotConnecting();
+        if (peer.connectionState == 'closed') {
+            throw ERR_PEER_CLOSED;
+        }
         if (active) {
             if (sdpEvts !== null) {
                 throw new Error(`sdpEvts should be null when active is true.`);
@@ -542,6 +624,17 @@ export class ConferenceClient {
             this.logger().debug('set local desc');
             await peer.setLocalDescription(answer);
         }
+        await this.waitForNeitherNewNorConnecting();
+        // if (this.peer.connectionState == 'closed') {
+        //     throw ERR_PEER_CLOSED;
+        // } else if (this.peer.connectionState == 'disconnected') {
+        //     throw ERR_PEER_DISCONNECTED;
+        // } else if (this.peer.connectionState == 'failed') {
+        //     throw ERR_PEER_FAILED;
+        // }
+        // if (this.peer.connectionState != 'connected') {
+        //     throw ERR_THIS_IS_IMPOSSIBLE;
+        // }
     }
 
     publish = async (stream: LocalStream) => {
@@ -562,7 +655,7 @@ export class ConferenceClient {
                     labels: stream.labels,
                 };
                 tracks.push(t);
-                this.logger().trace(`add track ${JSON.stringify(t)}`);
+                this.logger().debug(`add track ${JSON.stringify(t)}`);
             }
             if (tracks.length == 0) {
                 return
@@ -575,9 +668,18 @@ export class ConferenceClient {
                 op: PUB_OP_ADD,
                 tracks,
             });
+            this.logger().debug(`accept publish id ${pubId}`);
             let pubNum = 0;
             for await (const evt of evts) {
                 if (evt.track.pubId == pubId) {
+                    const t = this.findTransceiverByBindId(evt.track.bindId);
+                    if (t == null) {
+                        throw Error('receive a unknown published track');
+                    }
+                    if (!t.sender.track) {
+                        throw Error('receive a invalid published track');
+                    }
+                    this.logger().debug(`track ${t.sender.track.id} is published`);
                     pubNum++;
                     if (pubNum == tracks.length) {
                         await evts.return();
@@ -585,6 +687,7 @@ export class ConferenceClient {
                     }
                 }
             }
+            this.logger().debug(`publish ${pubId} completed`);
         });
     }
 

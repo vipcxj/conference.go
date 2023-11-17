@@ -3,6 +3,7 @@ package middleware
 import (
 	"reflect"
 
+	"github.com/google/uuid"
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/signal"
@@ -32,7 +33,18 @@ func SocketIOAuthHandler() func(*socket.Socket, func(*socket.ExtendedError)) {
 			next(socket.NewExtendedError("Unauthorized", err))
 			return
 		}
-		signal.SetAuthInfo(s, authInfo)
+		headers := s.Handshake().Headers
+		var signalId string
+		if headers != nil {
+			socketIds, ok := headers["Signal-Id"]
+			if ok && len(socketIds) > 0 {
+				signalId = socketIds[0]
+			}
+		}
+		if signalId == "" {
+			signalId = uuid.NewString()
+		}
+		signal.SetAuthInfoAndId(s, authInfo, signalId)
 		next(nil)
 	}
 }

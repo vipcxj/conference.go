@@ -45,8 +45,8 @@ export interface VideoProps {
 
 const TIME_OUT = {};
 
-async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-    return Promise.race([promise, new Promise<null>((resolve, reject) => {
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([promise, new Promise<T>((resolve, reject) => {
         setTimeout(() => {
             reject(TIME_OUT);
         }, ms);
@@ -79,19 +79,26 @@ export const Video = (pros: VideoProps) => {
             await withTimeout(client.publish({
                 stream: stream!,
                 labels: publish.labels,
-            }), 9000);
+            }), 30000);
         } catch (e) {
             if (e === TIME_OUT) {
                 console.error(`[${client.id()}] publish timeout.`);
                 return
             }
         }
-        const ss = await client.subscribe(PT.All(
-            PT.TrackTypeIn('video'),
-            PT.LabelsAllMatch(subscribe.labels),
-        ));
-        if (videoRef.current) {
-            videoRef.current.srcObject = ss;
+        try {
+            const ss = await withTimeout(client.subscribe(PT.All(
+                PT.TrackTypeIn('video'),
+                PT.LabelsAllMatch(subscribe.labels),
+            )), 30000);
+            if (videoRef.current) {
+                videoRef.current.srcObject = ss;
+            }
+        } catch (e) {
+            if (e === TIME_OUT) {
+                console.error(`[${client.id()}] subscribe timeout.`);
+                return
+            }
         }
     }, () => !!stream);
     return (

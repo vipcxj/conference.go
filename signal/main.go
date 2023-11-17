@@ -6,23 +6,25 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
-func InitSignal(s *socket.Socket) error {
+func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	ctx := GetSingalContext(s)
 	if ctx == nil {
-		return errors.FatalError("unable to find the signal context")
+		return ctx, errors.FatalError("unable to find the signal context")
 	}
 	auth := ctx.AuthInfo
 	if auth == nil {
-		return errors.ThisIsImpossible().GenCallStacks()
+		return ctx, errors.ThisIsImpossible().GenCallStacks()
 	}
 	if auth.AutoJoin {
 		if err := ctx.JoinRoom(); err != nil {
-			return err
+			return ctx, err
 		}
 	}
 	s.On("disconnect", func(args ...any) {
 		reason := args[0].(string)
+		ctx.Sugar().Infof("socket disconnect because %s", reason)
 		if reason == "server namespace disconnect" || reason == "client namespace disconnect" || reason == "server shutting down" {
+			ctx.Sugar().Infof("close the socket")
 			ctx.Close()
 		}
 	})
@@ -184,7 +186,7 @@ func InitSignal(s *socket.Socket) error {
 		}
 		go ctx.SatifySelect(&msg)
 	})
-	return nil
+	return ctx, nil
 }
 
 func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, ctx *SignalContext) error {

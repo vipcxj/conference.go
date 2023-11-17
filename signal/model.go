@@ -422,12 +422,11 @@ func (me *PublishedTrack) SatifySelect(sel *SelectMessage) bool {
 }
 
 type SignalContext struct {
+	Id                string
 	Socket            *socket.Socket
 	AuthInfo          *auth.AuthInfo
 	Peer              *webrtc.PeerConnection
 	rooms             []socket.Room
-	polite            bool
-	makingOffer       bool
 	pendingCandidates []*CandidateMessage
 	cand_mux          sync.Mutex
 	peer_mux          sync.Mutex
@@ -440,9 +439,10 @@ type SignalContext struct {
 	sugar             *zap.SugaredLogger
 }
 
-func newSignalContext(socket *socket.Socket, authInfo *auth.AuthInfo) *SignalContext {
-	logger := log.MustCreate(log.Logger(), zap.String("tag", "signal-context"), zap.String("id", string(socket.Id())))
+func newSignalContext(socket *socket.Socket, authInfo *auth.AuthInfo, id string) *SignalContext {
+	logger := log.MustCreate(log.Logger(), zap.String("tag", "signal"), zap.String("id", id))
 	return &SignalContext{
+		Id:            id,
 		Socket:        socket,
 		AuthInfo:      authInfo,
 		subscriptions: haxmap.New[string, *Subscription](),
@@ -777,8 +777,6 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 	if ctx.Peer != nil {
 		peer = ctx.Peer
 	} else {
-		// only support impolite because pion webrtc not support rollback.
-		ctx.polite = false
 		peer, err = createPeer()
 		if err != nil {
 			return
@@ -881,12 +879,16 @@ func GetSingalContext(s *socket.Socket) *SignalContext {
 	}
 }
 
-func SetAuthInfo(s *socket.Socket, authInfo *auth.AuthInfo) {
+func SetAuthInfoAndId(s *socket.Socket, authInfo *auth.AuthInfo, id string) *SignalContext {
 	raw := s.Data()
 	if raw == nil {
-		ctx := newSignalContext(s, authInfo)
+		ctx := newSignalContext(s, authInfo, id)
 		s.SetData(ctx)
+		return ctx
 	} else {
-		raw.(*SignalContext).AuthInfo = authInfo
+		ctx := raw.(*SignalContext)
+		ctx.Id = id
+		ctx.AuthInfo = authInfo
+		return ctx
 	}
 }
