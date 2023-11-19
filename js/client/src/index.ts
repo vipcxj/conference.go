@@ -243,13 +243,15 @@ export class ConferenceClient {
         this.onTrasksCallbacks = [];
         this.sdpMsgId = 1;
         this.negMux = new Mutex();
+        this.peer = this.createPeer();
         this._id = uuidv4();
         this.socket = io(host, {
             auth: {
                 token,
             },
             path,
-            autoConnect: true,
+            reconnection: true,
+            reconnectionDelay: 500,
             extraHeaders: {
                 'Signal-Id': this._id,
             },
@@ -276,6 +278,43 @@ export class ConferenceClient {
         this.socket.on('select', (msg: any) => {
             this.socket.emit('select', msg);
         });
+        this.socket.on("sdp", async (msg: SdpMessage, ark?: Ark) => {
+            this.emitter.emit('sdp', msg);
+            this.ark(ark);
+            // const offerCollision = msg.type === "offer" 
+            // && (this.makingOffer || peer.signalingState !== "stable");
+            // const { polite = true } = this.config;
+            // this.ignoreOffer = !polite && offerCollision;
+            // if (this.ignoreOffer) {
+            //     return;
+            // }
+            // await peer.setRemoteDescription({
+            //     type: msg.type,
+            //     sdp: msg.sdp,
+            // });
+            // console.log(`[${this.config.name}]:`)
+            // console.log(peer.remoteDescription.sdp)
+            // for (const pending of this.pendingCandidates) {
+            //     await this.addCandidate(peer, pending);
+            // }
+            // if (msg.type === 'offer') {
+            //     await peer.setLocalDescription();
+            //     const desc = peer.localDescription
+            //     const send_msg: SdpMessage = {
+            //         type: desc.type,
+            //         sdp: desc.sdp,
+            //     };
+            //     this.socket.emit("sdp", send_msg);
+            // }
+        });
+        this.socket.on("candidate", async (msg: CandidateMessage, ark?: Ark) => {
+            this.ark(ark);
+            if (!this.peer.remoteDescription) {
+                this.pendingCandidates.push(msg);
+                return
+            }
+            await this.addCandidate(this.peer, msg);
+        })
         // this.socket.on('stream', (msg: TrackMessage, ark?: Ark) => {
         //     if (msg.op == "add") {
         //         for (const track of msg.tracks) {
@@ -340,106 +379,66 @@ export class ConferenceClient {
         }
     }
 
-    private makeSurePeer = () => {
-        if (!this.peer) {
-            const peer = new RTCPeerConnection(this.config.rtcConfig);
-            // peer.onnegotiationneeded = async () => {
-            //     try {
-            //         this.makingOffer = true;
-            //         await peer.setLocalDescription();
-            //         const desc = peer.localDescription;
-            //         const msg: SdpMessage = {
-            //             msgId: this.nextSdpMsgId(),
-            //             type: desc.type,
-            //             sdp: desc.sdp,
-            //         }
-            //         this.socket.emit("sdp", msg)
-            //     } catch (err) {
-            //         console.error(err);
-            //     } finally {
-            //         this.makingOffer = false;
-            //     }
-            // };
-            peer.onicecandidate = (evt) => {
-                let msg: CandidateMessage;
-                if (evt.candidate) {
-                    msg = {
-                        op: "add",
-                        candidate: evt.candidate.toJSON(),
-                    };
-                } else {
-                    msg = {
-                        op: "end",
-                    };
-                }
-                this.socket.emit("candidate", msg);
+    private createPeer = () => {
+        const peer = new RTCPeerConnection(this.config.rtcConfig);
+        // peer.onnegotiationneeded = async () => {
+        //     try {
+        //         this.makingOffer = true;
+        //         await peer.setLocalDescription();
+        //         const desc = peer.localDescription;
+        //         const msg: SdpMessage = {
+        //             msgId: this.nextSdpMsgId(),
+        //             type: desc.type,
+        //             sdp: desc.sdp,
+        //         }
+        //         this.socket.emit("sdp", msg)
+        //     } catch (err) {
+        //         console.error(err);
+        //     } finally {
+        //         this.makingOffer = false;
+        //     }
+        // };
+        peer.onicecandidate = (evt) => {
+            let msg: CandidateMessage;
+            if (evt.candidate) {
+                msg = {
+                    op: "add",
+                    candidate: evt.candidate.toJSON(),
+                };
+            } else {
+                msg = {
+                    op: "end",
+                };
             }
-            peer.onconnectionstatechange = () => {
-                this.logger().log(`connection state changed to ${peer.connectionState}`);
-                this.emitter.emit('connectState', this.peer.connectionState);
-            }
-            peer.oniceconnectionstatechange = () => {
-                this.logger().log(`ice connection state changed to ${peer.iceConnectionState}`);
-            }
-            peer.onsignalingstatechange = () => {
-                this.logger().log(`signaling state changed to ${peer.signalingState}`);
-            }
-            peer.onicegatheringstatechange = () => {
-                this.logger().log(`ice gathering state changed to ${peer.signalingState}`);
-            }
-            peer.ontrack = async (evt) => {
-                evt.track.onmute = (evt0) => {
-                    this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is muted`);
-                }
-                evt.track.onunmute = (evt0) => {
-                    this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is unmuted`);
-                }
-                evt.track.onended = (evt0) => {
-                    this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is ended`);
-                }
-                this.emitter.emit("track", [evt.track, evt.streams, evt.transceiver]);
-                this.logger().log(`Received track ${evt.track.id} with stream id ${evt.streams[0].id}`)
-            }
-            this.socket.on("sdp", async (msg: SdpMessage, ark?: Ark) => {
-                this.emitter.emit('sdp', msg);
-                this.ark(ark);
-                // const offerCollision = msg.type === "offer" 
-                // && (this.makingOffer || peer.signalingState !== "stable");
-                // const { polite = true } = this.config;
-                // this.ignoreOffer = !polite && offerCollision;
-                // if (this.ignoreOffer) {
-                //     return;
-                // }
-                // await peer.setRemoteDescription({
-                //     type: msg.type,
-                //     sdp: msg.sdp,
-                // });
-                // console.log(`[${this.config.name}]:`)
-                // console.log(peer.remoteDescription.sdp)
-                // for (const pending of this.pendingCandidates) {
-                //     await this.addCandidate(peer, pending);
-                // }
-                // if (msg.type === 'offer') {
-                //     await peer.setLocalDescription();
-                //     const desc = peer.localDescription
-                //     const send_msg: SdpMessage = {
-                //         type: desc.type,
-                //         sdp: desc.sdp,
-                //     };
-                //     this.socket.emit("sdp", send_msg);
-                // }
-            });
-            this.socket.on("candidate", async (msg: CandidateMessage, ark?: Ark) => {
-                this.ark(ark);
-                if (!peer.remoteDescription) {
-                    this.pendingCandidates.push(msg);
-                    return
-                }
-                await this.addCandidate(peer, msg);
-            })
-            this.peer = peer;
+            this.socket.emit("candidate", msg);
         }
-        return this.peer
+        peer.onconnectionstatechange = () => {
+            this.logger().log(`connection state changed to ${peer.connectionState}`);
+            this.emitter.emit('connectState', this.peer.connectionState);
+        }
+        peer.oniceconnectionstatechange = () => {
+            this.logger().log(`ice connection state changed to ${peer.iceConnectionState}`);
+        }
+        peer.onsignalingstatechange = () => {
+            this.logger().log(`signaling state changed to ${peer.signalingState}`);
+        }
+        peer.onicegatheringstatechange = () => {
+            this.logger().log(`ice gathering state changed to ${peer.signalingState}`);
+        }
+        peer.ontrack = async (evt) => {
+            evt.track.onmute = (evt0) => {
+                this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is muted`);
+            }
+            evt.track.onunmute = (evt0) => {
+                this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is unmuted`);
+            }
+            evt.track.onended = (evt0) => {
+                this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is ended`);
+            }
+            this.emitter.emit("track", [evt.track, evt.streams, evt.transceiver]);
+            this.logger().log(`Received track ${evt.track.id} with stream id ${evt.streams[0].id}`)
+        }
+        return peer;
     }
 
     private makeSureSocket = async () => {
@@ -541,7 +540,7 @@ export class ConferenceClient {
     }
 
     private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<SdpMessage> | null = null) => {
-        const peer = this.makeSurePeer()
+        const peer = this.peer;
         await this.waitForNotConnecting();
         if (peer.connectionState == 'closed') {
             throw ERR_PEER_CLOSED;
@@ -640,7 +639,7 @@ export class ConferenceClient {
     publish = async (stream: LocalStream) => {
         return this.negMux.runExclusive(async () => {
             await this.makeSureSocket();
-            const peer = this.makeSurePeer();
+            const peer = this.peer;
             this.logger().debug('start publish');
             const tracks: TrackToPublish[] = [];
             for (const track of stream.stream.getTracks()) {

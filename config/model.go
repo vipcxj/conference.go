@@ -36,6 +36,7 @@ type ConferenceConfigure struct {
 	SecretKey          string `mapstructure:"secretKey" default:"${CONF_SECRET_KEY}"`
 	Log                struct {
 		Profile string `mapstructure:"profile" json:"profile" default:"${CONF_LOG_PROFILE | production}"`
+		Level   string `mapstructure:"level" json:"level" default:"${CONF_LOG_LEVEL | info}"`
 	} `mapstructure:"log" json:"log"`
 }
 
@@ -67,7 +68,6 @@ func (me LogProfile) String() string {
 		panic(errors.InvalidParam("invalid log profile %d", me))
 	}
 }
-
 
 // This is done this way because of a linter.
 const (
@@ -150,4 +150,6 @@ var KEYS = []string{
 	"authServerKeyPath:string",
 	"authServerCors:string",
 	"secretKey:string",
+	"log.profile:string",
+	"log.level:string",
 }

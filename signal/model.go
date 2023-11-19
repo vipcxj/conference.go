@@ -320,11 +320,12 @@ func (pt *PublishedTrack) Bind() bool {
 	}
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
-	rt := ctx.findTracksRemoteByMidAndRid(peer, pt.StreamId(), pt.BindId(), pt.RId())
+	rt, t := ctx.findTracksRemoteByMidAndRid(peer, pt.StreamId(), pt.BindId(), pt.RId())
 	if rt != nil {
 		if rt == pt.remote {
 			return false
 		}
+		ctx.Sugar().Debugf("bind track with mid %s/%s", pt.BindId(), t.Mid())
 		pt.remote = rt
 		codec := rt.Codec()
 		if codec.MimeType != "" {
@@ -350,7 +351,7 @@ func (me *PublishedTrack) StateWant(want *WantMessage) bool {
 	if err != nil {
 		panic(err)
 	}
-	tr := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
+	tr, _ := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
 	if tr != nil {
 		if me.track.LocalId == "" {
 			me.track.LocalId = tr.ID()
@@ -372,7 +373,7 @@ func (me *PublishedTrack) SatifySelect(sel *SelectMessage) bool {
 	}
 	me.mu.Lock()
 	defer me.mu.Unlock()
-	tr := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
+	tr, _ := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
 	ctx.Sugar().Debugf("Accepting track with codec ", tr.Codec().MimeType)
 	if tr != nil {
 		go func() {
@@ -440,7 +441,7 @@ type SignalContext struct {
 }
 
 func newSignalContext(socket *socket.Socket, authInfo *auth.AuthInfo, id string) *SignalContext {
-	logger := log.MustCreate(log.Logger(), zap.String("tag", "signal"), zap.String("id", id))
+	logger := log.Logger().With(zap.String("tag", "signal"), zap.String("id", id))
 	return &SignalContext{
 		Id:            id,
 		Socket:        socket,
@@ -577,7 +578,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 	return
 }
 
-func (ctx *SignalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnection, sid string, mid string, rid string) *webrtc.TrackRemote {
+func (ctx *SignalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnection, sid string, mid string, rid string) (*webrtc.TrackRemote, *webrtc.RTPTransceiver) {
 	var pos int = -1
 	var err error
 	if strings.HasPrefix(mid, "pos:") {
@@ -595,41 +596,41 @@ func (ctx *SignalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnectio
 					for _, t := range tracks {
 						if t.RID() == rid {
 							if t.StreamID() == sid {
-								return t
+								return t, transceiver
 							} else {
-								return nil
+								return nil, transceiver
 							}
 						}
 					}
-					return nil
+					return nil, transceiver
 				} else if len(tracks) == 0 {
-					return nil
+					return nil, transceiver
 				} else {
 					track := tracks[0]
 					if rid != "" {
 						if track.RID() == rid {
 							if track.StreamID() == sid {
-								return track
+								return track, transceiver
 							} else {
-								return nil
+								return nil, transceiver
 							}
 						} else {
-							return nil
+							return nil, transceiver
 						}
 					} else {
 						if track.StreamID() == sid {
-							return track
+							return track, transceiver
 						} else {
-							return nil
+							return nil, transceiver
 						}
 					}
 				}
 			} else {
-				return nil
+				return nil, transceiver
 			}
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err error) {
@@ -798,6 +799,7 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 			}
 		})
 		peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
+			ctx.Sugar().Debugf("accept track with mid %s", r.RTPTransceiver().Mid())
 			ctx.publications.ForEach(func(pid string, pub *Publication) bool {
 				if pub.Bind() {
 					return false
