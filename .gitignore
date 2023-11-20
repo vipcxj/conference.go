@@ -27,3 +27,4 @@ dist/
 /js/client/lib/
 /server
 dist.tar.gz
+__debug_bin*
