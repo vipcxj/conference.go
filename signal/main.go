@@ -62,7 +62,10 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		}
 		ctx.Sugar().Infof("accept %s sdp msg with id %d", msg.Type, msg.Mid)
 		go func() {
-			ctx.neg_mux.TryLock()
+			locked := ctx.neg_mux.TryLock()
+			if locked {
+				ctx.Sugar().Debug("neg mux locked")
+			}
 			if msg.Type == webrtc.SDPTypeAnswer.String() && ctx.CurrentSdpMsgId() != msg.Mid {
 				ctx.Sugar().Warn("received unmatched sdp answer msg with msg id ", msg.Mid)
 				return
@@ -88,9 +91,10 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 				if err != nil {
 					panic(err)
 				}
+				desc := peer.LocalDescription()
 				err = s.Emit("sdp", SdpMessage{
-					Type: answer.Type.String(),
-					Sdp:  answer.SDP,
+					Type: desc.Type.String(),
+					Sdp:  desc.SDP,
 					Mid:  msg.Mid,
 				})
 				if err != nil {

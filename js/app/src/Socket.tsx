@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, RefObject } from "react"
+import { useRef, useEffect, useState } from "react"
 import { ConferenceClient, PT } from "conference.go/lib"
 import type { Labels } from 'conference.go/lib/pattern'
 
@@ -66,6 +66,7 @@ export const Video = (pros: VideoProps) => {
     } = pros;
     const { uid, uname, role, room } = auth;
     const videoRef = useRef<HTMLVideoElement>(null);
+    const [client, setClient] = useState<ConferenceClient>();
     useOnce(async () => {
         const nonce = Math.floor(Math.random() * 100000);
         const token = await fetch(`${authHost}/token?uid=${uid}&uname=${uname}&role=${role}&room=${room}&nonce=${nonce}&autojoin=true`).then(r => r.text());
@@ -75,6 +76,7 @@ export const Video = (pros: VideoProps) => {
             token,
             rtcConfig,
         });
+        setClient(client);
         try {
             await withTimeout(client.publish({
                 stream: stream!,
@@ -105,7 +107,8 @@ export const Video = (pros: VideoProps) => {
         <div className="Video-Container">
             <video className="Video" ref={videoRef} autoPlay controls/>
             <div className="Video-Title">
-                {`${auth.room}, pub: ${publish.labels['uid']}, sub: ${subscribe.labels['uid']}`}
+                {`${auth.room}, pub: ${publish.labels['uid']}, sub: ${subscribe.labels['uid']}`} <br />
+                {`${client?.id()}`} <br/>
             </div>
         </div>
     );

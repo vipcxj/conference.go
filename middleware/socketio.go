@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/signal"
 	"github.com/zishang520/socket.io/v2/socket"
 )
@@ -17,32 +18,32 @@ func SocketIOAuthHandler() func(*socket.Socket, func(*socket.ExtendedError)) {
 			next(nil)
 			return
 		}
-
-		tokenAny, ok := s.Handshake().Auth.(map[string]interface{})["token"]
+		authData := s.Handshake().Auth.(map[string]interface{})
+		tokenAny, ok := authData["token"]
 		if !ok {
 			next(socket.NewExtendedError("Unauthorized", nil))
 			return
 		}
 		token, ok := tokenAny.(string)
 		if !ok {
-			panic(errors.FatalError("Invalid token type %v", reflect.TypeOf(token)))
+			panic(errors.FatalError("Invalid token type %v", reflect.TypeOf(tokenAny)))
+		}
+		var signalId string
+		signalIdAny, ok := authData["id"]
+		if ok {
+			signalId, ok = signalIdAny.(string)
+			if !ok {
+				panic(errors.FatalError("Invalid signal id type %v", reflect.TypeOf(signalIdAny)))
+			}
+		} else {
+			signalId = uuid.NewString()
+			log.Sugar().Debugf("no signal id provided in auth data, generate one new %v", signalId)
 		}
 		authInfo := &auth.AuthInfo{}
 		err := auth.Decode(token, authInfo)
 		if err != nil {
 			next(socket.NewExtendedError("Unauthorized", err))
 			return
-		}
-		headers := s.Handshake().Headers
-		var signalId string
-		if headers != nil {
-			socketIds, ok := headers["Signal-Id"]
-			if ok && len(socketIds) > 0 {
-				signalId = socketIds[0]
-			}
-		}
-		if signalId == "" {
-			signalId = uuid.NewString()
 		}
 		signal.SetAuthInfoAndId(s, authInfo, signalId)
 		next(nil)

@@ -5,7 +5,7 @@ import Emittery from 'emittery';
 import { v4 as uuidv4 } from 'uuid';
 
 import PATTERN, { Labels, Pattern } from './pattern';
-import { ERR_PEER_CLOSED, ERR_PEER_FAILED, ERR_PEER_DISCONNECTED, ERR_THIS_IS_IMPOSSIBLE } from './errors';
+import { ERR_PEER_CLOSED, ERR_PEER_FAILED, ERR_PEER_DISCONNECTED } from './errors';
 import { getLogger } from './log';
 
 export const PT = PATTERN;
@@ -248,18 +248,19 @@ export class ConferenceClient {
         this.socket = io(host, {
             auth: {
                 token,
+                id: this._id,
             },
             path,
             reconnection: true,
             reconnectionDelay: 500,
-            extraHeaders: {
-                'Signal-Id': this._id,
-            },
             rememberUpgrade: true,
         });
         this.socket.on('connect', () => {
             this.emitter.emit('connect');
         });
+        this.socket.on('disconnect', (reason) => {
+            this.logger().warn(`socket disconnected because ${reason}`);
+        })
         this.socket.on('error', (msg: ErrorMessage) => {
             this.logger().error(`Received${msg.fatal ? " fatal " : " "}error ${msg.msg} because of ${msg.cause}`)
         });
@@ -519,23 +520,24 @@ export class ConferenceClient {
         for await (const evt of evts) {
             if (checker(evt)) {
                 await evts.return();
+                break;
             }
         }
     }
 
     private waitForNotConnecting = async () => {
-        return this.waitForEvt(
+        return await this.waitForEvt(
             'connectState',
             (evt) => evt !== 'connecting',
             () => this.peer.connectionState !== 'connecting',
         );
     }
 
-    private waitForNeitherNewNorConnecting = async () => {
-        return this.waitForEvt(
+    private waitForStableConnectionState = async () => {
+        return await this.waitForEvt(
             'connectState',
-            (evt) => evt !== 'new' && evt !== 'connecting',
-            () => this.peer.connectionState !== 'new' && this.peer.connectionState !== 'connecting',
+            (evt) => evt === 'failed' || evt === 'closed' || evt === 'connected',
+            () => this.peer.connectionState === 'failed' || this.peer.connectionState  === 'closed' || this.peer.connectionState === 'connected',
         );
     }
 
@@ -577,7 +579,9 @@ export class ConferenceClient {
                     type: sdpMsg.type,
                     sdp: sdpMsg.sdp,
                 });
+                this.logger().debug('remote desc has set')
                 if (sdpMsg.type == 'answer') {
+                    this.logger().debug('the remote desc is answer, so break out');
                     await sdpEvts.return();
                     break;
                 }
@@ -608,6 +612,7 @@ export class ConferenceClient {
                 type: sdpMsg.type,
                 sdp: sdpMsg.sdp,
             });
+            this.logger().debug('remote desc has set')
             for (const pending of this.pendingCandidates) {
                 await this.addCandidate(peer, pending);
             }
@@ -622,17 +627,13 @@ export class ConferenceClient {
             });
             this.logger().debug('set local desc');
             await peer.setLocalDescription(answer);
+            this.logger().debug('local desc has set');
         }
-        await this.waitForNeitherNewNorConnecting();
+        // await this.waitForStableConnectionState()
         // if (this.peer.connectionState == 'closed') {
         //     throw ERR_PEER_CLOSED;
-        // } else if (this.peer.connectionState == 'disconnected') {
-        //     throw ERR_PEER_DISCONNECTED;
         // } else if (this.peer.connectionState == 'failed') {
         //     throw ERR_PEER_FAILED;
-        // }
-        // if (this.peer.connectionState != 'connected') {
-        //     throw ERR_THIS_IS_IMPOSSIBLE;
         // }
     }
 
@@ -662,7 +663,8 @@ export class ConferenceClient {
             const sdpId = this.nextSdpMsgId();
             this.logger().debug(`gen sdp id ${sdpId}`);
             await this.negotiate(sdpId, true, null);
-            const evts = this.emitter.events('published')
+            const evts = this.emitter.events(['published', 'connectState'])
+            this.logger().debug('send publish msg');
             const { id: pubId } = await this.socket.emitWithAck('publish', {
                 op: PUB_OP_ADD,
                 tracks,
@@ -670,19 +672,27 @@ export class ConferenceClient {
             this.logger().debug(`accept publish id ${pubId}`);
             let pubNum = 0;
             for await (const evt of evts) {
-                if (evt.track.pubId == pubId) {
-                    const t = this.findTransceiverByBindId(evt.track.bindId);
-                    if (t == null) {
-                        throw Error('receive a unknown published track');
+                if (typeof evt === 'string') {
+                    if (evt === 'closed') {
+                        throw ERR_PEER_CLOSED;
+                    } else if (evt === 'failed') {
+                        throw ERR_PEER_FAILED;
                     }
-                    if (!t.sender.track) {
-                        throw Error('receive a invalid published track');
-                    }
-                    this.logger().debug(`track ${t.sender.track.id} is published`);
-                    pubNum++;
-                    if (pubNum == tracks.length) {
-                        await evts.return();
-                        break;
+                } else {
+                    if (evt.track.pubId == pubId) {
+                        const t = this.findTransceiverByBindId(evt.track.bindId);
+                        if (t == null) {
+                            throw Error('receive a unknown published track');
+                        }
+                        if (!t.sender.track) {
+                            throw Error('receive a invalid published track');
+                        }
+                        this.logger().debug(`track ${t.sender.track.id} is published`);
+                        pubNum++;
+                        if (pubNum == tracks.length) {
+                            await evts.return();
+                            break;
+                        }
                     }
                 }
             }
@@ -707,14 +717,17 @@ export class ConferenceClient {
     subscribe = async (pattern: Pattern, reqTypes: string[] = []) => {
         return this.negMux.runExclusive(async () => {
             await this.makeSureSocket();
+            this.logger().debug('start subscribe');
             const sdpEvts = this.emitter.events('sdp');
             const subEvts = this.emitter.events('subscribed');
-            const trackEvts = this.emitter.events('track');
+            const trackOrStateEvts = this.emitter.events(['track', 'connectState']);
+            this.logger().debug('send sub msg');
             const { id: subId } = await this.socket.emitWithAck('subscribe', {
                 op: SUB_OP_ADD,
                 reqTypes,
                 pattern,
             });
+            this.logger().debug(`accept sub msg ark with sub id ${subId}`)
             let subedMsg: SubscribedMessage;
             for await (const subEvt of subEvts) {
                 if (subEvt.subId == subId) {
@@ -724,21 +737,32 @@ export class ConferenceClient {
                 }
             }
             const { tracks, sdpId } = subedMsg;
+            this.logger().debug(`accept subed msg with sub id ${subedMsg.subId}`)
             await this.negotiate(sdpId, false, sdpEvts);
             const resolved: Track[] = [];
             let stream: MediaStream;
-            for await (const [_, streams, transceiver] of trackEvts) {
-                for (const t of tracks) {
-                    if (this.checkTrack(t, transceiver)) {
-                        stream = streams[0]
-                        resolved.push(t)
-                        break
+            for await (const evt of trackOrStateEvts) {
+                if (typeof evt === 'string') {
+                    if (evt === 'closed') {
+                        throw ERR_PEER_CLOSED;
+                    } else if (evt === 'failed') {
+                        throw ERR_PEER_FAILED;
+                    }
+                } else {
+                    const [_, streams, transceiver] = evt;
+                    for (const t of tracks) {
+                        if (this.checkTrack(t, transceiver)) {
+                            stream = streams[0]
+                            resolved.push(t)
+                            break
+                        }
                     }
                 }
                 if (resolved.length == tracks.length) {
                     break
                 }
             }
+            this.logger().debug(`subscribe completed`)
             return stream;
         });
     }

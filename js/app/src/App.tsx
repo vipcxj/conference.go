@@ -23,13 +23,13 @@ function App() {
     props[i] = {
       name: `client${i}`,
       stream: stream,
-      // rtcConfig: {
-      //   iceServers: [{
-      //     urls: 'turn:192.168.1.233:5349',
-      //     username: 'admin',
-      //     credential: '123456',
-      //   }]
-      // },
+      rtcConfig: {
+        iceServers: [{
+          urls: 'turn:192.168.1.233:5349',
+          username: 'admin',
+          credential: '123456',
+        }]
+      },
       auth: {
         uid: `${i}`,
         uname: `user${i}`,
@@ -46,10 +46,10 @@ function App() {
           uid: `${(i + ROW) % (ROW * COL)}`,
         },
       },
-      signalHost: 'http://localhost:8080',
-      authHost: 'http://localhost:3100',
-      // signalHost: 'http://192.168.1.233:8080',
-      // authHost: 'http://192.168.1.233:3100',
+      // signalHost: 'http://localhost:8080',
+      // authHost: 'http://localhost:3100',
+      signalHost: 'http://192.168.1.233:8080',
+      authHost: 'http://192.168.1.233:3100',
     }
   }
   return (

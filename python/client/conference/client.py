@@ -1,15 +1,19 @@
 from dataclasses import dataclass, field
 import asyncio as aio
-import time 
+import time
+import uuid
 
 from typing import Any, Callable, Generic, TypeVar
 from uu import Error
 import socketio as skt
-from aiortc import RTCPeerConnection, RTCConfiguration, RTCSessionDescription, MediaStreamTrack, RTCRtpTransceiver
+from aiortc import RTCPeerConnection, RTCConfiguration, RTCSessionDescription, MediaStreamTrack
 
 from conference.utils import splitUrl
 from conference.pattern import Pattern
-from conference.messages import JoinMessage, SdpMessage, SignalMessage, SubscribeAddMessage, SubscribeResultMessage, SubscribedMessage, Track
+from conference.messages import JoinMessage, JoinMessageSchema, SdpMessage, SdpMessageSchema, SignalMessage, SubscribeAddMessage, SubscribeAddMessageSchema, SubscribeResultMessage, SubscribedMessage, Track
+from conference.log import configLogger, MyLoggerAdapter, getLogger
+
+LOGGER = configLogger(getLogger('conference-client'))
 
 @dataclass
 class SocketConfigure:
@@ -56,13 +60,15 @@ def check_track(track: MediaStreamTrack, peer: RTCPeerConnection) -> tuple[str |
     return None, -1
 
 class SubscribedTracks:
+    subId: str
     tracks1: dict[str, SubscribedTrack]
     tracks2: dict[int, SubscribedTrack]
     completes: int
     event: aio.Event
     
-    def __init__(self, tracks: list[Track], peer: RTCPeerConnection) -> None:
+    def __init__(self, subId: str, tracks: list[Track], peer: RTCPeerConnection) -> None:
         self.completes = 0
+        self.subId = subId
         self.event = aio.Event()
         for track in tracks:
             bindId, index, t = resolve_bindId(track.bindId, peer)
@@ -150,6 +156,7 @@ class TrackBox:
 class ConferenceClient():
     conf: Configuration
     peer: RTCPeerConnection
+    id: str
     io: skt.AsyncClient
     io_initializing_evt: aio.Event
     io_ready_future: aio.Future[None]
@@ -161,9 +168,12 @@ class ConferenceClient():
     sdp_msg_callbacks: dict[int, Callable[[SdpMessage], None]]
     pending_tracks: list[TrackBox]
     tracks_callbacks: list[Callable[[MediaStreamTrack], bool]]
+    logger: MyLoggerAdapter
     
     def __init__(self, conf: Configuration) -> None:
         self.conf = conf
+        self.id = f'{uuid.uuid4()}'
+        self.logger = MyLoggerAdapter(LOGGER, f'[{self.id}] ')
         self.peer = RTCPeerConnection(conf.rtcConfig)
         self.peer.on('track', self.__on_track)
         socketConfig = conf.socketConfig if conf.socketConfig is not None else SocketConfigure()
@@ -197,11 +207,11 @@ class ConferenceClient():
             offer = await self.peer.createOffer()
             await self.peer.setLocalDescription(offer)
             offer = self.peer.localDescription
-            await self.io.emit('sdp', SdpMessage(
+            await self.io.emit('sdp', SdpMessageSchema.dump(SdpMessage(
                 msgId=sdpId,
                 type='offer',
                 sdp=offer.sdp,
-            ))
+            )))
             answer_msg = await self.__catch_sdp(sdpId)
             if answer_msg.type != "answer":
                 raise Error(f"Expect an answer msg with msg id {sdpId}, but received a {answer_msg.type} msg.")
@@ -220,11 +230,11 @@ class ConferenceClient():
             answer = await self.peer.createAnswer()
             if answer is None:
                 raise Error("Unable to create the answer.")
-            await self.io.emit('sdp', SdpMessage(
+            await self.io.emit('sdp', SdpMessageSchema.dump(SdpMessage(
                 msgId=sdpId,
                 type='answer',
                 sdp=answer.sdp,
-            ))
+            )))
             await self.peer.setLocalDescription(answer)
         
     async def __makesure_socket_connect(self):
@@ -234,7 +244,10 @@ class ConferenceClient():
         self.io_initializing_evt.set()
         try:
             host, path = splitUrl(self.conf.signalUrl)
-            await self.io.connect(url=host, socketio_path=path, auth=self.conf.token)
+            await self.io.connect(url=host, socketio_path=path, auth={
+                'token': self.conf.token,
+                'id': self.id,
+            })
             self.io.on("subscribed", self.__on_subscribed)
             self.io.on('sdp', self.__on_sdp)
             self.io_ready_future.set_result(None)
@@ -302,7 +315,7 @@ class ConferenceClient():
             sr_fut: aio.Future[SubscribeResultMessage] = aio.Future()
             def subscribe_ark(msg: dict):
                 sr_fut.set_result(SubscribeResultMessage(**msg))
-            await self.io.emit('subscribe', msg, callback=subscribe_ark)
+            await self.io.emit('subscribe', SubscribeAddMessageSchema.dump(msg), callback=subscribe_ark)
             res_msg = await sr_fut
         return await self.__catch_subscribed(res_msg.id)
         
@@ -318,10 +331,10 @@ class ConferenceClient():
     async def join(self, rooms: list[str]):
         await self.__makesure_socket_connect()
         async with self.ark_lock:
-            ark_fut: aio.Future[Any] = aio.Future()
-            def ark(msg: Any):
-                ark_fut.set_result(msg)
-            await self.io.emit('join', JoinMessage(rooms=rooms), callback=ark)
+            ark_fut: aio.Future[None] = aio.Future()
+            def ark():
+                ark_fut.set_result(None)
+            await self.io.emit('join', JoinMessageSchema.dump(JoinMessage(rooms=rooms)), callback=ark)
             await ark_fut
         
     async def subscribe(self, pattern: Pattern, reqTypes: list[str] | None = None):
@@ -331,11 +344,11 @@ class ConferenceClient():
                 pattern=pattern,
                 reqTypes=reqTypes,
             ))
-            subscribed_tracks = SubscribedTracks(tracks=subscribed_msg.tracks, peer=self.peer)
+            subscribed_tracks = SubscribedTracks(subId=subscribed_msg.subId, tracks=subscribed_msg.tracks, peer=self.peer)
             self.__catch_tracks(subscribed_tracks)
             await self.__negotiate(subscribed_msg.sdpId)
             await subscribed_tracks.event.wait()
-            return subscribed_tracks.tracks
+            return subscribed_tracks
             
       
         

@@ -1,6 +1,6 @@
 from enum import IntEnum
 from dataclasses import dataclass
-from typing import Sequence
+from typing import List
 
 class PatternOp(IntEnum):
     ALL = 0
@@ -21,8 +21,8 @@ class PatternOp(IntEnum):
 @dataclass
 class Pattern:
     op: PatternOp
-    args: list[str] | None = None
-    children: list["Pattern"] | None = None
+    args: List[str] | None = None
+    children: List["Pattern"] | None = None
     
     @staticmethod
     def All(*pats: "Pattern") -> "Pattern":

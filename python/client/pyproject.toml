@@ -9,6 +9,7 @@ readme = "README.md"
 python = "^3.10"
 aiortc = "^1.5.0"
 python-socketio = {extras = ["asyncio-client"], version = "^5.10.0"}
+marshmallow-dataclass = "^8.6.0"
 
 
 [[tool.poetry.source]]

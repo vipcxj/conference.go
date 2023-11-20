@@ -717,6 +717,7 @@ func (ctx *SignalContext) closePeer() {
 }
 
 func (ctx *SignalContext) StartNegotiate(peer *webrtc.PeerConnection, msgId int) (err error) {
+	ctx.Sugar().Debug("neg mux locked")
 	ctx.neg_mux.Lock()
 	offer, err := peer.CreateOffer(nil)
 	if err != nil {
@@ -817,12 +818,23 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 				ctx.Close()
 			}
 		})
+		lastIceConnectionState := peer.ICEConnectionState()
+		peer.OnICEConnectionStateChange(func(is webrtc.ICEConnectionState) {
+			ctx.Sugar().Debugf("peer ice connection state changed from %v to %v", lastIceConnectionState, is)
+			lastIceConnectionState = is
+		})
+		lastIceGatheringState := peer.ICEGatheringState()
+		peer.OnICEGatheringStateChange(func(is webrtc.ICEGatheringState) {
+			ctx.Sugar().Debugf("peer ice gathering state changed from %v to %v", lastIceGatheringState, is)
+			lastIceGatheringState = is
+		})
 		lastSignalingState := peer.SignalingState()
 		peer.OnSignalingStateChange(func(ss webrtc.SignalingState) {
 			ctx.Sugar().Info("peer signaling state changed from ", lastSignalingState, " to ", ss)
 			lastSignalingState = ss
 			if ss == webrtc.SignalingStateStable {
 				ctx.neg_mux.TryLock()
+				ctx.Sugar().Debug("neg mux unlocked")
 				ctx.neg_mux.Unlock()
 			}
 		})
