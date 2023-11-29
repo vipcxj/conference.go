@@ -3,6 +3,8 @@ package signal
 import (
 	"fmt"
 	"io"
+	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +18,7 @@ import (
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/hls"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/zishang520/socket.io/v2/socket"
 	"go.uber.org/zap"
@@ -335,6 +338,22 @@ func (pt *PublishedTrack) Bind() bool {
 		ctx.Socket.Emit("published", &PublishedMessage{
 			Track: pt.Track(),
 		})
+		go func() {
+			pwd, err := os.Getwd()
+			if err != nil {
+				panic(err)
+			}
+			muxer := hls.NewMuxer(path.Join(pwd, rt.ID()))
+			muxer.Init()
+			for {
+				p, _, err := rt.ReadRTP()
+				if err != nil {
+					muxer.Close()
+					break
+				}
+				muxer.WriteH265(p)
+			}
+		}()
 		return true
 	}
 	return false
