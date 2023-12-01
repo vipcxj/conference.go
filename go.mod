@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	github.com/Eyevinn/mp4ff v0.40.2 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/asticode/go-astikit v0.42.0 // indirect
 	github.com/asticode/go-astits v1.13.0 // indirect
