@@ -385,13 +385,12 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 		end:    end,
 		packet: p,
 	}
-	return
 }
 
-func (s *SampleBuilder) pop(force bool) (*media.Sample, uint32) {
+func (s *SampleBuilder) pop(force bool) *media.Sample {
 again:
 	if s.tail == s.head {
-		return nil, 0
+		return nil
 	}
 
 	if !s.packets[s.tail].start {
@@ -401,13 +400,13 @@ again:
 			s.drop()
 			goto again
 		}
-		return nil, 0
+		return nil
 	}
 
 	seqno := s.packets[s.tail].packet.SequenceNumber
 	if !force && s.lastSeqnoValid && s.lastSeqno+1 != seqno {
 		// packet loss before tail
-		return nil, 0
+		return nil
 	}
 
 	ts := s.packets[s.tail].packet.Timestamp
@@ -418,13 +417,13 @@ again:
 				s.drop()
 				goto again
 			}
-			return nil, 0
+			return nil
 		}
 		last = s.inc(last)
 	}
 
 	if last == s.head {
-		return nil, 0
+		return nil
 	}
 
 	var data []byte
@@ -438,7 +437,7 @@ again:
 		)
 		s.release()
 		if err != nil {
-			return nil, 0
+			return nil
 		}
 		data = append(data, buf...)
 	}
@@ -454,22 +453,15 @@ again:
 
 	return &media.Sample{
 		Data:     data,
+		PacketTimestamp: ts,
 		Duration: duration,
-	}, ts
-}
-
-// PopWithTimestamp returns a completed packet and its RTP timestamp.  If
-// the oldest packet is incomplete and hasn't reached MaxLate yet, Pop
-// returns nil.
-func (s *SampleBuilder) PopWithTimestamp() (*media.Sample, uint32) {
-	return s.pop(false)
+	}
 }
 
 // Pop returns a completed packet.  If the oldest packet is incomplete and
 // hasn't reached MaxLate yet, Pop returns nil.
 func (s *SampleBuilder) Pop() *media.Sample {
-	sample, _ := s.PopWithTimestamp()
-	return sample
+	return s.pop(false)
 }
 
 // ForcePopWithTimestamp is like PopWithTimestamp, but will always pops
@@ -477,6 +469,6 @@ func (s *SampleBuilder) Pop() *media.Sample {
 // packet.  This is useful when the stream ends, or after a link outage.
 // After ForcePopWithTimestamp returns nil, the samplebuilder is
 // guaranteed to be empty.
-func (s *SampleBuilder) ForcePopWithTimestamp() (*media.Sample, uint32) {
+func (s *SampleBuilder) ForcePop() *media.Sample {
 	return s.pop(true)
 }

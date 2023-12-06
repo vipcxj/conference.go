@@ -29,6 +29,71 @@ type MPD struct {
 	UTCTiming                  *DescriptorType `xml:"UTCTiming,omitempty"`
 }
 
+type Ratio struct {
+	Left uint
+	Right uint
+}
+
+type Fraction struct {
+	Numerator uint
+	Denominator uint
+}
+
+type VideoScanType string
+
+const (
+	VideoScanProgressive VideoScanType = "progressive"
+	VideoScanInterlaced VideoScanType = "interlaced"
+	VideoScanUnknown VideoScanType = "unknown"
+)
+
+type RepresentationBase struct {
+	Profiles                  *string               `xml:"profiles,attr,omitempty"`
+	Width                     *uint               `xml:"width,attr,omitempty"`
+	Height                    *uint               `xml:"height,attr,omitempty"`
+	Sar                       *Ratio               `xml:"sar,attr,omitempty"`
+	FrameRate                 *Fraction               `xml:"frameRate,attr,omitempty"`
+	AudioSamplingRate         *string               `xml:"audioSamplingRate,attr,omitempty"`
+	MimeType                  *string               `xml:"mimeType,attr,omitempty"`
+	SegmentProfiles           *string               `xml:"segmentProfiles,attr,omitempty"`
+	Codecs                    *string               `xml:"codecs,attr,omitempty"`
+	MaximumSAPPeriod          *float64               `xml:"maximumSAPPeriod,attr,omitempty"`
+	StartWithSAP              *uint                `xml:"startWithSAP,attr,omitempty"` // [0, 6]
+	MaxPlayoutRate            *float64               `xml:"maxPlayoutRate,attr,omitempty"`
+	ScanType                  *VideoScanType               `xml:"scanType,attr,omitempty"`
+}
+
+type Period struct {
+	ID              string           `xml:"id,attr,omitempty"`
+	Duration        *Duration         `xml:"duration,attr,omitempty"`
+	Start           *Duration        `xml:"start,attr,omitempty"`
+	BaseURL         []string         `xml:"BaseURL,omitempty"`
+	AdaptationSets  []AdaptationSet `xml:"AdaptationSet,omitempty"`
+}
+
+type AdaptationSet struct {
+	RepresentationBase
+	ID                 uint           `xml:"id,attr"`
+	SegmentAlignment   *bool             `xml:"segmentAlignment,attr"`
+	Lang               *string           `xml:"lang,attr"`
+	Group              *uint           `xml:"group,attr"`
+	PAR                *string           `xml:"par,attr"`
+	MinBandwidth       *string           `xml:"minBandwidth,attr"`
+	MaxBandwidth       *string           `xml:"maxBandwidth,attr"`
+	MinWidth           *string           `xml:"minWidth,attr"`
+	MaxWidth           *string           `xml:"maxWidth,attr"`
+	MinHeight          *string           `xml:"minHeight,attr"`
+	MaxHeight          *string           `xml:"maxHeight,attr"`
+	ContentType        *string           `xml:"contentType,attr"`
+	Roles              []*Role           `xml:"Role,omitempty"`
+	SegmentBase        *SegmentBase      `xml:"SegmentBase,omitempty"`
+	SegmentList        *SegmentList      `xml:"SegmentList,omitempty"`
+	SegmentTemplate    *SegmentTemplate  `xml:"SegmentTemplate,omitempty"` // Live Profile Only
+	Representations    []*Representation `xml:"Representation,omitempty"`
+	AccessibilityElems []*Accessibility  `xml:"Accessibility,omitempty"`
+	Label              *string           `xml:"label,attr"`
+}
+
 func NewMPD() *MPD {
 	return &MPD{
 		XMLNs: "urn:mpeg:dash:schema:mpd:2011",
@@ -40,6 +105,7 @@ func NewMPD() *MPD {
 func (m *MPD) Start() {
 	m.AvailabilityStartTime = time.Now()
 }
+
 
 type MyMPD struct {
 	baseURL string
