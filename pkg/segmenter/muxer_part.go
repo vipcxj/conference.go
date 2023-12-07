@@ -14,12 +14,6 @@ func partName(prefix string, id uint64) string {
 	return prefix + "_part" + strconv.FormatUint(id, 10) + ".mp4"
 }
 
-type augmentedSample struct {
-	fmp4.PartSample
-	dts time.Duration
-	ntp time.Time
-}
-
 type muxerPart struct {
 	startDTS       time.Duration
 	videoTrack     *gohlslib.Track
