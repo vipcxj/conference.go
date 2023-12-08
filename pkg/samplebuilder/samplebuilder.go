@@ -452,9 +452,9 @@ again:
 	duration := time.Duration(float64(samples) / float64(s.sampleRate) * float64(time.Second))
 
 	return &media.Sample{
-		Data:     data,
+		Data:            data,
 		PacketTimestamp: ts,
-		Duration: duration,
+		Duration:        duration,
 	}
 }
 

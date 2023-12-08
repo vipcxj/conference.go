@@ -3,8 +3,6 @@ package signal
 import (
 	"fmt"
 	"io"
-	"os"
-	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,8 +16,8 @@ import (
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
-	"github.com/vipcxj/conference.go/hls"
 	"github.com/vipcxj/conference.go/log"
+	"github.com/vipcxj/conference.go/pkg/segmenter"
 	"github.com/zishang520/socket.io/v2/socket"
 	"go.uber.org/zap"
 )
@@ -315,6 +313,10 @@ func (pt *PublishedTrack) isBind() bool {
 	return pt.remote != nil
 }
 
+func (pt *PublishedTrack) parseRecordPath() string {
+	pathTemplate := config.Conf().Record.Path
+}
+
 func (pt *PublishedTrack) Bind() bool {
 	ctx := pt.pub.ctx
 	peer, err := ctx.MakeSurePeer()
@@ -339,19 +341,17 @@ func (pt *PublishedTrack) Bind() bool {
 			Track: pt.Track(),
 		})
 		go func() {
-			pwd, err := os.Getwd()
 			if err != nil {
 				panic(err)
 			}
-			muxer := hls.NewMuxer(path.Join(pwd, rt.ID()))
-			muxer.Init()
+			muxer := segmenter.NewMuxer(rt, "")
 			for {
 				p, _, err := rt.ReadRTP()
 				if err != nil {
 					muxer.Close()
 					break
 				}
-				muxer.WriteH265(p)
+				muxer.WriteRtp(p)
 			}
 		}()
 		return true

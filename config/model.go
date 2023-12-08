@@ -38,6 +38,9 @@ type ConferenceConfigure struct {
 		Profile string `mapstructure:"profile" json:"profile" default:"${CONF_LOG_PROFILE | production}"`
 		Level   string `mapstructure:"level" json:"level" default:"${CONF_LOG_LEVEL | info}"`
 	} `mapstructure:"log" json:"log"`
+	Record struct {
+		Path string `mapstructure:"path" json:"path" default:"${CONF_RECORD_PATH}"`
+	} `mapstructure:"record" json:"record"`
 }
 
 type LogProfile int
@@ -152,4 +155,5 @@ var KEYS = []string{
 	"secretKey:string",
 	"log.profile:string",
 	"log.level:string",
+	"record.path:string",
 }
