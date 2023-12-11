@@ -42,7 +42,7 @@ func newMuxerSegmentMPEGTS(
 	switchableWriter *switchableWriter,
 	writer *mpegts.Writer,
 	prefix string,
-	factory storage.Factory,
+	file storage.File,
 ) (*muxerSegmentMPEGTS, error) {
 	t := &muxerSegmentMPEGTS{
 		segmentMaxSize:   segmentMaxSize,
@@ -51,12 +51,7 @@ func newMuxerSegmentMPEGTS(
 		writer:           writer,
 		startNTP:         startNTP,
 		name:             segmentName(prefix, id, false),
-	}
-
-	var err error
-	t.storage, err = factory.NewFile(t.name)
-	if err != nil {
-		return nil, err
+		storage: file,
 	}
 
 	t.storagePart = t.storage.NewPart()
@@ -73,6 +68,18 @@ func (t *muxerSegmentMPEGTS) close() {
 
 func (t *muxerSegmentMPEGTS) getName() string {
 	return t.name
+}
+
+func (t *muxerSegmentMPEGTS) getStartNtp() time.Time {
+	return t.startNTP
+}
+
+func (t *muxerSegmentMPEGTS) getStartDts() time.Duration {
+	if t.startDTS != nil {
+		return *t.startDTS
+	} else {
+		return time.Duration(0)
+	}
 }
 
 func (t *muxerSegmentMPEGTS) getDuration() time.Duration {

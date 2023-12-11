@@ -3,6 +3,8 @@ package segmenter
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +19,8 @@ import (
 	rtpcodecs "github.com/pion/rtp/codecs"
 	"github.com/pion/rtp/codecs/av1/frame"
 	"github.com/pion/webrtc/v4"
+	"github.com/valyala/fasttemplate"
+	"github.com/vipcxj/conference.go/pkg/common"
 	"github.com/vipcxj/conference.go/pkg/samplebuilder"
 )
 
@@ -63,7 +67,14 @@ func (c TrackCodec) String() string {
 	}
 }
 
-func WebrtcTrack2Track(track *webrtc.TrackRemote) (rtp.Depacketizer, *gohlslib.Track, TrackCodec) {
+func WebrtcTrack2Track(labeledTrack common.LabeledTrack) (rtp.Depacketizer, *gohlslib.Track, TrackCodec) {
+	if labeledTrack == nil {
+		return nil, nil, TrackCodecNone
+	}
+	track := labeledTrack.TrackRemote()
+	if track == nil {
+		return nil, nil, TrackCodecNone
+	}
 	mimeType := strings.ToLower(track.Codec().MimeType)
 	if mimeType == strings.ToLower(webrtc.MimeTypeH264) {
 		return &rtpcodecs.H264Packet{}, &gohlslib.Track{
@@ -95,9 +106,12 @@ type Muxer struct {
 	//
 	// parameters (all optional except track or AudioTrack or Directory).
 	//
-	TrackRemote webrtc.TrackRemote
-	// Directory in which to save segments.
-	Directory string
+	Video common.LabeledTrack
+	Audio common.LabeledTrack
+	// IndexTemplate in which to save index file.
+	IndexTemplate string
+	// IndexTemplate in which to save segments.
+	SegmentTemplate string
 	// Variant to use.
 	// It defaults to MuxerVariantFMP4
 	Variant MuxerVariant
@@ -121,30 +135,69 @@ type Muxer struct {
 	SegmentMaxSize uint64
 	// Use to generate file name
 	Prefix            string
-	RTPSamplerMaxLate uint32
+	RTPSamplerMaxLate uint16
 
-	codec          TrackCodec
-	segmenter      muxerSegmenter
-	storageFactory storage.Factory
-	forceSwitch    bool
-	sampleBuilder  *samplebuilder.SampleBuilder
-	avFrame        frame.AV1
-	// track.
-	track    *gohlslib.Track
-	segments []muxerSegment
+	videoCodec                    TrackCodec
+	audioCodec                    TrackCodec
+	videoSampleBuilder            *samplebuilder.SampleBuilder
+	audioSampleBuilder            *samplebuilder.SampleBuilder
+	videoSegmenter                muxerSegmenter
+	audioSegmenter                muxerSegmenter
+	storageFactory                storage.Factory
+	forceSwitch                   bool
+	avFrame                       frame.AV1
+	videoTrack                    *gohlslib.Track
+	audioTrack                    *gohlslib.Track
+	videoSegments                 []muxerSegment
+	audioSegments                 []muxerSegment
+	directoryTemplate             *fasttemplate.Template
+	indexTemplate                 *fasttemplate.Template
+	segmentTemplate               *fasttemplate.Template
+	currentMasterIndexSegmentPath string
+	currentVideoIndexSegmentPath  string
+	currentAudioIndexSegmentPath  string
+	currentVideoSegmentPath       string
+	currentAudioSegmentPath       string
+	currentVideoStorage           storage.File
+	currentAudioStorage           storage.File
 }
 
 type MuxerOption func(muxer *Muxer)
 
-func NewMuxer(trackRemote *webrtc.TrackRemote, directory string, options ...MuxerOption) *Muxer {
-	depacketizer, track, codec := WebrtcTrack2Track(trackRemote)
+func WithIndexTemplate(indexTemplate string) MuxerOption {
+	it := fasttemplate.New(indexTemplate, "${", "}")
+	return func(muxer *Muxer) {
+		muxer.indexTemplate = it
+	}
+}
+
+func WithSegmentTemplate(segmentTemplate string) MuxerOption {
+	st := fasttemplate.New(segmentTemplate, "${", "}")
+	return func(muxer *Muxer) {
+		muxer.segmentTemplate = st
+	}
+}
+
+func NewMuxer(video common.LabeledTrack, audio common.LabeledTrack, directoryTemplate string, options ...MuxerOption) *Muxer {
+	videoDepacketizer, videoTrack, videoCodec := WebrtcTrack2Track(video)
+	audioDepacketizer, audioTrack, audioCodec := WebrtcTrack2Track(audio)
 	m := &Muxer{
-		Directory: directory,
-		codec:     codec,
-		track:     track,
+		Video:             video,
+		videoCodec:        videoCodec,
+		videoTrack:        videoTrack,
+		Audio:             audio,
+		audioCodec:        audioCodec,
+		audioTrack:        audioTrack,
+		directoryTemplate: fasttemplate.New(directoryTemplate, "${", "}"),
 	}
 	for _, opt := range options {
 		opt(m)
+	}
+	if m.indexTemplate == nil {
+		m.indexTemplate = fasttemplate.New("${hour}-${minute}-${indexType}${ext}", "${", "}")
+	}
+	if m.segmentTemplate == nil {
+		m.segmentTemplate = fasttemplate.New("${hour}-${minute}-${mediaType}-${number}${ext}", "${", "}")
 	}
 	if m.RTPSamplerMaxLate == 0 {
 		m.RTPSamplerMaxLate = 32
@@ -160,8 +213,8 @@ func NewMuxer(trackRemote *webrtc.TrackRemote, directory string, options ...Muxe
 	}
 
 	if m.Variant == MuxerVariantMPEGTS {
-		if m.track != nil {
-			if _, ok := m.track.Codec.(*codecs.H264); !ok {
+		if m.videoTrack != nil {
+			if _, ok := m.videoTrack.Codec.(*codecs.H264); !ok {
 				panic(fmt.Errorf(
 					"the MPEG-TS variant of HLS only supports H264 video. Use the fMP4 or Low-Latency variants instead",
 				))
@@ -169,70 +222,264 @@ func NewMuxer(trackRemote *webrtc.TrackRemote, directory string, options ...Muxe
 		}
 	}
 
-	sampleRate := trackRemote.Codec().ClockRate
-
-	if depacketizer != nil {
-		sb := samplebuilder.New(uint16(m.SegmentMaxSize), depacketizer, sampleRate)
-		m.sampleBuilder = sb
-	}
-	var videoTrack, audioTrack *gohlslib.Track
-	if trackRemote.Kind() == webrtc.RTPCodecTypeVideo {
-		videoTrack = track
-		audioTrack = nil
-	} else if trackRemote.Kind() == webrtc.RTPCodecTypeAudio {
-		videoTrack = nil
-		audioTrack = track
-	} else {
-		panic(fmt.Errorf("the kind of track remote is unknown"))
+	if videoDepacketizer != nil {
+		sampleRate := video.TrackRemote().Codec().ClockRate
+		sb := samplebuilder.New(m.RTPSamplerMaxLate, videoDepacketizer, sampleRate)
+		m.videoSampleBuilder = sb
 	}
 
-	m.storageFactory = storage.NewFactoryDisk(m.Directory)
+	if audioDepacketizer != nil {
+		sampleRate := audio.TrackRemote().Codec().ClockRate
+		sb := samplebuilder.New(m.RTPSamplerMaxLate, audioDepacketizer, sampleRate)
+		m.audioSampleBuilder = sb
+	}
+
+	m.storageFactory = storage.NewFactoryDisk(m.IndexTemplate)
 
 	if m.Variant == MuxerVariantMPEGTS {
-		m.segmenter = newMuxerSegmenterMPEGTS(
+		m.videoSegmenter = newMuxerSegmenterMPEGTS(
 			m.SegmentDuration,
 			m.SegmentMaxSize,
 			videoTrack,
+			nil,
+			m.Prefix,
+			m.publishVideoSegment,
+		)
+		m.audioSegmenter = newMuxerSegmenterMPEGTS(
+			m.SegmentDuration,
+			m.SegmentMaxSize,
+			nil,
 			audioTrack,
 			m.Prefix,
-			m.storageFactory,
-			m.publishSegment,
+			m.publishAudioSegment,
 		)
 	} else {
-		m.segmenter = newMuxerSegmenterFMP4(
+		m.videoSegmenter = newMuxerSegmenterFMP4(
 			m.Variant == MuxerVariantLowLatency,
 			m.SegmentDuration,
 			m.PartDuration,
 			m.SegmentMaxSize,
 			videoTrack,
+			nil,
+			m.Prefix,
+			m.publishVideoSegment,
+			m.publishVideoPart,
+		)
+		m.audioSegmenter = newMuxerSegmenterFMP4(
+			m.Variant == MuxerVariantLowLatency,
+			m.SegmentDuration,
+			m.PartDuration,
+			m.SegmentMaxSize,
+			nil,
 			audioTrack,
 			m.Prefix,
-			m.storageFactory,
-			m.publishSegment,
-			m.publishPart,
+			m.publishAudioSegment,
+			m.publishAudioPart,
 		)
 	}
 
 	return m
 }
 
-func (m *Muxer) publishSegment(segment muxerSegment) error {
-	m.segments = append(m.segments, segment)
+func calcSuperExpr(v int, postfix string) int {
+	postfix = strings.TrimSpace(postfix)
+	if len(postfix) == 0 {
+		return v
+	}
+	if strings.HasPrefix(postfix, "|") {
+		t, err := strconv.Atoi(strings.TrimSpace(postfix[1:]))
+		if err != nil {
+			panic(err)
+		}
+		return v / t * t
+	} else {
+		panic(fmt.Errorf("invalid expr %d %s", v, postfix))
+	}
+}
+
+func commonTemplate(w io.Writer, tag string, t time.Time, track common.LabeledTrack) (int, error) {
+	t = t.UTC()
+	if strings.HasPrefix(tag, "year") {
+		return fmt.Fprintf(w, "%04d", calcSuperExpr(t.Year(), tag[4:]))
+	} else if strings.HasPrefix(tag, "month") {
+		return fmt.Fprintf(w, "%02d", calcSuperExpr(int(t.Month()), tag[5:]))
+	} else if strings.HasPrefix(tag, "day") {
+		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Day(), tag[3:]))
+	} else if strings.HasPrefix(tag, "hour") {
+		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Hour(), tag[4:]))
+	} else if strings.HasPrefix(tag, "minute") {
+		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Minute(), tag[6:]))
+	} else if strings.HasPrefix(tag, "second") {
+		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Minute(), tag[6:]))
+	} else if strings.HasPrefix(tag, "label:") {
+		if track == nil {
+			return 0, fmt.Errorf("unsupported tag %v", tag)
+		}
+		parts := strings.SplitN(tag, ":", 3)
+		var labelName string
+		if len(parts) > 1 {
+			labelName = parts[1]
+		} else {
+			panic(fmt.Errorf("label name is empty"))
+		}
+		labelValue, ok := track.Labels()[labelName]
+		if !ok {
+			if len(parts) > 2 {
+				labelValue = parts[2]
+			} else {
+				panic(fmt.Errorf("invalid label %s", labelName))
+			}
+		}
+		return fmt.Fprint(w, labelValue)
+	} else {
+		return 0, fmt.Errorf("unsupported tag %v", tag)
+	}
+}
+
+func (m *Muxer) calcIndexTemplate(t time.Time, hls bool, track common.LabeledTrack) string {
+	return m.indexTemplate.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		switch tag {
+		case "ext":
+			if hls {
+				return fmt.Fprint(w, ".m3u8")
+			} else {
+				return fmt.Fprint(w, ".mpd")
+			}
+		case "indextype":
+			if track == nil {
+				return fmt.Fprint(w, "master")
+			} else if track == m.Video {
+				return fmt.Fprint(w, "video")
+			} else if track == m.Audio {
+				return fmt.Fprint(w, "audio")
+			} else {
+				panic(fmt.Errorf("invalid track"))
+			}
+		default:
+			if track == nil {
+				if m.Video != nil {
+					track = m.Video
+				} else {
+					track = m.Audio
+				}
+			}
+			return commonTemplate(w, tag, t, track)
+		}
+	})
+}
+
+func (m *Muxer) calcSegmentTemplate(t time.Time, track common.LabeledTrack) string {
+	return m.segmentTemplate.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		switch tag {
+		case "ext":
+			if m.Variant == MuxerVariantMPEGTS {
+				return fmt.Fprintf(w, ".ts")
+			} else {
+				return fmt.Fprintf(w, "m4s")
+			}
+		case "mediatype":
+			switch track.TrackRemote().Kind() {
+			case webrtc.RTPCodecTypeVideo:
+				return fmt.Fprintf(w, "video")
+			case webrtc.RTPCodecTypeAudio:
+				return fmt.Fprintf(w, "audio")
+			default:
+				return fmt.Fprintf(w, "unknown")
+			}
+		default:
+			return commonTemplate(w, tag, t, track)
+		}
+	})
+}
+
+func (m *Muxer) nextVideoStorage(ntp time.Time) (storage.File, storage.File) {
+	var err error
+	old := m.currentVideoStorage
+	path := m.calcSegmentTemplate(ntp, m.Video)
+	if m.currentVideoStorage == nil {
+		m.currentVideoSegmentPath = path
+		m.currentVideoStorage, err = m.storageFactory.NewFile(m.currentVideoSegmentPath)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		if path != m.currentVideoSegmentPath {
+			m.currentVideoSegmentPath = path
+			m.currentVideoStorage, err = m.storageFactory.NewFile(m.currentVideoSegmentPath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	return m.currentVideoStorage, old
+}
+
+func (m *Muxer) nextAudioStorage(ntp time.Time) (storage.File, storage.File) {
+	var err error
+	old := m.currentAudioStorage
+	path := m.calcSegmentTemplate(ntp, m.Audio)
+	if m.currentAudioStorage == nil {
+		m.currentAudioSegmentPath = path
+		m.currentAudioStorage, err = m.storageFactory.NewFile(m.currentAudioSegmentPath)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		if path != m.currentAudioSegmentPath {
+			m.currentAudioSegmentPath = path
+			m.currentAudioStorage, err = m.storageFactory.NewFile(m.currentAudioSegmentPath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	return m.currentAudioStorage, old
+}
+
+func (m *Muxer) publishVideoSegment(segment muxerSegment, dts time.Duration, ntp time.Time, forceSwitch bool) storage.File {
+	if segment == nil || forceSwitch || (dts-segment.getStartDts()) >= m.SegmentDuration {
+		newStorage, oldStorage := m.nextVideoStorage(ntp)
+		if newStorage != oldStorage {
+			if segment != nil {
+				m.videoSegments = append(m.videoSegments, segment)
+			}
+			return newStorage
+		}
+	}
 	return nil
 }
 
-func (m *Muxer) publishPart(part *muxerPart) {
+func (m *Muxer) publishVideoPart(part *muxerPart) {
+
+}
+
+func (m *Muxer) publishAudioSegment(segment muxerSegment, dts time.Duration, ntp time.Time, forceSwitch bool) storage.File {
+	if segment == nil || forceSwitch || (dts - segment.getStartDts()) >= m.SegmentDuration {
+		newStorage, oldStorage := m.nextAudioStorage(ntp)
+		if newStorage != oldStorage {
+			if segment != nil {
+				m.audioSegments = append(m.audioSegments, segment)
+			}
+			return newStorage
+		}
+	}
+	return nil
+}
+
+func (m *Muxer) publishAudioPart(part *muxerPart) {
 
 }
 
 // Close closes a Muxer.
 func (m *Muxer) Close() {
-	m.segmenter.close()
+	m.videoSegmenter.close()
 }
 
 // writeAV1 writes an AV1 temporal unit.
 func (m *Muxer) writeAV1(ntp time.Time, pts time.Duration, tu [][]byte) error {
-	codec := m.track.Codec.(*codecs.AV1)
+	codec := m.videoTrack.Codec.(*codecs.AV1)
 	randomAccess := false
 
 	for _, obu := range tu {
@@ -258,7 +505,7 @@ func (m *Muxer) writeAV1(ntp time.Time, pts time.Duration, tu [][]byte) error {
 		forceSwitch = true
 	}
 
-	return m.segmenter.writeAV1(ntp, pts, tu, randomAccess, forceSwitch)
+	return m.videoSegmenter.writeAV1(ntp, pts, tu, randomAccess, forceSwitch)
 }
 
 // writeVP9 writes a VP9 frame.
@@ -269,7 +516,7 @@ func (m *Muxer) writeVP9(ntp time.Time, pts time.Duration, frame []byte) error {
 		return err
 	}
 
-	codec := m.track.Codec.(*codecs.VP9)
+	codec := m.videoTrack.Codec.(*codecs.VP9)
 	randomAccess := false
 
 	if h.FrameType == vp9.FrameTypeKeyFrame {
@@ -307,14 +554,14 @@ func (m *Muxer) writeVP9(ntp time.Time, pts time.Duration, frame []byte) error {
 		forceSwitch = true
 	}
 
-	return m.segmenter.writeVP9(ntp, pts, frame, randomAccess, forceSwitch)
+	return m.videoSegmenter.writeVP9(ntp, pts, frame, randomAccess, forceSwitch)
 }
 
 // writeH26x writes an H264 or an H265 access unit.
 func (m *Muxer) writeH26x(ntp time.Time, pts time.Duration, au [][]byte) error {
 	randomAccess := false
 
-	switch codec := m.track.Codec.(type) {
+	switch codec := m.videoTrack.Codec.(type) {
 	case *codecs.H265:
 		for _, nalu := range au {
 			typ := h265.NALUType((nalu[0] >> 1) & 0b111111)
@@ -381,12 +628,12 @@ func (m *Muxer) writeH26x(ntp time.Time, pts time.Duration, au [][]byte) error {
 		forceSwitch = true
 	}
 
-	return m.segmenter.writeH26x(ntp, pts, au, randomAccess, forceSwitch)
+	return m.videoSegmenter.writeH26x(ntp, pts, au, randomAccess, forceSwitch)
 }
 
 // writeOpus writes Opus packets.
 func (m *Muxer) writeOpus(ntp time.Time, pts time.Duration, packets [][]byte) error {
-	return m.segmenter.writeOpus(ntp, pts, packets)
+	return m.videoSegmenter.writeOpus(ntp, pts, packets)
 }
 
 var (
@@ -419,10 +666,10 @@ func split264Nalus(nals []byte) [][]byte {
 	return au
 }
 
-func (m *Muxer) WriteRtp(packet *rtp.Packet) {
-	if m.codec == TrackCodecAV1 {
+func (m *Muxer) WriteVideoRtp(packet *rtp.Packet) {
+	if m.videoCodec == TrackCodecAV1 {
 		ntp := time.Now()
-		pts := durationMp4ToGo(uint64(packet.Timestamp), m.TrackRemote.Codec().ClockRate)
+		pts := durationMp4ToGo(uint64(packet.Timestamp), m.Video.TrackRemote().Codec().ClockRate)
 		av1Packet := &rtpcodecs.AV1Packet{}
 		if _, err := av1Packet.Unmarshal(packet.Payload); err != nil {
 			panic(err)
@@ -435,21 +682,34 @@ func (m *Muxer) WriteRtp(packet *rtp.Packet) {
 			m.writeAV1(ntp, pts, frame)
 		}
 	} else {
-		m.sampleBuilder.Push(packet)
-		s := m.sampleBuilder.Pop()
+		m.videoSampleBuilder.Push(packet)
+		s := m.videoSampleBuilder.Pop()
 		if s != nil {
 			ntp := time.Now()
-			pts := durationMp4ToGo(uint64(s.PacketTimestamp), m.TrackRemote.Codec().ClockRate)
-			switch m.codec {
+			pts := durationMp4ToGo(uint64(s.PacketTimestamp), m.Video.TrackRemote().Codec().ClockRate)
+			switch m.videoCodec {
 			case TrackCodecH264:
 				m.writeH26x(ntp, pts, split264Nalus(s.Data))
 			case TrackCodecVP9:
 				m.writeVP9(ntp, pts, s.Data)
-			case TrackCodecOpus:
-				m.writeOpus(ntp, pts, [][]byte{s.Data})
 			default:
-				panic(fmt.Errorf("unsupported codec %v", m.codec))
+				panic(fmt.Errorf("unsupported codec %v", m.videoCodec))
 			}
+		}
+	}
+}
+
+func (m *Muxer) WriteAudioRtp(packet *rtp.Packet) {
+	m.audioSampleBuilder.Push(packet)
+	s := m.audioSampleBuilder.Pop()
+	if s != nil {
+		ntp := time.Now()
+		pts := durationMp4ToGo(uint64(s.PacketTimestamp), m.Audio.TrackRemote().Codec().ClockRate)
+		switch m.audioCodec {
+		case TrackCodecOpus:
+			m.writeOpus(ntp, pts, [][]byte{s.Data})
+		default:
+			panic(fmt.Errorf("unsupported codec %v", m.audioCodec))
 		}
 	}
 }

@@ -12,7 +12,6 @@ import (
 
 	"github.com/bluenviron/gohlslib"
 	"github.com/bluenviron/gohlslib/pkg/codecs"
-	"github.com/bluenviron/gohlslib/pkg/storage"
 )
 
 const (
@@ -96,8 +95,7 @@ type muxerSegmenterFMP4 struct {
 	videoTrack      *gohlslib.Track
 	audioTrack      *gohlslib.Track
 	prefix          string
-	factory         storage.Factory
-	publishSegment  func(muxerSegment) error
+	publishSegment  PublishSegment
 	publishPart     func(*muxerPart)
 
 	audioTimeScale                 uint32
@@ -122,8 +120,7 @@ func newMuxerSegmenterFMP4(
 	videoTrack *gohlslib.Track,
 	audioTrack *gohlslib.Track,
 	prefix string,
-	factory storage.Factory,
-	publishSegment func(muxerSegment) error,
+	publishSegment PublishSegment,
 	publishPart func(*muxerPart),
 ) *muxerSegmenterFMP4 {
 	m := &muxerSegmenterFMP4{
@@ -134,7 +131,6 @@ func newMuxerSegmenterFMP4(
 		videoTrack:      videoTrack,
 		audioTrack:      audioTrack,
 		prefix:          prefix,
-		factory:         factory,
 		publishSegment:  publishSegment,
 		publishPart:     publishPart,
 		sampleDurations: make(map[time.Duration]struct{}),
@@ -371,6 +367,10 @@ func (m *muxerSegmenterFMP4) writeVideo(
 	// create first segment
 	if m.currentSegment == nil {
 		m.startDTS = sample.dts
+		file := m.publishSegment(nil, m.nextVideoSample.dts, m.nextAudioSample.ntp, true)
+		if file == nil {
+			panic(fmt.Errorf("must return a vaild file"))
+		}
 
 		var err error
 		m.currentSegment, err = newMuxerSegmentFMP4(
@@ -384,7 +384,7 @@ func (m *muxerSegmenterFMP4) writeVideo(
 			m.audioTimeScale,
 			m.prefix,
 			false,
-			m.factory,
+			file,
 			m.takePartID,
 			m.givePartID,
 			m.publishPart,
@@ -402,15 +402,12 @@ func (m *muxerSegmenterFMP4) writeVideo(
 	}
 
 	// switch segment
-	if randomAccess &&
-		((m.nextVideoSample.dts-m.currentSegment.startDTS) >= m.segmentDuration ||
-			forceSwitch) {
-		err := m.currentSegment.finalize(m.nextVideoSample.dts)
-		if err != nil {
-			return err
+	if randomAccess {
+		file := m.publishSegment(m.currentSegment, m.nextVideoSample.dts, m.nextAudioSample.ntp, forceSwitch)
+		if file == nil {
+			return nil
 		}
-
-		err = m.publishSegment(m.currentSegment)
+		err := m.currentSegment.finalize(m.nextVideoSample.dts)
 		if err != nil {
 			return err
 		}
@@ -428,7 +425,7 @@ func (m *muxerSegmenterFMP4) writeVideo(
 			m.audioTimeScale,
 			m.prefix,
 			forceSwitch,
-			m.factory,
+			file,
 			m.takePartID,
 			m.givePartID,
 			m.publishPart,
@@ -476,6 +473,11 @@ func (m *muxerSegmenterFMP4) writeAudio(sample *augmentedSample) error {
 		if m.currentSegment == nil {
 			m.startDTS = sample.dts
 
+			file := m.publishSegment(nil, m.nextAudioSample.dts, m.nextAudioSample.ntp, true)
+			if file == nil {
+				panic(fmt.Errorf("must return a vaild file"))
+			}
+
 			var err error
 			m.currentSegment, err = newMuxerSegmentFMP4(
 				m.lowLatency,
@@ -488,7 +490,7 @@ func (m *muxerSegmenterFMP4) writeAudio(sample *augmentedSample) error {
 				m.audioTimeScale,
 				m.prefix,
 				false,
-				m.factory,
+				file,
 				m.takePartID,
 				m.givePartID,
 				m.publishPart,
@@ -510,14 +512,12 @@ func (m *muxerSegmenterFMP4) writeAudio(sample *augmentedSample) error {
 	}
 
 	// switch segment
-	if m.videoTrack == nil &&
-		(m.nextAudioSample.dts-m.currentSegment.startDTS) >= m.segmentDuration {
-		err := m.currentSegment.finalize(m.nextAudioSample.dts)
-		if err != nil {
-			return err
+	if m.videoTrack == nil {
+		file := m.publishSegment(m.currentSegment, m.nextAudioSample.dts, m.nextAudioSample.ntp, false)
+		if file == nil {
+			return nil
 		}
-
-		err = m.publishSegment(m.currentSegment)
+		err := m.currentSegment.finalize(m.nextAudioSample.dts)
 		if err != nil {
 			return err
 		}
@@ -535,7 +535,7 @@ func (m *muxerSegmenterFMP4) writeAudio(sample *augmentedSample) error {
 			m.audioTimeScale,
 			m.prefix,
 			false,
-			m.factory,
+			file,
 			m.takePartID,
 			m.givePartID,
 			m.publishPart,

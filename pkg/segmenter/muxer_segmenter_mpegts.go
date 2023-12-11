@@ -10,7 +10,6 @@ import (
 
 	"github.com/bluenviron/gohlslib"
 	"github.com/bluenviron/gohlslib/pkg/codecs"
-	"github.com/bluenviron/gohlslib/pkg/storage"
 )
 
 const (
@@ -31,8 +30,7 @@ type muxerSegmenterMPEGTS struct {
 	videoTrack      *gohlslib.Track
 	audioTrack      *gohlslib.Track
 	prefix          string
-	factory         storage.Factory
-	publishSegment  func(muxerSegment) error
+	publishSegment  PublishSegment
 
 	writerVideoTrack  *mpegts.Track
 	writerAudioTrack  *mpegts.Track
@@ -49,8 +47,7 @@ func newMuxerSegmenterMPEGTS(
 	videoTrack *gohlslib.Track,
 	audioTrack *gohlslib.Track,
 	prefix string,
-	factory storage.Factory,
-	publishSegment func(muxerSegment) error,
+	publishSegment PublishSegment,
 ) *muxerSegmenterMPEGTS {
 	m := &muxerSegmenterMPEGTS{
 		segmentDuration: segmentDuration,
@@ -58,7 +55,6 @@ func newMuxerSegmenterMPEGTS(
 		videoTrack:      videoTrack,
 		audioTrack:      audioTrack,
 		prefix:          prefix,
-		factory:         factory,
 		publishSegment:  publishSegment,
 	}
 
@@ -141,6 +137,11 @@ func (m *muxerSegmenterMPEGTS) writeH26x(
 			return fmt.Errorf("unable to extract DTS: %v", err)
 		}
 
+		file := m.publishSegment(nil, dts, ntp, true)
+		if file == nil {
+			panic("must return a valid file")
+		}
+
 		// create first segment
 		m.currentSegment, err = newMuxerSegmentMPEGTS(
 			m.takeSegmentID(),
@@ -151,7 +152,7 @@ func (m *muxerSegmenterMPEGTS) writeH26x(
 			m.switchableWriter,
 			m.writer,
 			m.prefix,
-			m.factory)
+			file)
 		if err != nil {
 			return err
 		}
@@ -163,15 +164,13 @@ func (m *muxerSegmenterMPEGTS) writeH26x(
 		}
 
 		// switch segment
-		if randomAccessPresent &&
-			((dts-*m.currentSegment.startDTS) >= m.segmentDuration ||
-				forceSwitch) {
-			err := m.currentSegment.finalize(dts)
-			if err != nil {
-				return err
+		if randomAccessPresent {
+			file := m.publishSegment(m.currentSegment, dts, ntp, forceSwitch)
+			if file == nil {
+				return nil
 			}
 
-			err = m.publishSegment(m.currentSegment)
+			err := m.currentSegment.finalize(dts)
 			if err != nil {
 				return err
 			}
@@ -185,7 +184,7 @@ func (m *muxerSegmenterMPEGTS) writeH26x(
 				m.switchableWriter,
 				m.writer,
 				m.prefix,
-				m.factory,
+				file,
 			)
 			if err != nil {
 				return err
@@ -214,6 +213,10 @@ func (m *muxerSegmenterMPEGTS) writeMPEG4Audio(ntp time.Time, pts time.Duration,
 		if m.currentSegment == nil {
 			// create first segment
 			var err error
+			file := m.publishSegment(nil, pts, ntp, true)
+			if file == nil {
+				panic("must return a valid file")
+			}
 			m.currentSegment, err = newMuxerSegmentMPEGTS(
 				m.takeSegmentID(),
 				ntp,
@@ -223,23 +226,21 @@ func (m *muxerSegmenterMPEGTS) writeMPEG4Audio(ntp time.Time, pts time.Duration,
 				m.switchableWriter,
 				m.writer,
 				m.prefix,
-				m.factory,
+				file,
 			)
 			if err != nil {
 				return err
 			}
-		} else if m.currentSegment.audioAUCount >= mpegtsSegmentMinAUCount && // switch segment
-			(pts-*m.currentSegment.startDTS) >= m.segmentDuration {
+		} else if m.currentSegment.audioAUCount >= mpegtsSegmentMinAUCount {
+			file := m.publishSegment(m.currentSegment, pts, ntp, false)
+			if file == nil {
+				return nil
+			}
 			err := m.currentSegment.finalize(pts)
 			if err != nil {
 				return err
 			}
 
-			err = m.publishSegment(m.currentSegment)
-			if err != nil {
-				return err
-			}
-
 			m.currentSegment, err = newMuxerSegmentMPEGTS(
 				m.takeSegmentID(),
 				ntp,
@@ -249,7 +250,7 @@ func (m *muxerSegmenterMPEGTS) writeMPEG4Audio(ntp time.Time, pts time.Duration,
 				m.switchableWriter,
 				m.writer,
 				m.prefix,
-				m.factory,
+				file,
 			)
 			if err != nil {
 				return err

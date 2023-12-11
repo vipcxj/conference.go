@@ -2,6 +2,8 @@ package segmenter
 
 import (
 	"time"
+
+	"github.com/bluenviron/gohlslib/pkg/storage"
 )
 
 type muxerSegmenter interface {
@@ -12,3 +14,5 @@ type muxerSegmenter interface {
 	writeOpus(time.Time, time.Duration, [][]byte) error
 	writeMPEG4Audio(time.Time, time.Duration, [][]byte) error
 }
+
+type PublishSegment func(segment muxerSegment, dts time.Duration, ntp time.Time, forceSwitch bool) storage.File

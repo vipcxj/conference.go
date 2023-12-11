@@ -207,6 +207,34 @@ func (me *Publication) isAllBind() bool {
 	return res
 }
 
+func (me *Publication) Video() *PublishedTrack {
+	var ret *PublishedTrack
+	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
+		rt := pt.remote
+		if rt != nil && rt.Kind() == webrtc.RTPCodecTypeVideo {
+			ret = pt
+			return false
+		} else {
+			return true
+		}
+	})
+	return ret
+}
+
+func (me *Publication) Audio() *PublishedTrack {
+	var ret *PublishedTrack
+	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
+		rt := pt.remote
+		if rt != nil && rt.Kind() == webrtc.RTPCodecTypeAudio {
+			ret = pt
+			return false
+		} else {
+			return true
+		}
+	})
+	return ret
+}
+
 func (me *Publication) Bind() bool {
 	done := false
 	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {

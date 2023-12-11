@@ -43,7 +43,7 @@ func newMuxerSegmentFMP4(
 	audioTimeScale uint32,
 	prefix string,
 	forceSwitched bool,
-	factory storage.Factory,
+	storage storage.File,
 	takePartID func() uint64,
 	givePartID func(),
 	publishPart func(*muxerPart),
@@ -63,12 +63,7 @@ func newMuxerSegmentFMP4(
 		givePartID:     givePartID,
 		publishPart:    publishPart,
 		name:           segmentName(prefix, id, true),
-	}
-
-	var err error
-	s.storage, err = factory.NewFile(s.name)
-	if err != nil {
-		return nil, err
+		storage:        storage,
 	}
 
 	s.currentPart = newMuxerPart(
@@ -90,6 +85,14 @@ func (s *muxerSegmentFMP4) close() {
 
 func (s *muxerSegmentFMP4) getName() string {
 	return s.name
+}
+
+func (t *muxerSegmentFMP4) getStartNtp() time.Time {
+	return t.startNTP
+}
+
+func (t *muxerSegmentFMP4) getStartDts() time.Duration {
+	return t.startDTS
 }
 
 func (s *muxerSegmentFMP4) getDuration() time.Duration {

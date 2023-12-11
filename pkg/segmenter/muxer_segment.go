@@ -17,6 +17,8 @@ func segmentName(prefix string, id uint64, mp4 bool) string {
 type muxerSegment interface {
 	close()
 	getName() string
+	getStartNtp() time.Time
+	getStartDts() time.Duration
 	getDuration() time.Duration
 	getSize() uint64
 	isForceSwitched() bool

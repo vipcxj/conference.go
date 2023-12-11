@@ -47,6 +47,8 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/sosodev/duration v1.2.0 // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/yapingcat/gomedia v0.0.0-20231111085550-145f641a02d1 // indirect
 	github.com/zencoder/go-dash v0.0.0-20201006100653-2f93b14912b2 // indirect
 	github.com/zencoder/go-dash/v3 v3.0.3 // indirect
