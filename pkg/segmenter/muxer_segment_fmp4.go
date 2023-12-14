@@ -25,7 +25,8 @@ type muxerSegmentFMP4 struct {
 	publishPart    func(*muxerPart)
 
 	name        string
-	storage     storage.File
+	storage     storage.Part
+	offset      uint64
 	size        uint64
 	parts       []*muxerPart
 	currentPart *muxerPart
@@ -48,6 +49,7 @@ func newMuxerSegmentFMP4(
 	givePartID func(),
 	publishPart func(*muxerPart),
 ) (*muxerSegmentFMP4, error) {
+	part := storage.NewPart()
 	s := &muxerSegmentFMP4{
 		lowLatency:     lowLatency,
 		id:             id,
@@ -63,7 +65,8 @@ func newMuxerSegmentFMP4(
 		givePartID:     givePartID,
 		publishPart:    publishPart,
 		name:           segmentName(prefix, id, true),
-		storage:        storage,
+		storage:        part,
+		offset:         storage.Size(),
 	}
 
 	s.currentPart = newMuxerPart(
@@ -73,7 +76,7 @@ func newMuxerSegmentFMP4(
 		s.audioTimeScale,
 		prefix,
 		s.takePartID(),
-		s.storage.NewPart(),
+		s.storage,
 	)
 
 	return s, nil

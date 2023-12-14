@@ -34,38 +34,6 @@ const (
 	MuxerVariantMPEGTS
 )
 
-type TrackCodec int
-
-const (
-	TrackCodecNone TrackCodec = iota
-	TrackCodecH264
-	TrackCodecH265
-	TrackCodecAV1
-	TrackCodecVP8
-	TrackCodecVP9
-	TrackCodecOpus
-)
-
-func (c TrackCodec) String() string {
-	switch c {
-	case TrackCodecNone:
-		return "None"
-	case TrackCodecH264:
-		return "h264"
-	case TrackCodecH265:
-		return "h265"
-	case TrackCodecAV1:
-		return "av1"
-	case TrackCodecVP8:
-		return "vp8"
-	case TrackCodecVP9:
-		return "vp9"
-	case TrackCodecOpus:
-		return "opus"
-	default:
-		return fmt.Sprintf("unknown(%d)", c)
-	}
-}
 
 func WebrtcTrack2Track(labeledTrack common.LabeledTrack) (rtp.Depacketizer, *gohlslib.Track, TrackCodec) {
 	if labeledTrack == nil {
@@ -634,36 +602,6 @@ func (m *Muxer) writeH26x(ntp time.Time, pts time.Duration, au [][]byte) error {
 // writeOpus writes Opus packets.
 func (m *Muxer) writeOpus(ntp time.Time, pts time.Duration, packets [][]byte) error {
 	return m.videoSegmenter.writeOpus(ntp, pts, packets)
-}
-
-var (
-	naluStartCode       = []byte{0x00, 0x00, 0x01}
-	annexbNALUStartCode = []byte{0x00, 0x00, 0x00, 0x01}
-)
-
-func split264Nalus(nals []byte) [][]byte {
-	start := 0
-	length := len(nals)
-
-	var au [][]byte
-	for start < length {
-		end := bytes.Index(nals[start:], annexbNALUStartCode)
-		offset := 4
-		if end == -1 {
-			end = bytes.Index(nals[start:], naluStartCode)
-			offset = 3
-		}
-		if end == -1 {
-			au = append(au, nals[start:])
-			break
-		}
-		if end > 0 {
-			au = append(au, nals[start:start+end])
-		}
-		// next NAL start position
-		start += end + offset
-	}
-	return au
 }
 
 func (m *Muxer) WriteVideoRtp(packet *rtp.Packet) {

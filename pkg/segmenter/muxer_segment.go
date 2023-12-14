@@ -16,6 +16,7 @@ func segmentName(prefix string, id uint64, mp4 bool) string {
 
 type muxerSegment interface {
 	close()
+	finalize(nextDTS time.Duration) error
 	getName() string
 	getStartNtp() time.Time
 	getStartDts() time.Duration
@@ -27,6 +28,8 @@ type muxerSegment interface {
 
 type muxerGap struct {
 	duration time.Duration
+	ntp time.Time
+	dts time.Duration
 }
 
 func (g muxerGap) close() {
@@ -34,6 +37,14 @@ func (g muxerGap) close() {
 
 func (g muxerGap) getName() string {
 	return ""
+}
+
+func (g muxerGap) getStartNtp() time.Time {
+	return g.ntp
+}
+
+func (g muxerGap) getStartDts() time.Duration {
+	return g.dts
 }
 
 func (g muxerGap) getDuration() time.Duration {

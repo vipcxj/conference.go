@@ -14,10 +14,6 @@ import (
 	"github.com/bluenviron/gohlslib/pkg/codecs"
 )
 
-const (
-	fmp4StartDTS = 10 * time.Second
-)
-
 func fmp4TimeScale(c codecs.Codec) uint32 {
 	switch codec := c.(type) {
 	case *codecs.MPEG4Audio:
@@ -64,21 +60,6 @@ func findCompatiblePartDuration(
 		}
 	}
 	return i
-}
-
-type dtsExtractor interface {
-	Extract([][]byte, time.Duration) (time.Duration, error)
-}
-
-func allocateDTSExtractor(track *gohlslib.Track) dtsExtractor {
-	switch track.Codec.(type) {
-	case *codecs.H265:
-		return h265.NewDTSExtractor()
-
-	case *codecs.H264:
-		return h264.NewDTSExtractor()
-	}
-	return nil
 }
 
 type augmentedSample struct {
