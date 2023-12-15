@@ -3,35 +3,29 @@ module github.com/vipcxj/conference.go
 go 1.21.3
 
 require (
+	github.com/aler9/writerseeker v1.1.0
 	github.com/alphadose/haxmap v1.3.0
 	github.com/alphadose/itogami v0.4.0
+	github.com/bluenviron/gohlslib v1.0.6
+	github.com/bluenviron/mediacommon v1.5.1
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.1
 	github.com/gookit/config/v2 v2.2.4
+	github.com/pion/interceptor v0.1.24
 	github.com/pion/rtp v1.8.2
+	github.com/valyala/fasttemplate v1.2.2
 	github.com/zishang520/socket.io/v2 v2.0.4
 )
 
 require (
-	github.com/Eyevinn/mp4ff v0.40.2 // indirect
 	github.com/abema/go-mp4 v1.1.1 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
-	github.com/aler9/writerseeker v1.1.0 // indirect
 	github.com/asticode/go-astikit v0.42.0 // indirect
 	github.com/asticode/go-astits v1.13.0 // indirect
-	github.com/bluenviron/gohlslib v1.0.6 // indirect
-	github.com/bluenviron/mediacommon v1.5.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/felixge/fgprof v0.9.3 // indirect
-	github.com/go-forks/fsnotify v1.4.7 // indirect
-	github.com/google/pprof v0.0.0-20231101202521-4ca4178f5c7a // indirect
-	github.com/grafov/m3u8 v0.12.0 // indirect
-	github.com/metaleap/go-util v0.0.0-20180330192724-a09253046f73 // indirect
-	github.com/metaleap/go-xsd v0.0.0-20180330193350-61f7638f502f // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
 	github.com/pion/dtls/v2 v2.2.7 // indirect
 	github.com/pion/ice/v3 v3.0.1 // indirect
-	github.com/pion/interceptor v0.1.24 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.8 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
@@ -43,18 +37,11 @@ require (
 	github.com/pion/transport/v2 v2.2.4 // indirect
 	github.com/pion/transport/v3 v3.0.1 // indirect
 	github.com/pion/turn/v3 v3.0.1 // indirect
-	github.com/pkg/profile v1.7.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/sosodev/duration v1.2.0 // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasttemplate v1.2.2 // indirect
-	github.com/yapingcat/gomedia v0.0.0-20231111085550-145f641a02d1 // indirect
-	github.com/zencoder/go-dash v0.0.0-20201006100653-2f93b14912b2 // indirect
-	github.com/zencoder/go-dash/v3 v3.0.3 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/exp v0.0.0-20221031165847-c99f073a8326 // indirect
-	golang.org/x/tools v0.6.0 // indirect
 )
 
 require (
@@ -91,7 +78,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.3.5 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	github.com/zishang520/engine.io v1.5.9
+	github.com/zishang520/engine.io v1.5.9 // indirect
 	github.com/zishang520/engine.io-go-parser v1.2.2 // indirect
 	github.com/zishang520/socket.io-go-parser v1.0.4 // indirect
 	go.uber.org/zap v1.26.0

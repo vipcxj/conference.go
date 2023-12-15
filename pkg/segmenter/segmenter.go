@@ -138,6 +138,10 @@ func allocateDTSExtractor(codec codecs.Codec) dtsExtractor {
 	return nil
 }
 
+func ntpToDts(accordingDts time.Duration, accordingNtp time.Time, ntp time.Time) time.Duration {
+	return accordingDts + ntp.Sub(accordingNtp)
+}
+
 type Track struct {
 	id                int
 	segmenter         *Segmenter
@@ -380,7 +384,7 @@ func (t *Track) updateIndex(close bool) error {
 }
 
 func (t *Track) ntpToDts(ntp time.Time) time.Duration {
-	return t.startDTS + ntp.Sub(t.startNTP)
+	return ntpToDts(t.startDTS, t.startNTP, ntp)
 }
 
 func (t *Track) flushSegment(dts time.Duration, forceUpdateInit bool) error {
@@ -850,11 +854,27 @@ func (s *Segmenter) WriteRtp(packet *rtp.Packet) error {
 	return nil
 }
 
+func (s *Segmenter) StartInstant() *Instant {
+	return s.start
+}
+
+func (s *Segmenter) EndInstant() *Instant {
+	return s.end
+}
+
 func (s *Segmenter) Close() error {
 	for _, track := range s.tracks {
 		err := track.Close()
 		if err != nil {
 			return err
+		}
+	}
+	if s.start != nil {
+		ntp := time.Now()
+		dts := ntpToDts(s.start.DTS, s.start.NPT, ntp)
+		s.end = &Instant{
+			DTS: dts,
+			NPT: ntp,
 		}
 	}
 	s.closed = true
