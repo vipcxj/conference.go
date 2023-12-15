@@ -1,11 +1,32 @@
 package segmenter
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"path"
 
 	"github.com/aler9/writerseeker"
 )
+
+type DumyWriterSeeker struct {}
+
+func (ws *DumyWriterSeeker) Write(p []byte) (n int, err error) {
+	return 0, fmt.Errorf("dumy writer can not be written")
+}
+
+func (ws *DumyWriterSeeker) Seek(offset int64, whence int) (int64, error) {
+	return 0, fmt.Errorf("dumy seeker can not be seek")
+}
+
+func MakeSureDirOf(fpath string) error {
+	dir := path.Dir(fpath)
+	if dir != "." {
+		return os.MkdirAll(dir, os.ModePerm)
+	} else {
+		return nil
+	}
+}
 
 type Storage struct {
 	fpath string
@@ -18,6 +39,10 @@ type Storage struct {
 }
 
 func NewStorage(fpath string) *Storage {
+	err := MakeSureDirOf(fpath)
+	if err != nil {
+		panic(err)
+	}
 	f, err := os.Create(fpath)
 	if err != nil {
 		panic(err)
@@ -55,6 +80,9 @@ func (f *Storage) NextPart() int {
 }
 
 func (f *Storage) Writer() io.WriteSeeker {
+	if f.closed {
+		return &DumyWriterSeeker{}
+	}
 	if f.buffer != nil {
 		return f.buffer
 	} else {
@@ -65,7 +93,7 @@ func (f *Storage) Writer() io.WriteSeeker {
 }
 
 func (f *Storage) Close() {
-	f.NextPart()
 	f.closed = true
-	f.Close()
+	f.NextPart()
+	f.f.Close()
 }

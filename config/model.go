@@ -39,7 +39,10 @@ type ConferenceConfigure struct {
 		Level   string `mapstructure:"level" json:"level" default:"${CONF_LOG_LEVEL | info}"`
 	} `mapstructure:"log" json:"log"`
 	Record struct {
-		Path string `mapstructure:"path" json:"path" default:"${CONF_RECORD_PATH}"`
+		Enable          bool   `mapstructure:"enable" json:"enable" default:"${CONF_RECORD_ENABLE}"`
+		DirPath         string `mapstructure:"dirPath" json:"dirPath" default:"${CONF_RECORD_DIR_PATH}"`
+		IndexName       string `mapstructure:"dir" json:"dir" default:"${CONF_RECORD_INDEX_NAME}"`
+		SegmentDuration int    `mapstructure:"segmentDuration" json:"segmentDuration" default:"${CONF_RECORD_SEGMENT_DURATION}"`
 	} `mapstructure:"record" json:"record"`
 }
 
@@ -155,5 +158,8 @@ var KEYS = []string{
 	"secretKey:string",
 	"log.profile:string",
 	"log.level:string",
-	"record.path:string",
+	"record.enable:bool",
+	"record.dirPath:string",
+	"record.indexName:string",
+	"record.segmentDuration:int",
 }

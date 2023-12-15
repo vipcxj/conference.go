@@ -12,11 +12,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/intervalpli"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
+	"github.com/vipcxj/conference.go/pkg/common"
 	"github.com/vipcxj/conference.go/pkg/segmenter"
 	"github.com/zishang520/socket.io/v2/socket"
 	"go.uber.org/zap"
@@ -188,10 +190,12 @@ func (s *Subscription) Close() {
 }
 
 type Publication struct {
-	id      string
-	closeCh chan struct{}
-	ctx     *SignalContext
-	tracks  *haxmap.Map[string, *PublishedTrack]
+	id          string
+	closeCh     chan struct{}
+	ctx         *SignalContext
+	tracks      *haxmap.Map[string, *PublishedTrack]
+	recordStart bool
+	mux         sync.Mutex
 }
 
 func (me *Publication) isAllBind() bool {
@@ -235,12 +239,72 @@ func (me *Publication) Audio() *PublishedTrack {
 	return ret
 }
 
+func (me *Publication) startRecord() {
+	me.mux.Lock()
+	defer me.mux.Unlock()
+	if me.recordStart {
+		return
+	}
+	enable := config.Conf().Record.Enable
+	if !enable {
+		return
+	}
+	me.recordStart = true
+	dirTemplate := config.Conf().Record.DirPath
+	indexTemplate := config.Conf().Record.IndexName
+	segmentDuration := config.Conf().Record.SegmentDuration
+	var tracks []common.LabeledTrack
+	me.tracks.ForEach(func(k string, track *PublishedTrack) bool {
+		tracks = append(tracks, track)
+		return true
+	})
+	segmenter, err := segmenter.NewSegmenter(tracks, dirTemplate, indexTemplate, segmentDuration)
+	if err != nil {
+		panic(err)
+	}
+	defer segmenter.Close()
+	pktCh := make(chan *rtp.Packet, 16)
+	for _, track := range tracks {
+		rt := track.TrackRemote()
+		go func() {
+			for {
+				pkt, _, err := rt.ReadRTP()
+				if err != nil {
+					pktCh <- nil
+					break
+				} else {
+					pktCh <- pkt
+				}
+			}
+		}()
+	}
+	trackNum := len(tracks)
+	closedTrackNum := 0
+	for {
+		pkg := <-pktCh
+		if pkg == nil {
+			closedTrackNum++
+		}
+		if closedTrackNum == trackNum {
+			close(pktCh)
+			break
+		}
+		err := segmenter.WriteRtp(pkg)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
 func (me *Publication) Bind() bool {
 	done := false
 	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
 		if pt.Bind() {
 			done = true
 			if me.isAllBind() {
+
+				go me.startRecord()
+
 				r := GetRouter()
 				var tracks []*Track
 				me.tracks.ForEach(func(_ string, pt0 *PublishedTrack) bool {
@@ -317,6 +381,14 @@ func (me *PublishedTrack) Track() *Track {
 	return me.track
 }
 
+func (me *PublishedTrack) TrackRemote() *webrtc.TrackRemote {
+	return me.remote
+}
+
+func (me *PublishedTrack) Labels() map[string]string {
+	return me.track.Labels
+}
+
 func (me *PublishedTrack) GlobalId() string {
 	return me.track.GlobalId
 }
@@ -339,10 +411,6 @@ func (me *PublishedTrack) BindId() string {
 
 func (pt *PublishedTrack) isBind() bool {
 	return pt.remote != nil
-}
-
-func (pt *PublishedTrack) parseRecordPath() string {
-	pathTemplate := config.Conf().Record.Path
 }
 
 func (pt *PublishedTrack) Bind() bool {
@@ -368,20 +436,6 @@ func (pt *PublishedTrack) Bind() bool {
 		ctx.Socket.Emit("published", &PublishedMessage{
 			Track: pt.Track(),
 		})
-		go func() {
-			if err != nil {
-				panic(err)
-			}
-			muxer := segmenter.NewMuxer(rt, "")
-			for {
-				p, _, err := rt.ReadRTP()
-				if err != nil {
-					muxer.Close()
-					break
-				}
-				muxer.WriteRtp(p)
-			}
-		}()
 		return true
 	}
 	return false

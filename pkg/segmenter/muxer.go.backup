@@ -249,61 +249,6 @@ func NewMuxer(video common.LabeledTrack, audio common.LabeledTrack, directoryTem
 	return m
 }
 
-func calcSuperExpr(v int, postfix string) int {
-	postfix = strings.TrimSpace(postfix)
-	if len(postfix) == 0 {
-		return v
-	}
-	if strings.HasPrefix(postfix, "|") {
-		t, err := strconv.Atoi(strings.TrimSpace(postfix[1:]))
-		if err != nil {
-			panic(err)
-		}
-		return v / t * t
-	} else {
-		panic(fmt.Errorf("invalid expr %d %s", v, postfix))
-	}
-}
-
-func commonTemplate(w io.Writer, tag string, t time.Time, track common.LabeledTrack) (int, error) {
-	t = t.UTC()
-	if strings.HasPrefix(tag, "year") {
-		return fmt.Fprintf(w, "%04d", calcSuperExpr(t.Year(), tag[4:]))
-	} else if strings.HasPrefix(tag, "month") {
-		return fmt.Fprintf(w, "%02d", calcSuperExpr(int(t.Month()), tag[5:]))
-	} else if strings.HasPrefix(tag, "day") {
-		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Day(), tag[3:]))
-	} else if strings.HasPrefix(tag, "hour") {
-		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Hour(), tag[4:]))
-	} else if strings.HasPrefix(tag, "minute") {
-		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Minute(), tag[6:]))
-	} else if strings.HasPrefix(tag, "second") {
-		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Minute(), tag[6:]))
-	} else if strings.HasPrefix(tag, "label:") {
-		if track == nil {
-			return 0, fmt.Errorf("unsupported tag %v", tag)
-		}
-		parts := strings.SplitN(tag, ":", 3)
-		var labelName string
-		if len(parts) > 1 {
-			labelName = parts[1]
-		} else {
-			panic(fmt.Errorf("label name is empty"))
-		}
-		labelValue, ok := track.Labels()[labelName]
-		if !ok {
-			if len(parts) > 2 {
-				labelValue = parts[2]
-			} else {
-				panic(fmt.Errorf("invalid label %s", labelName))
-			}
-		}
-		return fmt.Fprint(w, labelValue)
-	} else {
-		return 0, fmt.Errorf("unsupported tag %v", tag)
-	}
-}
-
 func (m *Muxer) calcIndexTemplate(t time.Time, hls bool, track common.LabeledTrack) string {
 	return m.indexTemplate.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
 		tag = strings.ToLower(strings.TrimSpace(tag))
