@@ -1,13 +1,21 @@
 import logo from './logo.svg';
 import './App.css';
-import 'flexboxgrid'
-import { Video, VideoProps, useCreateOnce } from './Socket'
+import 'flexboxgrid';
+import { useQueryParam, StringParam, NumberParam, withDefault } from 'use-query-params';
+import { Video, VideoProps, useCreateOnce } from './Socket';
+import { HlsPlayer } from './hls';
 
 const ROW = 10;
 const COL = 3;
-const COL_SIZE = 12 / COL;
+
+const RowParam = withDefault(NumberParam, ROW)
+const ColParam = withDefault(NumberParam, COL)
+const ModParam = withDefault(StringParam, 'conference')
 
 function App() {
+  const [mode] = useQueryParam('mode', ModParam);
+  let [row] = useQueryParam('row', RowParam);
+  let [col] = useQueryParam('col', ColParam);
   const props: Array<VideoProps> = [];
   const stream = useCreateOnce(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -19,7 +27,17 @@ function App() {
     });
     return stream;
   });
-  for (let i = 0; i < ROW * COL; ++i) {
+  if (mode !== 'conference' && mode !== 'hls') {
+    return <div>The query param mode must be conference or hls.</div>
+  }
+  if (mode === 'hls') {
+    row = col = 1;
+  }
+  if (12 % col != 0) {
+    return <div>The query param col must be divisible by 12.</div>;
+  }
+  const colSize = 12 / col;
+  for (let i = 0; i < row * col; ++i) {
     props[i] = {
       name: `client${i}`,
       stream: stream,
@@ -34,7 +52,7 @@ function App() {
         uid: `${i}`,
         uname: `user${i}`,
         role: 'student',
-        room: `room${i % ROW}`,
+        room: `room${i % row}`,
       },
       publish: {
         labels: {
@@ -43,7 +61,7 @@ function App() {
       },
       subscribe: {
         labels: {
-          uid: `${(i + ROW) % (ROW * COL)}`,
+          uid: `${(i + row) % (row * col)}`,
         },
       },
       // signalHost: 'http://localhost:8080',
@@ -52,16 +70,26 @@ function App() {
       authHost: 'http://192.168.1.233:3100',
     }
   }
+
+  let Hls;
+  if (mode === 'hls') {
+    Hls = (
+      <HlsPlayer indexUrl='http://192.168.1.233:12080/hls/0/master.m3u8' delay={100000}/>
+    )
+  } else {
+    Hls = null;
+  }
   return (
     <div className="App">
       <header className="App-header">
         <img src={logo} className="App-logo" alt="logo" />
         <div>
-          { [ ...Array(ROW).keys() ].map(r => (
+          { Hls }
+          { [ ...Array(row).keys() ].map(r => (
             <div className='row' key={r}>
-              { [ ...Array(COL).keys() ].map(c => (
-                <div className={`col-xs-${COL_SIZE}`} key={c}>
-                  <Video {...props[c * ROW + r]}/>
+              { [ ...Array(col).keys() ].map(c => (
+                <div className={`col-xs-${colSize}`} key={c}>
+                  <Video {...props[c * row + r]}/>
                 </div>
               ))}
             </div>

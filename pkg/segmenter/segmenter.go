@@ -146,11 +146,13 @@ type Track struct {
 	id                int
 	segmenter         *Segmenter
 	lt                common.LabeledTrack
+	ready             bool
 	playlist          playlist.Media
 	codec             TrackCodec
 	meta              codecs.Codec
 	sb                *samplebuilder.SampleBuilder
 	videoDTSExtractor dtsExtractor
+	prefix            string
 	indexUri          string
 	segUri            string
 	initUri           string
@@ -168,48 +170,52 @@ type Track struct {
 	closed            bool
 }
 
-func NewTrack(id int, segmenter *Segmenter, lt common.LabeledTrack, indexUri string, segUri string, initUri string) (*Track, error) {
-	if indexUri == "" {
-		return nil, fmt.Errorf("indexUri can't be empty")
-	}
-	if initUri == "" {
-		return nil, fmt.Errorf("initUri can't be empty")
-	}
-	if segUri == "" {
-		return nil, fmt.Errorf("segUri can't be empty")
-	}
-	if initUri == segUri {
-		return nil, fmt.Errorf("initUri must be different from segUri, they are all %s", initUri)
-	}
-	depacketizer, meta, codec := AnalyzeTrackCodec(lt)
-	if codec == TrackCodecNone {
-		return nil, fmt.Errorf("unsupported codec %v", lt.TrackRemote().Codec().MimeType)
-	}
-	var sb *samplebuilder.SampleBuilder
-	if depacketizer != nil {
-		sb = samplebuilder.New(16, depacketizer, lt.TrackRemote().Codec().ClockRate)
-	}
+func NewTrack(id int, segmenter *Segmenter, lt common.LabeledTrack) (*Track, error) {
 	track := &Track{
 		id:        id,
 		segmenter: segmenter,
 		lt:        lt,
-		playlist: playlist.Media{
-			Version:             6,
-			IndependentSegments: true,
-			TargetDuration:      segmenter.segmentDuration,
-			PlaylistType:        (*playlist.MediaPlaylistType)(MakeStringPtr(playlist.MediaPlaylistTypeEvent)),
-			Map: &playlist.MediaMap{
-				URI: initUri,
-			},
-		},
-		meta:     meta,
-		codec:    codec,
-		sb:       sb,
-		indexUri: indexUri,
-		segUri:   segUri,
-		initUri:  initUri,
 	}
 	return track, nil
+}
+
+func (t *Track) TryReady() (bool, error) {
+	if t.ready {
+		return true, nil
+	}
+	if t.lt.TrackRemote().Codec().MimeType == "" {
+		return false, nil
+	}
+	prefix := generatePrefix(t.lt)
+	indexUri := fmt.Sprintf("%s.m3u8", prefix)
+	initUri := fmt.Sprintf("%s-init.mp4", prefix)
+	segUri := fmt.Sprintf("%s-segments.m4s", prefix)
+	depacketizer, meta, codec := AnalyzeTrackCodec(t.lt)
+	if codec == TrackCodecNone {
+		return false, fmt.Errorf("unsupported codec %v", t.lt.TrackRemote().Codec().MimeType)
+	}
+	var sb *samplebuilder.SampleBuilder
+	if depacketizer != nil {
+		sb = samplebuilder.New(16, depacketizer, t.lt.TrackRemote().Codec().ClockRate)
+	}
+	t.playlist = playlist.Media{
+		Version:             6,
+		IndependentSegments: true,
+		TargetDuration:      t.segmenter.segmentDuration,
+		PlaylistType:        (*playlist.MediaPlaylistType)(MakeStringPtr(playlist.MediaPlaylistTypeEvent)),
+		Map: &playlist.MediaMap{
+			URI: initUri,
+		},
+	}
+	t.meta = meta
+	t.codec = codec
+	t.sb = sb
+	t.prefix = prefix
+	t.indexUri = indexUri
+	t.segUri = segUri
+	t.initUri = initUri
+	t.ready = true
+	return true, nil
 }
 
 func (t *Track) IsAudio() bool {
@@ -281,6 +287,8 @@ func (t *Track) writeH26x(ntp time.Time, pts time.Duration, data []byte) error {
 
 	case *codecs.H264:
 		nonIDRPresent := false
+		hasSps := false
+		hasPps := false
 
 		for _, nalu := range au {
 			typ := h264.NALUType(nalu[0] & 0x1F)
@@ -293,12 +301,14 @@ func (t *Track) writeH26x(ntp time.Time, pts time.Duration, data []byte) error {
 				nonIDRPresent = true
 
 			case h264.NALUTypeSPS:
+				hasSps = true
 				if !bytes.Equal(codec.SPS, nalu) {
 					t.forceSwitch = true
 					codec.SPS = nalu
 				}
 
 			case h264.NALUTypePPS:
+				hasPps = true
 				if !bytes.Equal(codec.PPS, nalu) {
 					t.forceSwitch = true
 					codec.PPS = nalu
@@ -308,6 +318,16 @@ func (t *Track) writeH26x(ntp time.Time, pts time.Duration, data []byte) error {
 
 		if !randomAccess && !nonIDRPresent {
 			return nil
+		} else if !hasSps || !hasPps {
+			if !hasSps {
+				if codec.SPS == nil {
+					return nil
+				}
+				au = append(au, codec.SPS)
+			}
+			if !hasPps && codec.PPS != nil {
+				au = append(au, codec.PPS)
+			}
 		}
 	}
 
@@ -513,7 +533,7 @@ func (t *Track) WriteData(ntp time.Time, pts time.Duration, data []byte) error {
 }
 
 func (t *Track) Close() error {
-	if t.closed {
+	if t.closed || !t.ready {
 		return nil
 	}
 	t.closed = true
@@ -556,6 +576,7 @@ type Instant struct {
 }
 
 type Segmenter struct {
+	ready                bool
 	tracks               []*Track
 	multivariantPlaylist playlist.Multivariant
 	indexUriTemplate     *fasttemplate.Template
@@ -688,41 +709,65 @@ func NewSegmenter(labeledTracks []common.LabeledTrack, directoryTemplate string,
 	}
 	var tracks []*Track
 	for _, lt := range labeledTracks {
-		prefix := generatePrefix(lt)
-		indexUri := fmt.Sprintf("%s.m3u8", prefix)
-		initUri := fmt.Sprintf("%s-init.mp4", prefix)
-		segUri := fmt.Sprintf("%s-segments.m4s", prefix)
-		track, err := NewTrack(1, segmenter, lt, indexUri, segUri, initUri)
+		track, err := NewTrack(1, segmenter, lt)
 		if err != nil {
 			return nil, err
 		}
 		tracks = append(tracks, track)
-		if track.IsAudio() {
-			var defaultAudio bool
-			if segmenter.multivariantPlaylist.Renditions == nil {
-				defaultAudio = true
-			}
-			segmenter.multivariantPlaylist.Renditions = append(segmenter.multivariantPlaylist.Renditions, &playlist.MultivariantRendition{
-				Type:       playlist.MultivariantRenditionTypeAudio,
-				GroupID:    "audio",
-				URI:        indexUri,
-				Name:       prefix,
-				Autoselect: true,
-				Default:    defaultAudio,
-			})
-		} else {
-			segmenter.multivariantPlaylist.Variants = append(segmenter.multivariantPlaylist.Variants, &playlist.MultivariantVariant{
-				URI: indexUri,
-			})
-		}
-	}
-	if segmenter.multivariantPlaylist.Renditions != nil {
-		for _, variant := range segmenter.multivariantPlaylist.Variants {
-			variant.Audio = "audio"
-		}
 	}
 	segmenter.tracks = tracks
 	return segmenter, nil
+}
+
+func (s *Segmenter) TryReady() (bool, error) {
+	if s.ready {
+		return true, nil
+	}
+	readys := 0
+	for _, track := range s.tracks {
+		ready, err := track.TryReady()
+		if err != nil {
+			return false, err
+		}
+		if ready {
+			readys++
+		}
+	}
+	if readys == len(s.tracks) {
+		s.ready = true
+		for _, track := range s.tracks {
+			if track.IsAudio() {
+				var defaultAudio bool
+				if s.multivariantPlaylist.Renditions == nil {
+					defaultAudio = true
+				}
+				s.multivariantPlaylist.Renditions = append(s.multivariantPlaylist.Renditions, &playlist.MultivariantRendition{
+					Type:       playlist.MultivariantRenditionTypeAudio,
+					GroupID:    "audio",
+					URI:        track.indexUri,
+					Name:       track.prefix,
+					Autoselect: true,
+					Default:    defaultAudio,
+				})
+			} else {
+				s.multivariantPlaylist.Variants = append(s.multivariantPlaylist.Variants, &playlist.MultivariantVariant{
+					URI: track.indexUri,
+				})
+			}
+		}
+		if s.multivariantPlaylist.Renditions != nil {
+			for _, variant := range s.multivariantPlaylist.Variants {
+				variant.Audio = "audio"
+			}
+		}
+		return true, nil
+	} else {
+		return false, nil
+	}
+}
+
+func (s *Segmenter) IsReady() bool {
+	return s.ready
 }
 
 func (s *Segmenter) calcDirectoryTemplate(t time.Time) string {

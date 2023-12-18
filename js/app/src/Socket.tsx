@@ -43,7 +43,7 @@ export interface VideoProps {
     authHost: string
 }
 
-const TIME_OUT = {};
+export const TIME_OUT = {};
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
     return Promise.race([promise, new Promise<T>((resolve, reject) => {

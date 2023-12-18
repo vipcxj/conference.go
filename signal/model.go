@@ -280,6 +280,7 @@ func (me *Publication) startRecord() {
 	}
 	trackNum := len(tracks)
 	closedTrackNum := 0
+	var ready bool
 	for {
 		pkg := <-pktCh
 		if pkg == nil {
@@ -288,6 +289,13 @@ func (me *Publication) startRecord() {
 		if closedTrackNum == trackNum {
 			close(pktCh)
 			break
+		}
+		ready, err = segmenter.TryReady()
+		if err != nil {
+			panic(err)
+		}
+		if !ready {
+			continue
 		}
 		err := segmenter.WriteRtp(pkg)
 		if err != nil {
@@ -837,10 +845,118 @@ func (ctx *SignalContext) StartNegotiate(peer *webrtc.PeerConnection, msgId int)
 	return
 }
 
+func MakeRTPCodecCapability(mimeType string, clockRate uint32, channels uint16, sdpFmtpLine string, feedback []webrtc.RTCPFeedback) webrtc.RTPCodecCapability {
+	return webrtc.RTPCodecCapability{
+		MimeType:     mimeType,
+		ClockRate:    clockRate,
+		Channels:     channels,
+		SDPFmtpLine:  sdpFmtpLine,
+		RTCPFeedback: feedback,
+	}
+}
+
+func RegisterLeastCodecs(m *webrtc.MediaEngine) error {
+	videoRTCPFeedback := []webrtc.RTCPFeedback{
+		{
+			Type:      webrtc.TypeRTCPFBGoogREMB,
+			Parameter: "",
+		},
+		{
+			Type:      webrtc.TypeRTCPFBCCM,
+			Parameter: "fir",
+		},
+		{
+			Type:      webrtc.TypeRTCPFBNACK,
+			Parameter: "",
+		},
+		{
+			Type:      webrtc.TypeRTCPFBNACK,
+			Parameter: "pli",
+		},
+	}
+	for _, codec := range []webrtc.RTPCodecParameters{
+
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypeH264, 90000, 0, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f", videoRTCPFeedback),
+			PayloadType:        102,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability("video/rtx", 90000, 0, "apt=102", nil),
+			PayloadType:        103,
+		},
+
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypeH264, 90000, 0, "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f", videoRTCPFeedback),
+			PayloadType:        104,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability("video/rtx", 90000, 0, "apt=104", nil),
+			PayloadType:        105,
+		},
+
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypeH264, 90000, 0, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f", videoRTCPFeedback),
+			PayloadType:        106,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability("video/rtx", 90000, 0, "apt=106", nil),
+			PayloadType:        107,
+		},
+
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypeH264, 90000, 0, "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f", videoRTCPFeedback),
+			PayloadType:        108,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability("video/rtx", 90000, 0, "apt=108", nil),
+			PayloadType:        109,
+		},
+
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypeH264, 90000, 0, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f", videoRTCPFeedback),
+			PayloadType:        127,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability("video/rtx", 90000, 0, "apt=127", nil),
+			PayloadType:        125,
+		},
+
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypeH264, 90000, 0, "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=4d001f", videoRTCPFeedback),
+			PayloadType:        39,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability("video/rtx", 90000, 0, "apt=39", nil),
+			PayloadType:        40,
+		},
+
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypeH264, 90000, 0, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64001f", videoRTCPFeedback),
+			PayloadType:        112,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability("video/rtx", 90000, 0, "apt=112", nil),
+			PayloadType:        113,
+		},
+	} {
+		if err := m.RegisterCodec(codec, webrtc.RTPCodecTypeVideo); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func createPeer() (*webrtc.PeerConnection, error) {
 	m := &webrtc.MediaEngine{}
-	if err := m.RegisterDefaultCodecs(); err != nil {
-		return nil, err
+	if config.Conf().Record.Enable {
+		if err := RegisterLeastCodecs(m); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := m.RegisterDefaultCodecs(); err != nil {
+			return nil, err
+		}
 	}
 	i := &interceptor.Registry{}
 	if err := webrtc.RegisterDefaultInterceptors(m, i); err != nil {

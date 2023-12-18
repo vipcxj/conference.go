@@ -42,7 +42,7 @@ type ConferenceConfigure struct {
 		Enable          bool   `mapstructure:"enable" json:"enable" default:"${CONF_RECORD_ENABLE}"`
 		DirPath         string `mapstructure:"dirPath" json:"dirPath" default:"${CONF_RECORD_DIR_PATH}"`
 		IndexName       string `mapstructure:"dir" json:"dir" default:"${CONF_RECORD_INDEX_NAME}"`
-		SegmentDuration int    `mapstructure:"segmentDuration" json:"segmentDuration" default:"${CONF_RECORD_SEGMENT_DURATION}"`
+		SegmentDuration int    `mapstructure:"segmentDuration" json:"segmentDuration" default:"${CONF_RECORD_SEGMENT_DURATION:6}"`
 	} `mapstructure:"record" json:"record"`
 }
 
