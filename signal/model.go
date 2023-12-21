@@ -20,9 +20,14 @@ import (
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/pkg/common"
 	"github.com/vipcxj/conference.go/pkg/segmenter"
+	"github.com/vipcxj/conference.go/utils"
 	"github.com/zishang520/socket.io/v2/socket"
 	"go.uber.org/zap"
 )
+
+func IsRTPClosedError(err error) bool {
+	return err == io.EOF || err == io.ErrClosedPipe || err.Error() == "interceptor is closed"
+}
 
 type SubscribedTrack struct {
 	sub      *Subscription
@@ -239,6 +244,25 @@ func (me *Publication) Audio() *PublishedTrack {
 	return ret
 }
 
+var RECORD_PACKET_POOL = &sync.Pool{
+	New: func() any {
+		return make([]byte, PACKET_MAX_SIZE)
+	},
+}
+
+func BorrowRecordPacketBuf() []byte {
+	return RECORD_PACKET_POOL.Get().([]byte)
+}
+
+func ReturnRecordPacketBuf(buf []byte) {
+	RECORD_PACKET_POOL.Put(buf)
+}
+
+type PacketBox struct {
+	pkg  *rtp.Packet
+	buff []byte
+}
+
 func (me *Publication) startRecord() {
 	me.mux.Lock()
 	defer me.mux.Unlock()
@@ -252,31 +276,51 @@ func (me *Publication) startRecord() {
 	me.recordStart = true
 	dirTemplate := config.Conf().Record.DirPath
 	indexTemplate := config.Conf().Record.IndexName
+	if indexTemplate == "" {
+		panic(fmt.Errorf("conf record.indexName should not be empty"))
+	}
 	segmentDuration := config.Conf().Record.SegmentDuration
+	gopSize := config.Conf().Record.GopSize
 	var tracks []common.LabeledTrack
 	me.tracks.ForEach(func(k string, track *PublishedTrack) bool {
 		tracks = append(tracks, track)
 		return true
 	})
-	segmenter, err := segmenter.NewSegmenter(tracks, dirTemplate, indexTemplate, segmentDuration)
+	segmenter, err := segmenter.NewSegmenter(
+		tracks, dirTemplate, indexTemplate, segmentDuration, gopSize,
+		segmenter.WithPacketReleaseHandler(func(p *rtp.Packet, b []byte) {
+			ReturnRecordPacketBuf(b)
+		}),
+	)
 	if err != nil {
 		panic(err)
 	}
 	defer segmenter.Close()
-	pktCh := make(chan *rtp.Packet, 16)
+	pktCh := make(chan *PacketBox, 16)
 	for _, track := range tracks {
-		rt := track.TrackRemote()
-		go func() {
-			for {
-				pkt, _, err := rt.ReadRTP()
-				if err != nil {
-					pktCh <- nil
-					break
-				} else {
-					pktCh <- pkt
+		var onRTP RTPConsumer = func(data []byte, attrs interceptor.Attributes, err error) bool {
+			if err != nil {
+				pktCh <- nil
+				if !IsRTPClosedError(err) {
+					panic(err)
 				}
+				return true
 			}
-		}()
+			buf := BorrowRecordPacketBuf()
+			copy(buf, data)
+			packet := &rtp.Packet{}
+			err = packet.Unmarshal(buf[:len(data)])
+			if err != nil {
+				panic(err)
+			}
+			// fmt.Printf("receive packet with no %d at pts %d for track %d\n", packet.SequenceNumber, packet.Timestamp, packet.SSRC)
+			pktCh <- &PacketBox{
+				pkg:  packet,
+				buff: buf,
+			}
+			return false
+		}
+		track.(*PublishedTrack).OnRTPPacket(&onRTP)
 	}
 	trackNum := len(tracks)
 	closedTrackNum := 0
@@ -297,7 +341,7 @@ func (me *Publication) startRecord() {
 		if !ready {
 			continue
 		}
-		err := segmenter.WriteRtp(pkg)
+		err := segmenter.WriteRtp(pkg.pkg, pkg.buff)
 		if err != nil {
 			panic(err)
 		}
@@ -374,11 +418,16 @@ func (me *Publication) Close() {
 	close(me.closeCh)
 }
 
+type RTPConsumer func(data []byte, attrs interceptor.Attributes, err error) bool
+
 type PublishedTrack struct {
-	pub    *Publication
-	mu     sync.Mutex
-	track  *Track
-	remote *webrtc.TrackRemote
+	pub          *Publication
+	mu           sync.Mutex
+	track        *Track
+	remote       *webrtc.TrackRemote
+	consumers    []*RTPConsumer
+	consumerMu   sync.Mutex
+	consumerChan chan interface{}
 }
 
 func (me *PublishedTrack) Publication() *Publication {
@@ -391,6 +440,58 @@ func (me *PublishedTrack) Track() *Track {
 
 func (me *PublishedTrack) TrackRemote() *webrtc.TrackRemote {
 	return me.remote
+}
+
+func (me *PublishedTrack) OnRTPPacket(consumer *RTPConsumer) (unon func()) {
+	me.consumerMu.Lock()
+	defer me.consumerMu.Unlock()
+	me.consumers = append(me.consumers, consumer)
+	unon = func() {
+		me.consumerMu.Lock()
+		defer me.consumerMu.Unlock()
+		me.consumers = utils.RemoveByValueFromSlice(me.consumers, true, consumer)
+		if len(me.consumers) == 0 {
+			close(me.consumerChan)
+			me.consumerChan = nil
+		}
+	}
+	if len(me.consumers) == 1 {
+		ch := make(chan interface{})
+		me.consumerChan = ch
+		consumes := func(data []byte, attrs interceptor.Attributes, err error) {
+			me.consumerMu.Lock()
+			defer me.consumerMu.Unlock()
+			consumers := me.consumers
+			for _, consumer := range consumers {
+				stop := (*consumer)(data, attrs, err)
+				if stop {
+					unon()
+				}
+			}
+		}
+		go func() {
+			buffer := make([]byte, PACKET_MAX_SIZE)
+			for {
+				select {
+				case <-ch:
+					return
+				default:
+					n, attrs, err := me.remote.Read(buffer)
+					if err != nil {
+						consumes(nil, nil, err)
+						break
+					}
+					data := buffer[:n]
+					if err != nil {
+						consumes(nil, nil, err)
+						continue
+					}
+					consumes(data, attrs, nil)
+				}
+			}
+		}()
+	}
+	return
 }
 
 func (me *PublishedTrack) Labels() map[string]string {
@@ -435,11 +536,13 @@ func (pt *PublishedTrack) Bind() bool {
 			return false
 		}
 		ctx.Sugar().Debugf("bind track with mid %s/%s", pt.BindId(), t.Mid())
-		pt.remote = rt
 		codec := rt.Codec()
 		if codec.MimeType != "" {
 			pt.track.Codec = NewRTPCodecParameters(&codec)
+		} else {
+			return false
 		}
+		pt.remote = rt
 		pt.track.LocalId = rt.ID()
 		ctx.Socket.Emit("published", &PublishedMessage{
 			Track: pt.Track(),
@@ -485,46 +588,43 @@ func (me *PublishedTrack) SatifySelect(sel *SelectMessage) bool {
 	tr, _ := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
 	ctx.Sugar().Debugf("Accepting track with codec ", tr.Codec().MimeType)
 	if tr != nil {
-		go func() {
-			r := GetRouter()
-			if me.pub.IsClosed() {
-				return
-			}
-			ch := r.PublishTrack(me.GlobalId(), sel.TransportId)
-			defer r.RemoveTrack(me.GlobalId())
-			buf := make([]byte, PACKET_MAX_SIZE)
-			for {
-				select {
-				case <-me.pub.closeCh:
+		r := GetRouter()
+		ch := r.PublishTrack(me.GlobalId(), sel.TransportId)
+		var onRTP RTPConsumer = func(data []byte, attrs interceptor.Attributes, err error) bool {
+			if err != nil {
+				r.RemoveTrack(me.GlobalId())
+				if IsRTPClosedError(err) {
 					p, err := NewEOFPacket(me.GlobalId())
 					if err != nil {
 						panic(err)
 					}
 					ch <- p
-					return
-				default:
-					n, _, err := tr.Read(buf)
+					return true
+				}
+				panic(err)
+			}
+			select {
+			case <-me.pub.closeCh:
+				r.RemoveTrack(me.GlobalId())
+				p, err := NewEOFPacket(me.GlobalId())
+				if err != nil {
+					panic(err)
+				}
+				ch <- p
+				return true
+			default:
+				if len(data) > 0 {
+					p, err := NewPacketFromBuf(me.GlobalId(), data)
 					if err != nil {
-						if err == io.EOF || err == io.ErrClosedPipe || err.Error() == "interceptor is closed" {
-							p, err := NewEOFPacket(me.GlobalId())
-							if err != nil {
-								panic(err)
-							}
-							ch <- p
-							return
-						}
+						r.RemoveTrack(me.GlobalId())
 						panic(err)
 					}
-					if n > 0 {
-						p, err := NewPacketFromBuf(me.GlobalId(), buf[0:n])
-						if err != nil {
-							panic(err)
-						}
-						ch <- p
-					}
+					ch <- p
 				}
+				return false
 			}
-		}()
+		}
+		me.OnRTPPacket(&onRTP)
 		return true
 	} else {
 		return false
@@ -856,6 +956,29 @@ func MakeRTPCodecCapability(mimeType string, clockRate uint32, channels uint16, 
 }
 
 func RegisterLeastCodecs(m *webrtc.MediaEngine) error {
+	// Default Pion Audio Codecs
+	for _, codec := range []webrtc.RTPCodecParameters{
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypeOpus, 48000, 2, "minptime=10;useinbandfec=1", nil),
+			PayloadType:        111,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypeG722, 8000, 0, "", nil),
+			PayloadType:        9,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypePCMU, 8000, 0, "", nil),
+			PayloadType:        0,
+		},
+		{
+			RTPCodecCapability: MakeRTPCodecCapability(webrtc.MimeTypePCMA, 8000, 0, "", nil),
+			PayloadType:        8,
+		},
+	} {
+		if err := m.RegisterCodec(codec, webrtc.RTPCodecTypeAudio); err != nil {
+			return err
+		}
+	}
 	videoRTCPFeedback := []webrtc.RTCPFeedback{
 		{
 			Type:      webrtc.TypeRTCPFBGoogREMB,
@@ -955,6 +1078,7 @@ func createPeer() (*webrtc.PeerConnection, error) {
 		}
 	} else {
 		if err := m.RegisterDefaultCodecs(); err != nil {
+			// if err := RegisterLeastCodecs(m); err != nil {
 			return nil, err
 		}
 	}
@@ -1003,10 +1127,12 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 		peer.OnICECandidate(func(i *webrtc.ICECandidate) {
 			var err error
 			if i == nil {
+				ctx.Sugar().Debug("can not find candidate any more")
 				err = ctx.Socket.Emit("candidate", CandidateMessage{
 					Op: "end",
 				})
 			} else {
+				ctx.Sugar().Debugf("find candidate %v", i)
 				err = ctx.Socket.Emit("candidate", &CandidateMessage{
 					Op:        "add",
 					Candidate: i.ToJSON(),

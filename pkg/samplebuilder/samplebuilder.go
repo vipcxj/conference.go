@@ -2,6 +2,7 @@
 package samplebuilder
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/pion/rtp"
@@ -11,6 +12,7 @@ import (
 type packet struct {
 	start, end bool
 	packet     *rtp.Packet
+	buff       []byte
 }
 
 // SampleBuilder buffers packets and produces media frames
@@ -24,7 +26,7 @@ type SampleBuilder struct {
 
 	maxLate              uint16
 	depacketizer         rtp.Depacketizer
-	packetReleaseHandler func(*rtp.Packet)
+	packetReleaseHandler func(*rtp.Packet, []byte)
 	sampleRate           uint32
 
 	// indicates whether the lastSeqno field is valid
@@ -67,7 +69,7 @@ type Option func(o *SampleBuilder)
 
 // WithPacketReleaseHandler sets a callback that is called when the
 // builder is about to release some packet.
-func WithPacketReleaseHandler(h func(*rtp.Packet)) Option {
+func WithPacketReleaseHandler(h func(*rtp.Packet, []byte)) Option {
 	return func(s *SampleBuilder) {
 		s.packetReleaseHandler = h
 	}
@@ -170,6 +172,7 @@ func (s *SampleBuilder) isEnd(p *rtp.Packet) bool {
 }
 
 // release releases the last packet.
+// clean packets[s.tail] and s.tail to s.tail + x where packets[s.tail + x] is not empty or packets is empty
 func (s *SampleBuilder) release() bool {
 	if s.head == s.tail {
 		return false
@@ -177,7 +180,7 @@ func (s *SampleBuilder) release() bool {
 	s.lastSeqnoValid = true
 	s.lastSeqno = s.packets[s.tail].packet.SequenceNumber
 	if s.packetReleaseHandler != nil {
-		s.packetReleaseHandler(s.packets[s.tail].packet)
+		s.packetReleaseHandler(s.packets[s.tail].packet, s.packets[s.tail].buff)
 	}
 	s.packets[s.tail] = packet{}
 	s.tail = s.inc(s.tail)
@@ -224,7 +227,7 @@ func (s *SampleBuilder) drop() (bool, uint32) {
 //
 // Push does not copy the input: the packet will be retained by s.  If you
 // plan to reuse the packet or its buffer, make sure to perform a copy.
-func (s *SampleBuilder) Push(p *rtp.Packet) {
+func (s *SampleBuilder) Push(p *rtp.Packet, buf []byte) {
 	if s.lastSeqnoValid {
 		if (s.lastSeqno-p.SequenceNumber)&0x8000 == 0 {
 			// late packet
@@ -253,6 +256,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 			start:  s.isStart(p),
 			end:    s.isEnd(p),
 			packet: p,
+			buff:   buf,
 		}
 		s.tail = 0
 		s.head = 1
@@ -261,21 +265,30 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 
 	seqno := p.SequenceNumber
 	ts := p.Timestamp
-	last := s.dec(s.head)
-	lastSeqno := s.packets[last].packet.SequenceNumber
+	newest := s.dec(s.head)
+	lastSeqno := s.packets[newest].packet.SequenceNumber
 	if seqno == lastSeqno+1 {
 		// sequential
-		if s.tail == s.inc(s.head) {
-			s.drop()
+		if s.tail == s.inc(s.head) { // full
+			dropped, droppedTs := s.drop()
+			// if part of frame has been dropped
+			if dropped && droppedTs == ts {
+				if s.tail != s.head {
+					panic(fmt.Errorf("this is impossible"))
+				}
+				return
+			}
 		}
+		// put p at head and inc head
+
 		start := false
 		// drop may have dropped the whole buffer
 		if s.tail != s.head {
-			start = s.packets[last].end ||
-				s.packets[last].packet.Timestamp != p.Timestamp ||
+			start = s.packets[newest].end ||
+				s.packets[newest].packet.Timestamp != p.Timestamp ||
 				s.isStart(p)
 			if start {
-				s.packets[last].end = true
+				s.packets[newest].end = true
 			}
 		} else {
 			start = s.isStart(p)
@@ -284,17 +297,18 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 			start:  start,
 			end:    s.isEnd(p),
 			packet: p,
+			buff:   buf,
 		}
 		s.head = s.inc(s.head)
 		return
 	}
 
-	if ((seqno - lastSeqno) & 0x8000) == 0 {
+	if ((seqno - lastSeqno) & 0x8000) == 0 { // seqno > lastSeqno
 		// packet in the future
 		count := seqno - lastSeqno - 1
 		if count >= s.cap() {
 			s.releaseAll()
-			s.Push(p)
+			s.Push(p, buf)
 			return
 		}
 		// make free space
@@ -311,6 +325,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 			start:  start,
 			end:    s.isEnd(p),
 			packet: p,
+			buff:   buf,
 		}
 		s.head = s.inc(index)
 		return
@@ -346,7 +361,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 	if s.packets[index].packet != nil {
 		// duplicate packet
 		if s.packetReleaseHandler != nil {
-			s.packetReleaseHandler(p)
+			s.packetReleaseHandler(p, buf)
 		}
 		return
 	}
@@ -384,6 +399,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 		start:  start,
 		end:    end,
 		packet: p,
+		buff:   buf,
 	}
 }
 
@@ -405,12 +421,13 @@ again:
 
 	seqno := s.packets[s.tail].packet.SequenceNumber
 	if !force && s.lastSeqnoValid && s.lastSeqno+1 != seqno {
-		// packet loss before tail
+		// packet loss before tail, so wait the loss packet
 		return nil
 	}
 
 	ts := s.packets[s.tail].packet.Timestamp
 	last := s.tail
+	// find end
 	for last != s.head && !s.packets[last].end {
 		if s.packets[last].packet == nil {
 			if force {

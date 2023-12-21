@@ -74,7 +74,7 @@ function App() {
   let Hls;
   if (mode === 'hls') {
     Hls = (
-      <HlsPlayer indexUrl='http://192.168.1.233:12080/hls/0/master.m3u8' delay={100000}/>
+      <HlsPlayer indexUrl='http://192.168.1.233:12080/hls/0/master.m3u8' delay={15000}/>
     )
   } else {
     Hls = null;

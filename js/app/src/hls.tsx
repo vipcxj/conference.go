@@ -47,7 +47,9 @@ async function bindHls(videoRef: React.RefObject<HTMLVideoElement>, indexUrl: st
     if (!video) {
         return null
     }
-    const hls = new Hls();
+    const hls = new Hls({
+        autoStartLoad: true,
+    });
     hls.on(Hls.Events.MEDIA_ATTACHED, () => {
         console.log('video and hls.js are now bound together !');
     });
@@ -81,6 +83,6 @@ export function HlsPlayer(props: HlsProps) {
         return <div>HLS is not supported at this browser.</div>
     }
     return (
-        <video ref={videoRef}></video>
+        <video ref={videoRef} controls autoPlay></video>
     )
 }

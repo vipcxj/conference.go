@@ -1,14 +1,19 @@
 package utils
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/vipcxj/conference.go/errors"
 )
 
+func SimpleEqualer[T comparable](t1, t2 T) bool {
+	return t1 == t2
+}
+
 func InSlice[T comparable](slice []T, target T, comparer func(T, T) bool) bool {
 	if comparer == nil {
-		comparer = func(t1, t2 T) bool {
-			return t1 == t2
-		}
+		comparer = SimpleEqualer
 	}
 	for _, e := range slice {
 		if comparer(e, target) {
@@ -27,7 +32,97 @@ func InSlice2[T any](slice []T, tester func(T) bool) bool {
 	return false
 }
 
-func InMap[K comparable, T any](m map[K]T,  tester func(T) bool) bool {
+func RemoveByIndexFromSlice[T any](slice []T, copy bool, index int) ([]T, bool) {
+	lenSlice := len(slice)
+	if index < 0 || index >= lenSlice {
+		return slice, false
+	}
+	if copy {
+		removed := make([]T, 0, lenSlice-1)
+		removed = append(removed, slice[0:index]...)
+		removed = append(removed, slice[index+1:]...)
+		return removed, true
+	} else {
+		if index == 0 {
+			return slice[1:], true
+		}
+		if index == lenSlice-1 {
+			return slice[0 : lenSlice-1], true
+		}
+		return append(slice[0:index], slice[index+1:]...), true
+	}
+}
+
+func ComparableCompare[T cmp.Ordered](t1, t2 T) int {
+	if t1 == t2 {
+		return 0
+	} else if t1 < t2 {
+		return -1
+	} else {
+		return 1
+	}
+}
+
+func RemoveByIndexesFromSlice[T any](slice []T, copy bool, indexes ...int) []T {
+	if len(indexes) == 0 {
+		return slice
+	}
+	var out []T
+	if copy {
+		out = make([]T, 0)
+	} else {
+		out = slice[0:0]
+	}
+	slices.SortFunc(indexes, ComparableCompare)
+	p := 0
+	for i, index := range indexes {
+		if index >= 0 {
+			p = i
+			break
+		}
+	}
+	e := -1
+	lenSlice := len(slice)
+	for i := len(indexes) - 1; i >= 0; i -- {
+		index := indexes[i]
+		if index < lenSlice {
+			e = i
+		}
+	}
+	if e == -1 {
+		return slice
+	}
+	
+	for i, v := range slice {
+		index := indexes[p]
+		if i != index {
+			out = append(out, v)
+		} else {
+			p ++
+		}
+		if p > e {
+			break
+		}
+	}
+	return out
+}
+
+func RemoveByValueFromSlice[T comparable](slice []T, copy bool, value T) []T {
+	var out []T
+	if copy {
+		out = make([]T, 0)
+	} else {
+		out = slice[0:0]
+	}
+	for _, v := range slice {
+		if v != value {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func InMap[K comparable, T any](m map[K]T, tester func(T) bool) bool {
 	for _, e := range m {
 		if tester(e) {
 			return true
@@ -88,7 +183,7 @@ func XOrBytes(bytes1 []byte, bytes2 []byte, out []byte) {
 	if len(out) < len1 {
 		panic(errors.FatalError("to xor two bytes array, the length of the output must be greater or equal to the length of them"))
 	}
-	for i := 0; i < len1; i ++ {
+	for i := 0; i < len1; i++ {
 		out[i] = bytes1[i] ^ bytes2[i]
 	}
 }

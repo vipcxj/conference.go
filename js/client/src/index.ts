@@ -411,6 +411,11 @@ export class ConferenceClient {
                     op: "end",
                 };
             }
+            if (evt.candidate) {
+                this.logger().log(`find and send candidate ${evt.candidate.address}`);
+            } else {
+                this.logger().log(`find and send the completed candidate`);
+            }
             this.socket.emit("candidate", msg);
         }
         peer.onconnectionstatechange = () => {
@@ -453,8 +458,10 @@ export class ConferenceClient {
     private addCandidate = async (peer: RTCPeerConnection, msg: CandidateMessage) => {
         try {
             if (msg.op == "end") {
+                this.logger().log(`Received candidate completed`)
                 await peer.addIceCandidate();
             } else {
+                this.logger().log(`Received candidate ${msg.candidate.candidate}`)
                 await peer.addIceCandidate(msg.candidate);
             }
         } catch (err) {
@@ -580,15 +587,15 @@ export class ConferenceClient {
                     sdp: sdpMsg.sdp,
                 });
                 this.logger().debug('remote desc has set')
+                for (const pending of this.pendingCandidates) {
+                    await this.addCandidate(peer, pending);
+                }
+                this.pendingCandidates = [];
                 if (sdpMsg.type == 'answer') {
                     this.logger().debug('the remote desc is answer, so break out');
                     await sdpEvts.return();
                     break;
                 }
-                for (const pending of this.pendingCandidates) {
-                    await this.addCandidate(peer, pending);
-                }
-                this.pendingCandidates = [];
             }
         } else {
             if (sdpEvts === null) {

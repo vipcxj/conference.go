@@ -29,7 +29,6 @@ import (
 type augmentedSample struct {
 	fmp4.PartSample
 	dts time.Duration
-	ntp time.Time
 }
 
 const (
@@ -133,7 +132,7 @@ func allocateDTSExtractor(codec codecs.Codec) dtsExtractor {
 		return h265.NewDTSExtractor()
 
 	case *codecs.H264:
-		return h264.NewDTSExtractor()
+		return NewH264DTSExtractor()
 	}
 	return nil
 }
@@ -163,6 +162,8 @@ type Track struct {
 	initCreated       bool
 	startNTP          time.Time
 	startDTS          time.Duration
+	lastDTSFilled     bool
+	lastDTS           time.Duration
 	nextVideoSample   *augmentedSample
 	currentPart       *fmp4.Part
 	resolution        string
@@ -196,12 +197,12 @@ func (t *Track) TryReady() (bool, error) {
 	}
 	var sb *samplebuilder.SampleBuilder
 	if depacketizer != nil {
-		sb = samplebuilder.New(16, depacketizer, t.lt.TrackRemote().Codec().ClockRate)
+		sb = samplebuilder.New(16, depacketizer, t.lt.TrackRemote().Codec().ClockRate, samplebuilder.WithPacketReleaseHandler(t.segmenter.packetReleaseHandler))
 	}
 	t.playlist = playlist.Media{
 		Version:             6,
 		IndependentSegments: true,
-		TargetDuration:      t.segmenter.segmentDuration,
+		TargetDuration:      t.segmenter.segmentDuration + t.segmenter.gopSize,
 		PlaylistType:        (*playlist.MediaPlaylistType)(MakeStringPtr(playlist.MediaPlaylistTypeEvent)),
 		Map: &playlist.MediaMap{
 			URI: initUri,
@@ -226,7 +227,7 @@ func (t *Track) RFC6381Codec() string {
 	return codecparams.Marshal(t.meta)
 }
 
-func (t *Track) writeH26x(ntp time.Time, pts time.Duration, data []byte) error {
+func (t *Track) writeH26x(pts time.Duration, data []byte) error {
 	au := split264Nalus(data)
 	randomAccess := false
 
@@ -268,19 +269,6 @@ func (t *Track) writeH26x(ntp time.Time, pts time.Duration, data []byte) error {
 				if !bytes.Equal(codec.PPS, nalu) {
 					t.forceSwitch = true
 					codec.PPS = nalu
-
-					var sps h264.SPS
-					err := sps.Unmarshal(codec.SPS)
-					if err != nil {
-						return err
-					}
-
-					t.resolution = strconv.FormatInt(int64(sps.Width()), 10) + "x" + strconv.FormatInt(int64(sps.Height()), 10)
-
-					f := sps.FPS()
-					if f != 0 {
-						t.frameRate = f
-					}
 				}
 			}
 		}
@@ -305,6 +293,19 @@ func (t *Track) writeH26x(ntp time.Time, pts time.Duration, data []byte) error {
 				if !bytes.Equal(codec.SPS, nalu) {
 					t.forceSwitch = true
 					codec.SPS = nalu
+
+					var sps h264.SPS
+					err := sps.Unmarshal(codec.SPS)
+					if err != nil {
+						return err
+					}
+
+					t.resolution = strconv.FormatInt(int64(sps.Width()), 10) + "x" + strconv.FormatInt(int64(sps.Height()), 10)
+
+					f := sps.FPS()
+					if f != 0 {
+						t.frameRate = f
+					}
 				}
 
 			case h264.NALUTypePPS:
@@ -331,6 +332,12 @@ func (t *Track) writeH26x(ntp time.Time, pts time.Duration, data []byte) error {
 		}
 	}
 
+	// if randomAccess {
+	// 	fmt.Printf("write key sample at pts %v\n", pts)
+	// } else {
+	// 	fmt.Printf("write nonkey sample at pts %v\n", pts)
+	// }
+
 	forceSwitch := false
 	if randomAccess && t.forceSwitch {
 		t.forceSwitch = false
@@ -352,8 +359,15 @@ func (t *Track) writeH26x(ntp time.Time, pts time.Duration, data []byte) error {
 	var err error
 	dts, err = t.videoDTSExtractor.Extract(au, pts)
 	if err != nil {
-		return fmt.Errorf("unable to extract DTS: %v", err)
+		fmt.Printf("unable to extract DTS: %v\n", err)
+		if t.lastDTSFilled {
+			dts = min(t.lastDTS+time.Millisecond, pts)
+		} else {
+			dts = pts
+		}
 	}
+	t.lastDTSFilled = true
+	t.lastDTS = dts
 
 	ps, err := fmp4.NewPartSampleH26x(
 		int32(durationGoToMp4(pts-dts, 90000)),
@@ -369,7 +383,6 @@ func (t *Track) writeH26x(ntp time.Time, pts time.Duration, data []byte) error {
 		&augmentedSample{
 			PartSample: *ps,
 			dts:        dts,
-			ntp:        ntp,
 		})
 }
 
@@ -399,7 +412,7 @@ func (t *Track) updateIndex(close bool) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(fpath, content, 0)
+	err = os.WriteFile(fpath, content, 0o664)
 	return err
 }
 
@@ -460,7 +473,7 @@ func (t *Track) writeVideo(
 
 		// the first sample
 		if t.nextVideoSample == nil {
-			t.startNTP = sample.ntp
+			t.startNTP = time.Now().UTC()
 			t.startDTS = sample.dts
 			if !t.start {
 				t.start = true
@@ -488,7 +501,7 @@ func (t *Track) writeVideo(
 		t.currentPart = &fmp4.Part{
 			Tracks: []*fmp4.PartTrack{{
 				ID:       t.id,
-				BaseTime: durationGoToMp4(t.startDTS, 90000),
+				BaseTime: durationGoToMp4(t.startDTS-t.segmenter.start.DTS, 90000),
 			}},
 		}
 	}
@@ -502,12 +515,12 @@ func (t *Track) writeVideo(
 		}
 
 		if t.nextVideoSample != nil {
-			t.startNTP = t.nextVideoSample.ntp
+			t.startNTP = time.Now().UTC()
 			t.startDTS = t.nextVideoSample.dts
 			t.currentPart = &fmp4.Part{
 				Tracks: []*fmp4.PartTrack{{
 					ID:       t.id,
-					BaseTime: durationGoToMp4(t.startDTS, 90000),
+					BaseTime: durationGoToMp4(t.startDTS-t.segmenter.start.DTS, 90000),
 					Samples:  []*fmp4.PartSample{&t.nextVideoSample.PartSample},
 				}},
 			}
@@ -520,13 +533,13 @@ func (t *Track) writeVideo(
 	return nil
 }
 
-func (t *Track) WriteData(ntp time.Time, pts time.Duration, data []byte) error {
+func (t *Track) WriteData(pts time.Duration, data []byte) error {
 	if t.closed {
 		return fmt.Errorf("track closed")
 	}
 	switch t.codec {
 	case TrackCodecH264:
-		return t.writeH26x(ntp, pts, data)
+		return t.writeH26x(pts, data)
 	default:
 		return fmt.Errorf("unsupport codec %v", t.codec)
 	}
@@ -575,6 +588,8 @@ type Instant struct {
 	NPT time.Time
 }
 
+type Option func(o *Segmenter)
+
 type Segmenter struct {
 	ready                bool
 	tracks               []*Track
@@ -582,12 +597,14 @@ type Segmenter struct {
 	indexUriTemplate     *fasttemplate.Template
 	indexUri             string
 	segmentDuration      int
+	gopSize              int
 	start                *Instant
 	end                  *Instant
 	directoryTemplate    *fasttemplate.Template
 	directory            string
 	indexCreated         bool
 	closed               bool
+	packetReleaseHandler func(*rtp.Packet, []byte)
 }
 
 func calcSuperExpr(v int, postfix string) int {
@@ -697,7 +714,14 @@ func generatePrefix(lt common.LabeledTrack) string {
 	return fmt.Sprintf("%s-%v", kind, lt.TrackRemote().SSRC())
 }
 
-func NewSegmenter(labeledTracks []common.LabeledTrack, directoryTemplate string, indexTemplate string, segmentDuration int) (*Segmenter, error) {
+func NewSegmenter(
+	labeledTracks []common.LabeledTrack,
+	directoryTemplate string,
+	indexTemplate string,
+	segmentDuration int,
+	gopSize int,
+	options ...Option,
+) (*Segmenter, error) {
 	segmenter := &Segmenter{
 		indexUriTemplate: fasttemplate.New(indexTemplate, "{{", "}}"),
 		multivariantPlaylist: playlist.Multivariant{
@@ -705,7 +729,13 @@ func NewSegmenter(labeledTracks []common.LabeledTrack, directoryTemplate string,
 			IndependentSegments: true,
 		},
 		segmentDuration:   segmentDuration,
+		gopSize:           gopSize,
 		directoryTemplate: fasttemplate.New(directoryTemplate, "{{", "}}"),
+	}
+	for _, opt := range options {
+		if opt != nil {
+			opt(segmenter)
+		}
 	}
 	var tracks []*Track
 	for _, lt := range labeledTracks {
@@ -717,6 +747,14 @@ func NewSegmenter(labeledTracks []common.LabeledTrack, directoryTemplate string,
 	}
 	segmenter.tracks = tracks
 	return segmenter, nil
+}
+
+// WithPacketReleaseHandler sets a callback that is called when the
+// builder is about to release some packet.
+func WithPacketReleaseHandler(h func(*rtp.Packet, []byte)) Option {
+	return func(s *Segmenter) {
+		s.packetReleaseHandler = h
+	}
 }
 
 func (s *Segmenter) TryReady() (bool, error) {
@@ -803,6 +841,9 @@ func (s *Segmenter) setStart(dts time.Duration, ntp time.Time) {
 func (s *Segmenter) FindTrackBySSID(ssrc uint32) *Track {
 	for _, track := range s.tracks {
 		if track.lt.TrackRemote().SSRC() == webrtc.SSRC(ssrc) || track.lt.TrackRemote().RtxSSRC() == webrtc.SSRC(ssrc) {
+			if track.lt.TrackRemote().SSRC() != webrtc.SSRC(ssrc) {
+				fmt.Print("find packet from rtx.\n")
+			}
 			return track
 		}
 	}
@@ -858,8 +899,10 @@ func (s *Segmenter) UpdateIndex() error {
 			masterChanged = true
 		}
 		if variant.FrameRate == nil || *variant.FrameRate != track.frameRate {
-			variant.FrameRate = &track.frameRate
-			masterChanged = true
+			if track.frameRate != 0 {
+				variant.FrameRate = &track.frameRate
+				masterChanged = true
+			}
 		}
 	}
 	if !s.indexCreated || masterChanged {
@@ -873,7 +916,7 @@ func (s *Segmenter) UpdateIndex() error {
 		if err != nil {
 			return err
 		}
-		err = os.WriteFile(fpath, content, 0)
+		err = os.WriteFile(fpath, content, 0o664)
 		if err != nil {
 			return err
 		}
@@ -881,7 +924,7 @@ func (s *Segmenter) UpdateIndex() error {
 	return nil
 }
 
-func (s *Segmenter) WriteRtp(packet *rtp.Packet) error {
+func (s *Segmenter) WriteRtp(packet *rtp.Packet, buf []byte) error {
 	if s.closed {
 		return fmt.Errorf("segmenter closed")
 	}
@@ -889,12 +932,11 @@ func (s *Segmenter) WriteRtp(packet *rtp.Packet) error {
 	if track == nil {
 		return fmt.Errorf("ssrc not found: %d", packet.SSRC)
 	}
-	track.sb.Push(packet)
+	track.sb.Push(packet, buf)
 	sample := track.sb.Pop()
 	if sample != nil {
-		ntp := time.Now()
 		pts := durationMp4ToGo(uint64(sample.PacketTimestamp), track.lt.TrackRemote().Codec().ClockRate)
-		return track.WriteData(ntp, pts, sample.Data)
+		return track.WriteData(pts, sample.Data)
 	}
 	return nil
 }

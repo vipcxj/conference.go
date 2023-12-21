@@ -12,7 +12,7 @@ type ConferenceConfigure struct {
 	Port           int    `mapstructure:"port" default:"${CONF_PORT | 0}"`
 	SignalEnable   bool   `mapstructure:"signalEnable" default:"${CONF_SIGNAL_ENABLE | true}"`
 	SignalHost     string `mapstructure:"signalHost" default:"${CONF_SIGNAL_HOST | localhost}"`
-	SignalPort     uint16 `mapstructure:"signalPort" default:"${CONF_SIGNAL_PORT | 8080}"`
+	SignalPort     int    `mapstructure:"signalPort" default:"${CONF_SIGNAL_PORT | 8080}"`
 	SignalSsl      bool   `mapstructure:"signalSsl" default:"${CONF_SIGNAL_SSL | false}"`
 	SignalCertPath string `mapstructure:"signalCertPath" default:"${CONF_SIGNAL_CERT_PATH}"`
 	SignalKeyPath  string `mapstructure:"signalKeyPath" default:"${CONF_SIGNAL_KEY_PATH}"`
@@ -23,12 +23,12 @@ type ConferenceConfigure struct {
 			Username       string `json:"username,omitempty" mapstructure:"username" default:"${CONF_WEBRTC_ICESERVER_USERNAME}"`
 			Credential     string `json:"credential,omitempty" mapstructure:"credential" default:"${CONF_WEBRTC_ICESERVER_CREDENTIAL}"`
 			CredentialType string `json:"credentialType,omitempty" mapstructure:"credentialType" default:"${CONF_WEBRTC_ICESERVER_CREDENTIAL_TYPE}"`
-		} `json:"iceServer,omitempty" mapstructure:"iceServer"`
+		} `json:"iceServer,omitempty" mapstructure:"iceServer" default:""`
 		ICETransportPolicy string `json:"iceTransportPolicy,omitempty" mapstructure:"iceTransportPolicy" default:"${CONF_WEBRTC_ICETRANSPORT_POLICY}"`
-	} `json:"webrtc,omitempty" mapstructure:"webrtc"`
+	} `json:"webrtc,omitempty" mapstructure:"webrtc" default:""`
 	AuthServerEnable   bool   `mapstructure:"authServerEnable" default:"${CONF_AUTH_SERVER_ENABLE | true}"`
 	AuthServerHost     string `mapstructure:"authServerHost" default:"${CONF_AUTH_SERVER_HOST | localhost}"`
-	AuthServerPort     uint16 `mapstructure:"authServerPort" default:"${CONF_AUTH_SERVER_PORT | 3100}"`
+	AuthServerPort     int    `mapstructure:"authServerPort" default:"${CONF_AUTH_SERVER_PORT | 3100}"`
 	AuthServerSsl      bool   `mapstructure:"authServerSsl" default:"${CONF_AUTH_SERVER_SSL | false}"`
 	AuthServerCertPath string `mapstructure:"authServerCertPath" default:"${CONF_AUTH_SERVER_CERT_PATH}"`
 	AuthServerKeyPath  string `mapstructure:"authServerKeyPath" default:"${CONF_AUTH_SERVER_KEY_PATH}"`
@@ -37,13 +37,14 @@ type ConferenceConfigure struct {
 	Log                struct {
 		Profile string `mapstructure:"profile" json:"profile" default:"${CONF_LOG_PROFILE | production}"`
 		Level   string `mapstructure:"level" json:"level" default:"${CONF_LOG_LEVEL | info}"`
-	} `mapstructure:"log" json:"log"`
+	} `mapstructure:"log" json:"log" default:""`
 	Record struct {
 		Enable          bool   `mapstructure:"enable" json:"enable" default:"${CONF_RECORD_ENABLE}"`
 		DirPath         string `mapstructure:"dirPath" json:"dirPath" default:"${CONF_RECORD_DIR_PATH}"`
-		IndexName       string `mapstructure:"dir" json:"dir" default:"${CONF_RECORD_INDEX_NAME}"`
-		SegmentDuration int    `mapstructure:"segmentDuration" json:"segmentDuration" default:"${CONF_RECORD_SEGMENT_DURATION:6}"`
-	} `mapstructure:"record" json:"record"`
+		IndexName       string `mapstructure:"indexName" json:"indexName" default:"${CONF_RECORD_INDEX_NAME}"`
+		SegmentDuration int    `mapstructure:"segmentDuration" json:"segmentDuration" default:"${CONF_RECORD_SEGMENT_DURATION | 6}"`
+		GopSize         int    `mapstructure:"gopSize" json:"gopSize" default:"${CONF_RECORD_GOP_SIZE | 3}"`
+	} `mapstructure:"record" json:"record" default:""`
 }
 
 type LogProfile int
@@ -135,10 +136,10 @@ func (c *ConferenceConfigure) LogProfile() LogProfile {
 
 var KEYS = []string{
 	"ip:string",
-	"port:string",
+	"port:int",
 	"signalEnable:bool",
 	"signalHost:string",
-	"signalPort:uint16",
+	"signalPort:int",
 	"signalSsl:bool",
 	"signalCertPath:string",
 	"signalKeyPath:string",
@@ -150,7 +151,7 @@ var KEYS = []string{
 	"webrtc.iceTransportPolicy:string",
 	"authServerEnable:bool",
 	"authServerHost:string",
-	"authServerPort:uint16",
+	"authServerPort:int",
 	"authServerSsl:bool",
 	"authServerCertPath:string",
 	"authServerKeyPath:string",
@@ -162,4 +163,5 @@ var KEYS = []string{
 	"record.dirPath:string",
 	"record.indexName:string",
 	"record.segmentDuration:int",
+	"record.gopSize:int",
 }
