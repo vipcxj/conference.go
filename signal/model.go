@@ -264,16 +264,18 @@ type PacketBox struct {
 }
 
 func (me *Publication) startRecord() {
+	enable := config.Conf().Record.Enable
+	if !enable {
+		return
+	}
+
 	me.mux.Lock()
 	defer me.mux.Unlock()
 	if me.recordStart {
 		return
 	}
-	enable := config.Conf().Record.Enable
-	if !enable {
-		return
-	}
 	me.recordStart = true
+
 	dirTemplate := config.Conf().Record.DirPath
 	indexTemplate := config.Conf().Record.IndexName
 	if indexTemplate == "" {
@@ -295,7 +297,6 @@ func (me *Publication) startRecord() {
 	if err != nil {
 		panic(err)
 	}
-	defer segmenter.Close()
 	pktCh := make(chan *PacketBox, 16)
 	for _, track := range tracks {
 		var onRTP RTPConsumer = func(data []byte, attrs interceptor.Attributes, err error) bool {
@@ -322,30 +323,33 @@ func (me *Publication) startRecord() {
 		}
 		track.(*PublishedTrack).OnRTPPacket(&onRTP)
 	}
-	trackNum := len(tracks)
-	closedTrackNum := 0
-	var ready bool
-	for {
-		pkg := <-pktCh
-		if pkg == nil {
-			closedTrackNum++
+	go func() {
+		defer segmenter.Close()
+		trackNum := len(tracks)
+		closedTrackNum := 0
+		var ready bool
+		for {
+			pkg := <-pktCh
+			if pkg == nil {
+				closedTrackNum++
+			}
+			if closedTrackNum == trackNum {
+				close(pktCh)
+				return
+			}
+			ready, err = segmenter.TryReady()
+			if err != nil {
+				panic(err)
+			}
+			if !ready {
+				continue
+			}
+			err := segmenter.WriteRtp(pkg.pkg, pkg.buff)
+			if err != nil {
+				panic(err)
+			}
 		}
-		if closedTrackNum == trackNum {
-			close(pktCh)
-			break
-		}
-		ready, err = segmenter.TryReady()
-		if err != nil {
-			panic(err)
-		}
-		if !ready {
-			continue
-		}
-		err := segmenter.WriteRtp(pkg.pkg, pkg.buff)
-		if err != nil {
-			panic(err)
-		}
-	}
+	}()
 }
 
 func (me *Publication) Bind() bool {
@@ -355,7 +359,7 @@ func (me *Publication) Bind() bool {
 			done = true
 			if me.isAllBind() {
 
-				go me.startRecord()
+				me.startRecord()
 
 				r := GetRouter()
 				var tracks []*Track
@@ -442,6 +446,14 @@ func (me *PublishedTrack) TrackRemote() *webrtc.TrackRemote {
 	return me.remote
 }
 
+func (me *PublishedTrack) removeConsumer(consumer *RTPConsumer) {
+	me.consumers = utils.RemoveByValueFromSlice(me.consumers, true, consumer)
+	if len(me.consumers) == 0 {
+		close(me.consumerChan)
+		me.consumerChan = nil
+	}
+}
+
 func (me *PublishedTrack) OnRTPPacket(consumer *RTPConsumer) (unon func()) {
 	me.consumerMu.Lock()
 	defer me.consumerMu.Unlock()
@@ -449,11 +461,7 @@ func (me *PublishedTrack) OnRTPPacket(consumer *RTPConsumer) (unon func()) {
 	unon = func() {
 		me.consumerMu.Lock()
 		defer me.consumerMu.Unlock()
-		me.consumers = utils.RemoveByValueFromSlice(me.consumers, true, consumer)
-		if len(me.consumers) == 0 {
-			close(me.consumerChan)
-			me.consumerChan = nil
-		}
+		me.removeConsumer(consumer)
 	}
 	if len(me.consumers) == 1 {
 		ch := make(chan interface{})
@@ -465,27 +473,33 @@ func (me *PublishedTrack) OnRTPPacket(consumer *RTPConsumer) (unon func()) {
 			for _, consumer := range consumers {
 				stop := (*consumer)(data, attrs, err)
 				if stop {
-					unon()
+					me.removeConsumer(consumer)
 				}
 			}
 		}
 		go func() {
+			defer func() {
+				err := recover()
+				if err != nil {
+					fmt.Printf("meet err, %v\n", err)
+				} else {
+					fmt.Printf("exit normal\n")
+				}
+			}()
 			buffer := make([]byte, PACKET_MAX_SIZE)
 			for {
 				select {
 				case <-ch:
 					return
 				default:
+					fmt.Print("3")
 					n, attrs, err := me.remote.Read(buffer)
+					fmt.Print("4\n")
 					if err != nil {
 						consumes(nil, nil, err)
 						break
 					}
 					data := buffer[:n]
-					if err != nil {
-						consumes(nil, nil, err)
-						continue
-					}
 					consumes(data, attrs, nil)
 				}
 			}
@@ -534,6 +548,8 @@ func (pt *PublishedTrack) Bind() bool {
 	if rt != nil {
 		if rt == pt.remote {
 			return false
+		} else if pt.remote != nil {
+			fmt.Println("rebind")
 		}
 		ctx.Sugar().Debugf("bind track with mid %s/%s", pt.BindId(), t.Mid())
 		codec := rt.Codec()
