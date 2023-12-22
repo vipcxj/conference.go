@@ -44,6 +44,16 @@ type ConferenceConfigure struct {
 		IndexName       string `mapstructure:"indexName" json:"indexName" default:"${CONF_RECORD_INDEX_NAME}"`
 		SegmentDuration int    `mapstructure:"segmentDuration" json:"segmentDuration" default:"${CONF_RECORD_SEGMENT_DURATION | 6}"`
 		GopSize         int    `mapstructure:"gopSize" json:"gopSize" default:"${CONF_RECORD_GOP_SIZE | 3}"`
+		DBIndex         struct {
+			Enable     bool   `mapstructure:"enable" json:"enable" default:"${CONF_RECORD_DBINDEX_ENABLE}"`
+			MongoUrl   string `mapstructure:"mongoUrl" json:"mongoUrl" default:"${CONF_RECORD_DBINDEX_MONGO_URL}"`
+			Database   string `mapstructure:"database" json:"database" default:"${CONF_RECORD_DBINDEX_DATABASE}"`
+			Collection string `mapstructure:"collection" json:"collection" default:"${CONF_RECORD_DBINDEX_COLLECTION}"`
+			Auth       struct {
+				User string `mapstructure:"user" json:"user" default:"${CONF_RECORD_DBINDEX_AUTH_USER}"`
+				Pass string `mapstructure:"pass" json:"pass" default:"${CONF_RECORD_DBINDEX_AUTH_PASS}"`
+			} `mapstructure:"auth" json:"auth" default:""`
+		} `mapstructure:"dbIndex" json:"dbIndex" default:""`
 	} `mapstructure:"record" json:"record" default:""`
 }
 
@@ -164,4 +174,10 @@ var KEYS = []string{
 	"record.indexName:string",
 	"record.segmentDuration:int",
 	"record.gopSize:int",
+	"record.dbIndex.enable:bool",
+	"record.dbIndex.mongoUrl:string",
+	"record.dbIndex.database:string",
+	"record.dbIndex.collection:string",
+	"record.dbIndex.auth.user:string",
+	"record.dbIndex.auth.pass:string",
 }

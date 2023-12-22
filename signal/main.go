@@ -22,8 +22,8 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	}
 	s.On("disconnect", func(args ...any) {
 		reason := args[0].(string)
-		ctx.Sugar().Infof("socket disconnect because %s", reason)
-		if reason == "server namespace disconnect" || reason == "client namespace disconnect" || reason == "server shutting down" {
+		if reason != "ping timeout" {
+			ctx.Sugar().Infof("socket disconnect because %s", reason)
 			ctx.Sugar().Infof("close the socket")
 			ctx.Close()
 		}

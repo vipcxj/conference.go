@@ -448,12 +448,12 @@ func (t *Track) flushSegment(dts time.Duration, forceUpdateInit bool) error {
 			return err
 		}
 	}
-	err = t.segmenter.UpdateIndex()
+	isClosed := t.nextVideoSample == nil
+	err = t.updateIndex(isClosed)
 	if err != nil {
 		return err
 	}
-	isClosed := t.nextVideoSample == nil
-	err = t.updateIndex(isClosed)
+	err = t.segmenter.UpdateIndex()
 	return err
 }
 
@@ -605,6 +605,8 @@ type Segmenter struct {
 	indexCreated         bool
 	closed               bool
 	packetReleaseHandler func(*rtp.Packet, []byte)
+	recordReadyHandler func()
+	recordCloseHandler func()
 }
 
 func calcSuperExpr(v int, postfix string) int {
@@ -757,6 +759,18 @@ func WithPacketReleaseHandler(h func(*rtp.Packet, []byte)) Option {
 	}
 }
 
+func WithRecordReadyHandler(h func()) Option {
+	return func(s *Segmenter) {
+		s.recordReadyHandler = h
+	}
+}
+
+func WithRecordCloseHandler(h func()) Option {
+	return func(s *Segmenter) {
+		s.recordCloseHandler = h
+	}
+}
+
 func (s *Segmenter) TryReady() (bool, error) {
 	if s.ready {
 		return true, nil
@@ -906,7 +920,6 @@ func (s *Segmenter) UpdateIndex() error {
 		}
 	}
 	if !s.indexCreated || masterChanged {
-		s.indexCreated = true
 		content, err := s.multivariantPlaylist.Marshal()
 		if err != nil {
 			return err
@@ -919,6 +932,12 @@ func (s *Segmenter) UpdateIndex() error {
 		err = os.WriteFile(fpath, content, 0o664)
 		if err != nil {
 			return err
+		}
+		if !s.indexCreated {
+			s.indexCreated = true
+			if s.recordReadyHandler != nil {
+				s.recordReadyHandler()
+			}
 		}
 	}
 	return nil
@@ -962,6 +981,11 @@ func (s *Segmenter) Close() error {
 		s.end = &Instant{
 			DTS: dts,
 			NPT: ntp,
+		}
+		if s.indexCreated {
+			if s.recordCloseHandler != nil {
+				s.recordCloseHandler()
+			}
 		}
 	}
 	s.closed = true

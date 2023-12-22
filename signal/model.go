@@ -478,23 +478,13 @@ func (me *PublishedTrack) OnRTPPacket(consumer *RTPConsumer) (unon func()) {
 			}
 		}
 		go func() {
-			defer func() {
-				err := recover()
-				if err != nil {
-					fmt.Printf("meet err, %v\n", err)
-				} else {
-					fmt.Printf("exit normal\n")
-				}
-			}()
 			buffer := make([]byte, PACKET_MAX_SIZE)
 			for {
 				select {
 				case <-ch:
 					return
 				default:
-					fmt.Print("3")
 					n, attrs, err := me.remote.Read(buffer)
-					fmt.Print("4\n")
 					if err != nil {
 						consumes(nil, nil, err)
 						break
@@ -574,6 +564,9 @@ func (me *PublishedTrack) StateWant(want *WantMessage) bool {
 	}
 	me.mu.Lock()
 	defer me.mu.Unlock()
+	if !me.isBind() {
+		return false
+	}
 	ctx := me.pub.ctx
 	peer, err := ctx.MakeSurePeer()
 	if err != nil {

@@ -3,6 +3,7 @@ package signalserver
 import (
 	"fmt"
 
+	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
@@ -17,6 +18,7 @@ func Run(ch chan error) {
 		ch <- errors.Ok()
 	}
 	g := gin.Default()
+	pprof.Register(g)
 	g.Use(middleware.ErrorHandler())
 	if cors := config.Conf().SignalCors; cors != "" {
 		g.Use(middleware.Cors(cors))
