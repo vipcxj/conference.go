@@ -3,9 +3,11 @@ package signal
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/vipcxj/conference.go/config"
+	"github.com/vipcxj/conference.go/pkg/segmenter"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -14,20 +16,21 @@ import (
 
 type BaseInfo struct {
 	Codec        string        `json:"codec" bson:"codec"`
-	Path         string        `json:"path" bson:"path"`
-	FileSize     string        `json:"fileSize" bson:"fileSize"`
+	InitPath     string        `json:"initPath" bson:"initPath"`
+	IndexPath    string        `json:"indexPath" bson:"indexPath"`
+	SegmentPath  string        `json:"segmentPath" bson:"segmentPath"`
 	Start        time.Time     `json:"start" bson:"start"`
 	Completed    bool          `json:"completed" bson:"completed"`
 	Duration     time.Duration `json:"duration" bson:"duration"`
-	AvgBindwidth int           `json:"avgBindwidth" bson:"avgBindwidth"`
-	MaxBindwidth int           `json:"maxBindwidth" bson:"maxBindwidth"`
+	AvgBandwidth int           `json:"avgBandwidth" bson:"avgBandwidth"`
+	MaxBandwidth int           `json:"maxBandwidth" bson:"maxBandwidth"`
 }
 
 type VideoInfo struct {
 	BaseInfo  `bson:",inline"`
 	Width     int     `json:"width" bson:"width"`
 	Height    int     `json:"height" bson:"height"`
-	FrameRate float32 `json:"frameRate" bson:"frameRate"`
+	FrameRate float64 `json:"frameRate" bson:"frameRate"`
 }
 
 type AudioInfo struct {
@@ -36,15 +39,16 @@ type AudioInfo struct {
 }
 
 type Record struct {
-	ID        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	Start     time.Time          `json:"start" bson:"start"`
-	End       time.Time          `json:"end,omitempty" bson:"end,omitempty"`
-	Key       string             `json:"key" bson:"key"`
-	Path      string             `json:"path" bson:"path"`
-	Completed bool               `json:"completed" bson:"completed"`
-	Duration  time.Duration      `json:"duration" bson:"duration"`
-	Video     []VideoInfo        `json:"video" bson:"video"`
-	Audio     []AudioInfo        `json:"audio" bson:"audio"`
+	ID            primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	Start         time.Time          `json:"start" bson:"start"`
+	End           time.Time          `json:"end,omitempty" bson:"end,omitempty"`
+	Key           string             `json:"key" bson:"key"`
+	Path          string             `json:"path" bson:"path"`
+	Completed     bool               `json:"completed" bson:"completed"`
+	Video         []*VideoInfo       `json:"video" bson:"video"`
+	VideoDuration time.Duration      `json:"videoDuration" bson:"videoDuration"`
+	Audio         []*AudioInfo       `json:"audio" bson:"audio"`
+	AudioDuration time.Duration      `json:"audioDuration" bson:"audioDuration"`
 }
 
 var (
@@ -52,6 +56,7 @@ var (
 	ErrRecordDBIndexNotEnabled       = errors.New("record.dbIndex is not enabled")
 	ErrRecordDBIndexMongoUrlRequired = errors.New("record.dbIndex.mongoUrl is required")
 	ErrRecordDBIndexDatabaseRequired = errors.New("record.dbIndex.database is required")
+	ErrRecordThisIsImpossible        = errors.New("this is impossible")
 )
 
 func createMongoAuth(opt *options.ClientOptions) {
@@ -116,29 +121,112 @@ func prepareDB(ctx context.Context) (*mongo.Collection, error) {
 	return collection, nil
 }
 
-func NewRecord(record *Record) (*Record, error) {
-	ctx := context.Background()
-	col, err := prepareDB(ctx)
-	if err != nil {
-		return nil, err
-	}
-	res, err := col.InsertOne(ctx, record)
-	if err != nil {
-		return nil, err
-	}
-	record.ID = res.InsertedID.(primitive.ObjectID)
-	return record, nil
+type Recorder struct {
+	id         primitive.ObjectID
+	ctx        context.Context
+	collection *mongo.Collection
+	key        string
+	err        error
+	mux        sync.Mutex
 }
 
-func UpdateRecord(record *Record) (bool, error) {
-	ctx := context.Background()
-	col, err := prepareDB(ctx)
-	if err != nil {
-		return false, err
+func NewRecorder(key string) *Recorder {
+	return &Recorder{
+		key: key,
 	}
-	res, err := col.UpdateByID(ctx, record.ID, record)
-	if err != nil {
-		return false, err
+}
+
+func fillMediaInfo(info *BaseInfo, trackCtx *segmenter.TrackContext) {
+	info.Codec = trackCtx.Codec
+	info.InitPath = trackCtx.InitPath
+	info.IndexPath = trackCtx.IndexPath
+	info.SegmentPath = trackCtx.SegmentPath
+	info.Start = trackCtx.Start
+	info.Duration = trackCtx.End.Sub(trackCtx.Start)
+	info.Completed = trackCtx.Last
+	info.AvgBandwidth = trackCtx.AvgBandwidth
+	info.MaxBandwidth = trackCtx.MaxBandwidth
+}
+
+func MediaInfoFromTrackCtx(trackCtx *segmenter.TrackContext) interface{} {
+	if trackCtx.Audio {
+		info := &AudioInfo{}
+		fillMediaInfo(&info.BaseInfo, trackCtx)
+		return info
+	} else {
+		info := &VideoInfo{
+			Width:     trackCtx.Width,
+			Height:    trackCtx.Height,
+			FrameRate: trackCtx.FrameRate,
+		}
+		fillMediaInfo(&info.BaseInfo, trackCtx)
+		return info
 	}
-	return res.MatchedCount != 0, nil
+}
+
+func RecordFromSegCtx(segCtx *segmenter.SegmentContext, key string) *Record {
+	record := &Record{
+		ID:        primitive.NilObjectID,
+		Start:     segCtx.Start.NPT,
+		Key:       key,
+		Path:      segCtx.Path,
+		Completed: segCtx.Last,
+	}
+	if segCtx.Last {
+		record.End = segCtx.End.NPT
+	}
+	for _, track := range segCtx.Tracks {
+		mediaInfo := MediaInfoFromTrackCtx(track)
+		switch info := mediaInfo.(type) {
+		case *VideoInfo:
+			record.Video = append(record.Video, info)
+			record.VideoDuration += info.Duration
+		case *AudioInfo:
+			record.Audio = append(record.Audio, info)
+			record.AudioDuration += info.Duration
+		}
+	}
+	return record
+}
+
+func (r *Recorder) Record(segCtx *segmenter.SegmentContext) (bool, error) {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+	if r.err != nil {
+		return false, r.err
+	}
+	var err error
+	if segCtx.First {
+		if r.collection != nil {
+			panic(ErrRecordThisIsImpossible)
+		}
+		r.ctx = context.Background()
+		r.collection, err = prepareDB(r.ctx)
+		if err != nil {
+			r.err = err
+			return false, err
+		}
+		record := RecordFromSegCtx(segCtx, r.key)
+		res, err := r.collection.InsertOne(r.ctx, record)
+		if err != nil {
+			r.err = err
+			return false, err
+		}
+		r.id = res.InsertedID.(primitive.ObjectID)
+		return true, nil
+	} else {
+		if r.collection == nil || r.ctx == nil || r.id == primitive.NilObjectID {
+			panic(ErrRecordThisIsImpossible)
+		}
+		record := RecordFromSegCtx(segCtx, r.key)
+		res, err := r.collection.ReplaceOne(r.ctx, bson.M{ "_id": r.id }, record)
+		if err != nil {
+			r.err = err
+			return false, err
+		}
+		if segCtx.Last {
+			r.collection.Database().Client().Disconnect(r.ctx)
+		}
+		return res.MatchedCount != 0, nil
+	}
 }

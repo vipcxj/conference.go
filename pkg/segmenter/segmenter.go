@@ -141,6 +141,28 @@ func ntpToDts(accordingDts time.Duration, accordingNtp time.Time, ntp time.Time)
 	return accordingDts + ntp.Sub(accordingNtp)
 }
 
+func dtsToNtp(accordingDts time.Duration, accordingNtp time.Time, dts time.Duration) time.Time {
+	return accordingNtp.Add(dts - accordingDts)
+}
+
+type TrackContext struct {
+	First        bool
+	Last         bool
+	Playlist     *playlist.Media
+	InitPath     string
+	IndexPath    string
+	SegmentPath  string
+	Start        time.Time
+	End          time.Time
+	Codec        string
+	Width        int
+	Height       int
+	FrameRate    float64
+	MaxBandwidth int
+	AvgBandwidth int
+	Audio        bool
+}
+
 type Track struct {
 	id                int
 	segmenter         *Segmenter
@@ -160,14 +182,20 @@ type Track struct {
 	forceSwitch       bool
 	start             bool
 	initCreated       bool
+	beginNTP          time.Time
 	startNTP          time.Time
 	startDTS          time.Duration
 	lastDTSFilled     bool
 	lastDTS           time.Duration
+	endNTP            time.Time
 	nextVideoSample   *augmentedSample
 	currentPart       *fmp4.Part
-	resolution        string
+	width             int
+	height            int
 	frameRate         float64
+	resolution        string
+	maxBandwidth      int
+	avgBandwidth      int
 	closed            bool
 }
 
@@ -178,6 +206,27 @@ func NewTrack(id int, segmenter *Segmenter, lt common.LabeledTrack) (*Track, err
 		lt:        lt,
 	}
 	return track, nil
+}
+
+func (t *Track) CreateContext() *TrackContext {
+	first := len(t.playlist.Segments) == 1
+	return &TrackContext{
+		First:        first,
+		Last:         t.closed,
+		Playlist:     &t.playlist,
+		InitPath:     t.segmenter.fullPath(t.initUri, false),
+		IndexPath:    t.segmenter.fullPath(t.indexUri, false),
+		SegmentPath:  t.segmenter.fullPath(t.segUri, false),
+		Start:        t.beginNTP,
+		End:          t.endNTP,
+		Codec:        t.RFC6381Codec(),
+		Width:        t.width,
+		Height:       t.height,
+		FrameRate:    t.frameRate,
+		AvgBandwidth: t.avgBandwidth,
+		MaxBandwidth: t.maxBandwidth,
+		Audio:        t.lt.TrackRemote().Kind() == webrtc.RTPCodecTypeAudio,
+	}
 }
 
 func (t *Track) TryReady() (bool, error) {
@@ -228,6 +277,10 @@ func (t *Track) RFC6381Codec() string {
 }
 
 func (t *Track) writeH26x(pts time.Duration, data []byte) error {
+	sampleRate := t.lt.TrackRemote().Codec().ClockRate
+	if sampleRate != 90000 {
+		return fmt.Errorf("h26x video should be 90000 sample rate, but got %d", sampleRate)
+	}
 	au := split264Nalus(data)
 	randomAccess := false
 
@@ -257,7 +310,9 @@ func (t *Track) writeH26x(pts time.Duration, data []byte) error {
 						return err
 					}
 
-					t.resolution = strconv.FormatInt(int64(sps.Width()), 10) + "x" + strconv.FormatInt(int64(sps.Height()), 10)
+					t.width = sps.Width()
+					t.height = sps.Height()
+					t.resolution = strconv.FormatInt(int64(t.width), 10) + "x" + strconv.FormatInt(int64(t.height), 10)
 
 					f := sps.FPS()
 					if f != 0 {
@@ -300,7 +355,9 @@ func (t *Track) writeH26x(pts time.Duration, data []byte) error {
 						return err
 					}
 
-					t.resolution = strconv.FormatInt(int64(sps.Width()), 10) + "x" + strconv.FormatInt(int64(sps.Height()), 10)
+					t.width = sps.Width()
+					t.height = sps.Height()
+					t.resolution = strconv.FormatInt(int64(t.width), 10) + "x" + strconv.FormatInt(int64(t.height), 10)
 
 					f := sps.FPS()
 					if f != 0 {
@@ -370,7 +427,7 @@ func (t *Track) writeH26x(pts time.Duration, data []byte) error {
 	t.lastDTS = dts
 
 	ps, err := fmp4.NewPartSampleH26x(
-		int32(durationGoToMp4(pts-dts, 90000)),
+		int32(durationGoToMp4(pts-dts, sampleRate)),
 		randomAccess,
 		au)
 	if err != nil {
@@ -390,24 +447,25 @@ func (t *Track) writeInit() error {
 	var init fmp4.Init
 	init.Tracks = []*fmp4.InitTrack{{
 		ID:        t.id,
-		TimeScale: 90000,
+		TimeScale: t.lt.TrackRemote().Codec().ClockRate,
 		Codec:     codecs.ToFMP4(t.meta),
 	}}
-	storage := NewStorage(path.Join(t.segmenter.Directory(), t.initUri))
+	storage := NewStorage(t.segmenter.fullPath(t.initUri, true))
 	defer storage.Close()
 	err := init.Marshal(storage.Writer())
 	return err
 }
 
-func (t *Track) updateIndex(close bool) error {
-	if close {
+func (t *Track) updateIndex() error {
+	if t.closed {
 		t.playlist.Endlist = true
 	}
+	t.maxBandwidth, t.avgBandwidth = t.bandwidth()
 	content, err := t.playlist.Marshal()
 	if err != nil {
 		return err
 	}
-	fpath := path.Join(t.segmenter.Directory(), t.indexUri)
+	fpath := t.segmenter.fullPath(t.indexUri, true)
 	err = MakeSureDirOf(fpath)
 	if err != nil {
 		return err
@@ -425,7 +483,7 @@ func (t *Track) flushSegment(dts time.Duration, forceUpdateInit bool) error {
 		return nil
 	}
 	if t.storage == nil {
-		t.storage = NewStorage(path.Join(t.segmenter.Directory(), t.segUri))
+		t.storage = NewStorage(t.segmenter.fullPath(t.segUri, true))
 	}
 	writer := t.storage.Writer()
 	err := t.currentPart.Marshal(writer)
@@ -448,12 +506,15 @@ func (t *Track) flushSegment(dts time.Duration, forceUpdateInit bool) error {
 			return err
 		}
 	}
-	isClosed := t.nextVideoSample == nil
-	err = t.updateIndex(isClosed)
+	t.endNTP = dtsToNtp(t.startDTS, t.startNTP, dts)
+	err = t.updateIndex()
 	if err != nil {
 		return err
 	}
-	err = t.segmenter.UpdateIndex()
+	// when closed, call segmenter.UpdateIndex() in segmenter.Close method
+	if !t.closed {
+		err = t.segmenter.UpdateIndex(true)
+	}
 	return err
 }
 
@@ -474,6 +535,7 @@ func (t *Track) writeVideo(
 		// the first sample
 		if t.nextVideoSample == nil {
 			t.startNTP = time.Now().UTC()
+			t.beginNTP = t.startNTP
 			t.startDTS = sample.dts
 			if !t.start {
 				t.start = true
@@ -493,15 +555,16 @@ func (t *Track) writeVideo(
 	if t.nextVideoSample != nil {
 		nextDts = t.nextVideoSample.dts
 	} else {
-		nextDts = t.ntpToDts(time.Now())
+		nextDts = t.ntpToDts(time.Now().UTC())
 	}
 	duration := nextDts - sample.dts
-	sample.Duration = uint32(durationGoToMp4(duration, 90000))
+	sampleRate := t.lt.TrackRemote().Codec().ClockRate
+	sample.Duration = uint32(durationGoToMp4(duration, sampleRate))
 	if t.currentPart == nil {
 		t.currentPart = &fmp4.Part{
 			Tracks: []*fmp4.PartTrack{{
 				ID:       t.id,
-				BaseTime: durationGoToMp4(t.startDTS-t.segmenter.start.DTS, 90000),
+				BaseTime: durationGoToMp4(t.startDTS-t.segmenter.start.DTS, sampleRate),
 			}},
 		}
 	}
@@ -520,7 +583,7 @@ func (t *Track) writeVideo(
 			t.currentPart = &fmp4.Part{
 				Tracks: []*fmp4.PartTrack{{
 					ID:       t.id,
-					BaseTime: durationGoToMp4(t.startDTS-t.segmenter.start.DTS, 90000),
+					BaseTime: durationGoToMp4(t.startDTS-t.segmenter.start.DTS, sampleRate),
 					Samples:  []*fmp4.PartSample{&t.nextVideoSample.PartSample},
 				}},
 			}
@@ -590,10 +653,23 @@ type Instant struct {
 
 type Option func(o *Segmenter)
 
+type SegmentContext struct {
+	First    bool
+	Last     bool
+	Playlist *playlist.Multivariant
+	Base     string
+	Path     string
+	Start    *Instant
+	End      *Instant
+	Tracks   []*TrackContext
+}
+
 type Segmenter struct {
 	ready                bool
 	tracks               []*Track
 	multivariantPlaylist playlist.Multivariant
+	baseTemplate         *fasttemplate.Template
+	base                 string
 	indexUriTemplate     *fasttemplate.Template
 	indexUri             string
 	segmentDuration      int
@@ -603,10 +679,10 @@ type Segmenter struct {
 	directoryTemplate    *fasttemplate.Template
 	directory            string
 	indexCreated         bool
+	closing              bool
 	closed               bool
 	packetReleaseHandler func(*rtp.Packet, []byte)
-	recordReadyHandler func()
-	recordCloseHandler func()
+	segmentHandler       func(*SegmentContext)
 }
 
 func calcSuperExpr(v int, postfix string) int {
@@ -625,11 +701,15 @@ func calcSuperExpr(v int, postfix string) int {
 	}
 }
 
-func getCommonLabel(label string, tracks []*Track) (string, bool) {
+func extractLabels(track *Track) map[string]string {
+	return track.lt.Labels()
+}
+
+func GetCommonLabel[T any, TS []T](label string, thingsWithLabels TS, labelsExtractor func(t T) map[string]string) (string, bool) {
 	start := false
 	var commonValue string
-	for _, track := range tracks {
-		labels := track.lt.Labels()
+	for _, thingWithLabel := range thingsWithLabels {
+		labels := labelsExtractor(thingWithLabel)
 		if labels == nil {
 			return "", false
 		}
@@ -674,7 +754,7 @@ func commonTemplate(w io.Writer, tag string, t time.Time, tracks []*Track) (int,
 			return 0, fmt.Errorf("label name is empty")
 		}
 
-		labelValue, ok := getCommonLabel(labelName, tracks)
+		labelValue, ok := GetCommonLabel(labelName, tracks, extractLabels)
 		if !ok {
 			if len(parts) > 2 {
 				labelValue = parts[2]
@@ -751,6 +831,12 @@ func NewSegmenter(
 	return segmenter, nil
 }
 
+func WithBaseTemplate(template string) Option {
+	return func(o *Segmenter) {
+		o.baseTemplate = fasttemplate.New(template, "{{", "}}")
+	}
+}
+
 // WithPacketReleaseHandler sets a callback that is called when the
 // builder is about to release some packet.
 func WithPacketReleaseHandler(h func(*rtp.Packet, []byte)) Option {
@@ -759,15 +845,26 @@ func WithPacketReleaseHandler(h func(*rtp.Packet, []byte)) Option {
 	}
 }
 
-func WithRecordReadyHandler(h func()) Option {
+func WithSegmentHandler(h func(*SegmentContext)) Option {
 	return func(s *Segmenter) {
-		s.recordReadyHandler = h
+		s.segmentHandler = h
 	}
 }
 
-func WithRecordCloseHandler(h func()) Option {
-	return func(s *Segmenter) {
-		s.recordCloseHandler = h
+func (s *Segmenter) CreateContext(first bool) *SegmentContext {
+	tracks := make([]*TrackContext, len(s.tracks))
+	for i, t := range s.tracks {
+		tracks[i] = t.CreateContext()
+	}
+	return &SegmentContext{
+		First:    first,
+		Last:     s.closing || s.closed,
+		Playlist: &s.multivariantPlaylist,
+		Base:     s.Base(),
+		Path:     s.fullPath(s.IndexUri(), false),
+		Start:    s.start,
+		End:      s.end,
+		Tracks:   tracks,
 	}
 }
 
@@ -822,6 +919,17 @@ func (s *Segmenter) IsReady() bool {
 	return s.ready
 }
 
+func (s *Segmenter) calcBaseTemplate(t time.Time) string {
+	if s.baseTemplate == nil {
+		return ""
+	} else {
+		return s.baseTemplate.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
+			tag = strings.ToLower(strings.TrimSpace(tag))
+			return commonTemplate(w, tag, t, s.tracks)
+		})
+	}
+}
+
 func (s *Segmenter) calcDirectoryTemplate(t time.Time) string {
 	return s.directoryTemplate.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
 		tag = strings.ToLower(strings.TrimSpace(tag))
@@ -847,6 +955,7 @@ func (s *Segmenter) setStart(dts time.Duration, ntp time.Time) {
 			DTS: dts,
 			NPT: ntp,
 		}
+		s.base = s.calcBaseTemplate(ntp)
 		s.indexUri = s.calcIndexTemplate(ntp)
 		s.directory = s.calcDirectoryTemplate(ntp)
 	}
@@ -880,6 +989,13 @@ func (s *Segmenter) IndexUri() string {
 	return s.indexUri
 }
 
+func (s *Segmenter) Base() string {
+	if s.start == nil {
+		panic(fmt.Errorf("base not ready yet"))
+	}
+	return s.base
+}
+
 func (s *Segmenter) Directory() string {
 	if s.start == nil {
 		panic(fmt.Errorf("directory not ready yet"))
@@ -887,20 +1003,32 @@ func (s *Segmenter) Directory() string {
 	return s.directory
 }
 
-func (s *Segmenter) UpdateIndex() error {
+func (s *Segmenter) fullPath(rPath string, withBase bool) string {
+	if withBase {
+		return path.Join(s.Base(), s.Directory(), rPath)
+	} else {
+		return path.Join(s.Directory(), rPath)
+	}
+}
+
+func (s *Segmenter) UpdateIndex(forceCreate bool) error {
+	first := !s.indexCreated
+	if !forceCreate && first {
+		// used in Close method. Haven't write anything, so need not crate index.
+		return nil
+	}
 	var masterChanged bool
 	for _, track := range s.tracks {
 		variant := s.FindVariantByTrack(track)
 		if variant == nil {
 			continue
 		}
-		maxBandwidth, avgBindwidth := track.bandwidth()
-		if variant.Bandwidth != maxBandwidth {
-			variant.Bandwidth = maxBandwidth
+		if variant.Bandwidth != track.maxBandwidth {
+			variant.Bandwidth = track.maxBandwidth
 			masterChanged = true
 		}
-		if variant.AverageBandwidth == nil || *variant.AverageBandwidth != avgBindwidth {
-			variant.AverageBandwidth = &avgBindwidth
+		if variant.AverageBandwidth == nil || *variant.AverageBandwidth != track.avgBandwidth {
+			variant.AverageBandwidth = &track.avgBandwidth
 			masterChanged = true
 		}
 		if len(variant.Codecs) == 0 {
@@ -924,7 +1052,7 @@ func (s *Segmenter) UpdateIndex() error {
 		if err != nil {
 			return err
 		}
-		fpath := path.Join(s.Directory(), s.IndexUri())
+		fpath := s.fullPath(s.IndexUri(), true)
 		err = MakeSureDirOf(fpath)
 		if err != nil {
 			return err
@@ -935,10 +1063,11 @@ func (s *Segmenter) UpdateIndex() error {
 		}
 		if !s.indexCreated {
 			s.indexCreated = true
-			if s.recordReadyHandler != nil {
-				s.recordReadyHandler()
-			}
 		}
+	}
+	if s.segmentHandler != nil {
+		context := s.CreateContext(first)
+		s.segmentHandler(context)
 	}
 	return nil
 }
@@ -969,6 +1098,10 @@ func (s *Segmenter) EndInstant() *Instant {
 }
 
 func (s *Segmenter) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closing = true
 	for _, track := range s.tracks {
 		err := track.Close()
 		if err != nil {
@@ -976,18 +1109,15 @@ func (s *Segmenter) Close() error {
 		}
 	}
 	if s.start != nil {
-		ntp := time.Now()
+		ntp := time.Now().UTC()
 		dts := ntpToDts(s.start.DTS, s.start.NPT, ntp)
 		s.end = &Instant{
 			DTS: dts,
 			NPT: ntp,
 		}
-		if s.indexCreated {
-			if s.recordCloseHandler != nil {
-				s.recordCloseHandler()
-			}
-		}
+		s.UpdateIndex(false)
 	}
+	s.closing = false
 	s.closed = true
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/pion/interceptor/pkg/intervalpli"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
+	"github.com/valyala/fasttemplate"
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
@@ -263,6 +264,42 @@ type PacketBox struct {
 	buff []byte
 }
 
+func extractLabelsFromLabeledTrack(t common.LabeledTrack) map[string]string {
+	return t.Labels()
+}
+
+func (me *Publication) createRecordKey(tracks []common.LabeledTrack) string {
+	keyTemplate := config.Conf().Record.DBIndex.Key
+	if keyTemplate == "" {
+		panic(fmt.Errorf("conf record.dbIndex.key should not be empty when dbIndex enabled"))
+	}
+	key := fasttemplate.ExecuteFuncString(keyTemplate, "{{", "}}", func(w io.Writer, tag string) (int, error) {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if strings.HasPrefix(tag, "label:") {
+			parts := strings.SplitN(tag, ":", 3)
+			var labelName string
+			if len(parts) > 1 {
+				labelName = parts[1]
+			} else {
+				return 0, fmt.Errorf("label name is empty")
+			}
+
+			labelValue, ok := segmenter.GetCommonLabel(labelName, tracks, extractLabelsFromLabeledTrack)
+			if !ok {
+				if len(parts) > 2 {
+					labelValue = parts[2]
+				} else {
+					return 0, fmt.Errorf("invalid label %s", labelName)
+				}
+			}
+			return fmt.Fprint(w, labelValue)
+		} else {
+			return 0, fmt.Errorf("invalid tag in key template")
+		}
+	})
+	return key
+}
+
 func (me *Publication) startRecord() {
 	enable := config.Conf().Record.Enable
 	if !enable {
@@ -288,10 +325,29 @@ func (me *Publication) startRecord() {
 		tracks = append(tracks, track)
 		return true
 	})
+	var recorder *Recorder
+	if config.Conf().Record.DBIndex.Enable {
+		recordKey := me.createRecordKey(tracks)
+		if recordKey == "" {
+			panic(fmt.Errorf("conf record.dbIndex.key should not be empty"))
+		}
+		recorder = NewRecorder(recordKey)
+	}
 	segmenter, err := segmenter.NewSegmenter(
 		tracks, dirTemplate, indexTemplate, segmentDuration, gopSize,
+		segmenter.WithBaseTemplate(config.Conf().Record.BasePath),
 		segmenter.WithPacketReleaseHandler(func(p *rtp.Packet, b []byte) {
 			ReturnRecordPacketBuf(b)
+		}),
+		segmenter.WithSegmentHandler(func(sc *segmenter.SegmentContext) {
+			if recorder != nil {
+				go func() {
+					_, err := recorder.Record(sc)
+					if err != nil {
+						me.ctx.Logger().Sugar().Errorf("record failed, %v", err)
+					}
+				}()
+			}
 		}),
 	)
 	if err != nil {
