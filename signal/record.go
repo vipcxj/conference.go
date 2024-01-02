@@ -39,16 +39,16 @@ type AudioInfo struct {
 }
 
 type Record struct {
-	ID            primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	Start         time.Time          `json:"start" bson:"start"`
-	End           time.Time          `json:"end,omitempty" bson:"end,omitempty"`
-	Key           string             `json:"key" bson:"key"`
-	Path          string             `json:"path" bson:"path"`
-	Completed     bool               `json:"completed" bson:"completed"`
-	Video         []*VideoInfo       `json:"video" bson:"video"`
-	VideoDuration time.Duration      `json:"videoDuration" bson:"videoDuration"`
-	Audio         []*AudioInfo       `json:"audio" bson:"audio"`
-	AudioDuration time.Duration      `json:"audioDuration" bson:"audioDuration"`
+	ID             primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	Start          time.Time          `json:"start" bson:"start"`
+	End            time.Time          `json:"end,omitempty" bson:"end,omitempty"`
+	Key            string             `json:"key" bson:"key"`
+	Path           string             `json:"path" bson:"path"`
+	Completed      bool               `json:"completed" bson:"completed"`
+	Videos         []*VideoInfo       `json:"videos" bson:"videos"`
+	VideosDuration time.Duration      `json:"videosDuration" bson:"videosDuration"`
+	Audios         []*AudioInfo       `json:"audios" bson:"audios"`
+	AudiosDuration time.Duration      `json:"audiosDuration" bson:"audiosDuration"`
 }
 
 var (
@@ -83,7 +83,7 @@ func prepareDB(ctx context.Context) (*mongo.Collection, error) {
 	}
 	col := conf.Collection
 	if col == "" {
-		col = "Record"
+		col = "record"
 	}
 
 	opt := options.Client().ApplyURI(url)
@@ -167,23 +167,24 @@ func MediaInfoFromTrackCtx(trackCtx *segmenter.TrackContext) interface{} {
 func RecordFromSegCtx(segCtx *segmenter.SegmentContext, key string) *Record {
 	record := &Record{
 		ID:        primitive.NilObjectID,
-		Start:     segCtx.Start.NPT,
+		Start:     segCtx.Start.NTP,
+		End:       segCtx.End.NTP,
 		Key:       key,
 		Path:      segCtx.Path,
 		Completed: segCtx.Last,
 	}
 	if segCtx.Last {
-		record.End = segCtx.End.NPT
+		record.End = segCtx.End.NTP
 	}
 	for _, track := range segCtx.Tracks {
 		mediaInfo := MediaInfoFromTrackCtx(track)
 		switch info := mediaInfo.(type) {
 		case *VideoInfo:
-			record.Video = append(record.Video, info)
-			record.VideoDuration += info.Duration
+			record.Videos = append(record.Videos, info)
+			record.VideosDuration += info.Duration
 		case *AudioInfo:
-			record.Audio = append(record.Audio, info)
-			record.AudioDuration += info.Duration
+			record.Audios = append(record.Audios, info)
+			record.AudiosDuration += info.Duration
 		}
 	}
 	return record
@@ -219,7 +220,7 @@ func (r *Recorder) Record(segCtx *segmenter.SegmentContext) (bool, error) {
 			panic(ErrRecordThisIsImpossible)
 		}
 		record := RecordFromSegCtx(segCtx, r.key)
-		res, err := r.collection.ReplaceOne(r.ctx, bson.M{ "_id": r.id }, record)
+		res, err := r.collection.ReplaceOne(r.ctx, bson.M{"_id": r.id}, record)
 		if err != nil {
 			r.err = err
 			return false, err

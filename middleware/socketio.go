@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"reflect"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/vipcxj/conference.go/auth"
@@ -41,7 +42,7 @@ func SocketIOAuthHandler() func(*socket.Socket, func(*socket.ExtendedError)) {
 		}
 		authInfo := &auth.AuthInfo{}
 		err := auth.Decode(token, authInfo)
-		if err != nil {
+		if err != nil || authInfo.Usage != auth.AUTH_USAGE || (authInfo.Timestamp + int64(authInfo.Deadline) < time.Now().Unix()) {
 			next(socket.NewExtendedError("Unauthorized", err))
 			return
 		}

@@ -11,21 +11,34 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 )
 
+const (
+	AUTH_USAGE = "conference"
+)
+
 type AuthInfo struct {
-	UID      string   `json:"uid"`
-	UName    string   `json:"uname"`
-	Role     string   `json:"role"`
-	Rooms    []string `json:"rooms"`
-	AutoJoin bool     `json:"autoJoin"`
-	Nonce    int32    `json:"nonce"`
+	Usage     string   `json:"usage"`
+	Key       string   `json:"key"`
+	UID       string   `json:"uid"`
+	UName     string   `json:"uname"`
+	Role      string   `json:"role"`
+	Rooms     []string `json:"rooms"`
+	AutoJoin  bool     `json:"autoJoin"`
+	Timestamp int64    `json:"timestamp"`
+	Deadline  uint64   `json:"deadline"`
+	Nonce     int32    `json:"nonce"`
 }
 
 func NewAuthInfoFromForm(form url.Values) (*AuthInfo, error) {
+	key := form.Get("key")
+	if key == "" {
+		return nil, errors.InvalidParam("The param key is required for creating auth info.")
+	}
 	uid := form.Get("uid")
 	if uid == "" {
 		return nil, errors.InvalidParam("The param uid is required for creating auth info.")
@@ -49,6 +62,17 @@ func NewAuthInfoFromForm(form url.Values) (*AuthInfo, error) {
 	if autoJoinStr == "1" || autoJoinStr == "on" || autoJoinStr == "true" || autoJoinStr == "yes" {
 		autoJoin = true
 	}
+	var deadline uint64
+	var err error
+	deadlineStr := form.Get("deadline")
+	if deadlineStr == "" {
+		deadline = 5 * 60 * 1000
+	} else {
+		deadline, err = strconv.ParseUint(deadlineStr, 10, 0)
+		if err != nil {
+			return nil, errors.InvalidParam("The param deadline must be an unsigned integer.")
+		}
+	}
 	strNonce := form.Get("nonce")
 	if strNonce == "" {
 		return nil, errors.InvalidParam("The param nonce is required for creating auth info.")
@@ -58,12 +82,16 @@ func NewAuthInfoFromForm(form url.Values) (*AuthInfo, error) {
 		return nil, err
 	}
 	return &AuthInfo{
-		UID:      uid,
-		UName:    uname,
-		Role:     role,
-		Rooms:    rooms,
-		AutoJoin: autoJoin,
-		Nonce:    int32(nonce),
+		Usage:     AUTH_USAGE,
+		Key:       key,
+		UID:       uid,
+		UName:     uname,
+		Role:      role,
+		Rooms:     rooms,
+		AutoJoin:  autoJoin,
+		Timestamp: time.Now().Unix(),
+		Deadline:  deadline,
+		Nonce:     int32(nonce),
 	}, nil
 }
 

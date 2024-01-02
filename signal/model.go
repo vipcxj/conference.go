@@ -706,6 +706,9 @@ type SignalContext struct {
 	cand_mux          sync.Mutex
 	peer_mux          sync.Mutex
 	neg_mux           sync.Mutex
+	close_cb_disabled  bool
+	close_cb_mux      sync.Mutex
+	close_cb          *ConferenceCallback
 	subscriptions     *haxmap.Map[string, *Subscription]
 	publications      *haxmap.Map[string, *Publication]
 	peerClosed        bool
@@ -755,7 +758,22 @@ func (ctx *SignalContext) CurrentSdpMsgId() int {
 	return int(ctx.sdpMsgId.Load())
 }
 
-func (ctx *SignalContext) Close() {
+func (ctx *SignalContext) SetCloseCallback(cb *ConferenceCallback) {
+	ctx.close_cb_mux.Lock()
+	defer ctx.close_cb_mux.Unlock()
+	ctx.close_cb = cb
+}
+
+func (ctx *SignalContext) disableCloseCallback() {
+	ctx.close_cb_mux.Lock()
+	defer ctx.close_cb_mux.Unlock()
+	ctx.close_cb_disabled = true
+}
+
+func (ctx *SignalContext) Close(disableCloseCallback bool) {
+	if disableCloseCallback {
+		ctx.disableCloseCallback()
+	}
 	ctx.Sugar().Debugf("signal context closing")
 	ctx.closePeer()
 	ctx.publications.ForEach(func(k string, pub *Publication) bool {
@@ -767,6 +785,13 @@ func (ctx *SignalContext) Close() {
 		return true
 	})
 	ctx.Socket.Disconnect(true)
+	ctx.close_cb_mux.Lock()
+	defer ctx.close_cb_mux.Unlock()
+	if !ctx.close_cb_disabled && ctx.close_cb != nil {
+		cb := ctx.close_cb
+		ctx.close_cb = nil
+		go cb.Call(ctx)
+	}
 }
 
 func (ctx *SignalContext) AcceptTrack(msg *StateMessage) {
@@ -1223,7 +1248,7 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 			ctx.Sugar().Info("peer connect state changed from ", lastState, " to ", pcs)
 			lastState = pcs
 			if pcs == webrtc.PeerConnectionStateClosed {
-				ctx.Close()
+				ctx.Close(false)
 			}
 		})
 		lastIceConnectionState := peer.ICEConnectionState()

@@ -8,16 +8,17 @@ import (
 )
 
 type ConferenceConfigure struct {
-	Ip             string `mapstructure:"ip" default:"${CONF_IP}"`
-	Port           int    `mapstructure:"port" default:"${CONF_PORT | 0}"`
-	SignalEnable   bool   `mapstructure:"signalEnable" default:"${CONF_SIGNAL_ENABLE | true}"`
-	SignalHost     string `mapstructure:"signalHost" default:"${CONF_SIGNAL_HOST | localhost}"`
-	SignalPort     int    `mapstructure:"signalPort" default:"${CONF_SIGNAL_PORT | 8080}"`
-	SignalSsl      bool   `mapstructure:"signalSsl" default:"${CONF_SIGNAL_SSL | false}"`
-	SignalCertPath string `mapstructure:"signalCertPath" default:"${CONF_SIGNAL_CERT_PATH}"`
-	SignalKeyPath  string `mapstructure:"signalKeyPath" default:"${CONF_SIGNAL_KEY_PATH}"`
-	SignalCors     string `mapstructure:"signalCors" default:"${CONF_SIGNAL_CORS}"`
-	WebRTC         struct {
+	Ip                string `mapstructure:"ip" default:"${CONF_IP}"`
+	Port              int    `mapstructure:"port" default:"${CONF_PORT | 0}"`
+	SignalEnable      bool   `mapstructure:"signalEnable" default:"${CONF_SIGNAL_ENABLE | true}"`
+	SignalHost        string `mapstructure:"signalHost" default:"${CONF_SIGNAL_HOST | localhost}"`
+	SignalPort        int    `mapstructure:"signalPort" default:"${CONF_SIGNAL_PORT | 8080}"`
+	SignalSsl         bool   `mapstructure:"signalSsl" default:"${CONF_SIGNAL_SSL | false}"`
+	SignalExternalUrl string `mapstructure:"signalExternalUrl" default:"${CONF_SIGNAL_EXTERNAL_URL}"`
+	SignalCertPath    string `mapstructure:"signalCertPath" default:"${CONF_SIGNAL_CERT_PATH}"`
+	SignalKeyPath     string `mapstructure:"signalKeyPath" default:"${CONF_SIGNAL_KEY_PATH}"`
+	SignalCors        string `mapstructure:"signalCors" default:"${CONF_SIGNAL_CORS}"`
+	WebRTC            struct {
 		ICEServer struct {
 			URLs           string `json:"urls" mapstructure:"urls" default:"${CONF_WEBRTC_ICESERVER_URLS}"`
 			Username       string `json:"username,omitempty" mapstructure:"username" default:"${CONF_WEBRTC_ICESERVER_USERNAME}"`
@@ -57,6 +58,12 @@ type ConferenceConfigure struct {
 			} `mapstructure:"auth" json:"auth" default:""`
 		} `mapstructure:"dbIndex" json:"dbIndex" default:""`
 	} `mapstructure:"record" json:"record" default:""`
+	Callback struct {
+		OnStart      string `mapstructure:"onStart" json:"onStart" default:"${CONF_CALLBACK_ONSTART}"`
+		OnClose      string `mapstructure:"onClose" json:"onClose" default:"${CONF_CALLBACK_ONCLOSE}"`
+		OnConnecting string `mapstructure:"onConnecting" json:"onConnecting" default:"${CONF_CALLBACK_ONCONNECTING}"`
+		IntervalMs   int    `mapstructure:"intervalMs" json:"intervalMs" default:"${CONF_CALLBACK_INTERVAL_MS}"`
+	} `mapstructure:"callback" json:"callback" default:""`
 }
 
 type LogProfile int
@@ -184,4 +191,8 @@ var KEYS = []string{
 	"record.dbIndex.key:string",
 	"record.dbIndex.auth.user:string",
 	"record.dbIndex.auth.pass:string",
+	"callback.onStart:string",
+	"callback.onClose:string",
+	"callback.onConnecting:string",
+	"callback.intervalMs:int",
 }

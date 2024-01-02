@@ -363,6 +363,7 @@ func (t *Track) writeH26x(pts time.Duration, data []byte) error {
 					if f != 0 {
 						t.frameRate = f
 					}
+					fmt.Printf("got sps, width: %d, height: %d, frameRate: %v\n", t.width, t.height, t.frameRate)
 				}
 
 			case h264.NALUTypePPS:
@@ -370,6 +371,7 @@ func (t *Track) writeH26x(pts time.Duration, data []byte) error {
 				if !bytes.Equal(codec.PPS, nalu) {
 					t.forceSwitch = true
 					codec.PPS = nalu
+					fmt.Printf("got pps\n")
 				}
 			}
 		}
@@ -511,6 +513,7 @@ func (t *Track) flushSegment(dts time.Duration, forceUpdateInit bool) error {
 	if err != nil {
 		return err
 	}
+	t.segmenter.setEnd(dts, t.endNTP)
 	// when closed, call segmenter.UpdateIndex() in segmenter.Close method
 	if !t.closed {
 		err = t.segmenter.UpdateIndex(true)
@@ -648,7 +651,7 @@ func (t *Track) bandwidth() (int, int) {
 
 type Instant struct {
 	DTS time.Duration
-	NPT time.Time
+	NTP time.Time
 }
 
 type Option func(o *Segmenter)
@@ -953,11 +956,23 @@ func (s *Segmenter) setStart(dts time.Duration, ntp time.Time) {
 	if s.start == nil {
 		s.start = &Instant{
 			DTS: dts,
-			NPT: ntp,
+			NTP: ntp,
 		}
 		s.base = s.calcBaseTemplate(ntp)
 		s.indexUri = s.calcIndexTemplate(ntp)
 		s.directory = s.calcDirectoryTemplate(ntp)
+	}
+}
+
+func (s *Segmenter) setEnd(dts time.Duration, ntp time.Time) {
+	if s.end == nil {
+		s.end = &Instant{
+			DTS: dts,
+			NTP: ntp,
+		}
+	} else if dts > s.end.DTS {
+		s.end.DTS = dts
+		s.end.NTP = ntp
 	}
 }
 
@@ -1110,10 +1125,10 @@ func (s *Segmenter) Close() error {
 	}
 	if s.start != nil {
 		ntp := time.Now().UTC()
-		dts := ntpToDts(s.start.DTS, s.start.NPT, ntp)
+		dts := ntpToDts(s.start.DTS, s.start.NTP, ntp)
 		s.end = &Instant{
 			DTS: dts,
-			NPT: ntp,
+			NTP: ntp,
 		}
 		s.UpdateIndex(false)
 	}

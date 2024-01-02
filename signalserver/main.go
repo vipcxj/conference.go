@@ -36,6 +36,10 @@ func Run(ch chan error) {
 	handler := io.ServeHandler(nil)
 	g.GET("/socket.io/", gin.WrapH(handler))
 	g.POST("/socket.io/", gin.WrapH(handler))
+	g.GET(fmt.Sprintf("%v/:id", signal.CLOSE_CALLBACK_PREFIX), func(ctx *gin.Context) {
+		id := ctx.Param("id")
+		signal.GLOBAL.CloseSignalContext(id, true)
+	})
 
 	host := config.Conf().SignalHost
 	port := config.Conf().SignalPort

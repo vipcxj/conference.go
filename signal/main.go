@@ -1,10 +1,28 @@
 package signal
 
 import (
+	"fmt"
+	"net/http"
+
 	"github.com/pion/webrtc/v4"
+	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/zishang520/socket.io/v2/socket"
 )
+
+const CLOSE_CALLBACK_PREFIX = "/conference/close"
+
+func CloseCallback(id string) string {
+	externalUrl := config.Conf().SignalExternalUrl
+	if externalUrl == "" {
+		if config.Conf().SignalSsl {
+			externalUrl = fmt.Sprintf("https://%v:%v", config.Conf().SignalHost, config.Conf().SignalPort)
+		} else {
+			externalUrl = fmt.Sprintf("http://%v:%v", config.Conf().SignalHost, config.Conf().SignalPort)
+		}
+	}
+	return fmt.Sprintf("%v%v/%v", externalUrl, CLOSE_CALLBACK_PREFIX, id)
+}
 
 func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	ctx := GetSingalContext(s)
@@ -20,12 +38,28 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			return ctx, err
 		}
 	}
+	cbOnStart := NewConferenceCallback(config.Conf().Callback.OnStart, ctx)
+	st, err := cbOnStart.Call(ctx)
+	if err != nil {
+		msg := fmt.Sprintf("start callback invoked failed with error %v, so close the singal context.", err)
+		ctx.Sugar().Warn(msg)
+		ctx.Close(true)
+		return nil, errors.FatalError(msg)
+	}
+	if st != 0 && st != http.StatusOK {
+		msg := fmt.Sprintf("start callback return status code %v, so close the singal context.", st)
+		ctx.Sugar().Warn(msg)
+		ctx.Close(true)
+		return nil, errors.FatalError(msg)
+	}
+	ctx.SetCloseCallback(NewConferenceCallback(config.Conf().Callback.OnClose, ctx))
+	GLOBAL.RegisterSignalContext(ctx)
 	s.On("disconnect", func(args ...any) {
 		reason := args[0].(string)
 		if reason != "ping timeout" {
 			ctx.Sugar().Infof("socket disconnect because %s", reason)
 			ctx.Sugar().Infof("close the socket")
-			ctx.Close()
+			ctx.Close(false)
 		}
 	})
 	s.On("join", func(args ...any) {
