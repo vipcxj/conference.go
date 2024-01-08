@@ -1,6 +1,10 @@
 import type { Options } from 'tsup';
+import { umdWrapper } from 'esbuild-plugin-umd-wrapper';
+import { dependencies } from './package.json'
 
 const env = process.env.NODE_ENV;
+
+const externalDependencies = Object.keys(dependencies);
 
 export const tsup: Options = {
     splitting: false,
@@ -8,7 +12,12 @@ export const tsup: Options = {
     clean: true, // clean up the dist folder
     dts: true, // generate dts files
     platform: 'browser',
-    format: ['cjs', 'esm'], // generate cjs and esm files
+    esbuildPlugins: [umdWrapper({
+        libraryName: 'cg',
+        external: 'inherit',
+    })],
+    format: ['umd'], // generate cjs and esm files
+    noExternal: externalDependencies,
     minify: true,
     bundle: true,
     skipNodeModulesBundle: false,

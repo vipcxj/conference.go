@@ -12,6 +12,9 @@ type Global struct {
 func (g *Global) RegisterSignalContext(ctx *SignalContext) {
 	g.sig_mux.Lock()
 	defer g.sig_mux.Unlock()
+	if g.sig_map == nil {
+		g.sig_map = make(map[string]*SignalContext)
+	}
 	g.sig_map[ctx.Id] = ctx
 }
 

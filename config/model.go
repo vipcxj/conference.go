@@ -40,14 +40,14 @@ type ConferenceConfigure struct {
 		Level   string `mapstructure:"level" json:"level" default:"${CONF_LOG_LEVEL | info}"`
 	} `mapstructure:"log" json:"log" default:""`
 	Record struct {
-		Enable          bool   `mapstructure:"enable" json:"enable" default:"${CONF_RECORD_ENABLE}"`
+		Enable          bool   `mapstructure:"enable" json:"enable" default:"${CONF_RECORD_ENABLE | false}"`
 		BasePath        string `mapstructure:"basePath" json:"basePath" default:"${CONF_RECORD_BASE_PATH}"`
 		DirPath         string `mapstructure:"dirPath" json:"dirPath" default:"${CONF_RECORD_DIR_PATH}"`
 		IndexName       string `mapstructure:"indexName" json:"indexName" default:"${CONF_RECORD_INDEX_NAME}"`
 		SegmentDuration int    `mapstructure:"segmentDuration" json:"segmentDuration" default:"${CONF_RECORD_SEGMENT_DURATION | 6}"`
 		GopSize         int    `mapstructure:"gopSize" json:"gopSize" default:"${CONF_RECORD_GOP_SIZE | 3}"`
 		DBIndex         struct {
-			Enable     bool   `mapstructure:"enable" json:"enable" default:"${CONF_RECORD_DBINDEX_ENABLE}"`
+			Enable     bool   `mapstructure:"enable" json:"enable" default:"${CONF_RECORD_DBINDEX_ENABLE | false}"`
 			MongoUrl   string `mapstructure:"mongoUrl" json:"mongoUrl" default:"${CONF_RECORD_DBINDEX_MONGO_URL}"`
 			Database   string `mapstructure:"database" json:"database" default:"${CONF_RECORD_DBINDEX_DATABASE}"`
 			Collection string `mapstructure:"collection" json:"collection" default:"${CONF_RECORD_DBINDEX_COLLECTION}"`
@@ -62,8 +62,15 @@ type ConferenceConfigure struct {
 		OnStart      string `mapstructure:"onStart" json:"onStart" default:"${CONF_CALLBACK_ONSTART}"`
 		OnClose      string `mapstructure:"onClose" json:"onClose" default:"${CONF_CALLBACK_ONCLOSE}"`
 		OnConnecting string `mapstructure:"onConnecting" json:"onConnecting" default:"${CONF_CALLBACK_ONCONNECTING}"`
-		IntervalMs   int    `mapstructure:"intervalMs" json:"intervalMs" default:"${CONF_CALLBACK_INTERVAL_MS}"`
+		IntervalMs   int    `mapstructure:"intervalMs" json:"intervalMs" default:"${CONF_CALLBACK_INTERVAL_MS | 60000}"`
 	} `mapstructure:"callback" json:"callback" default:""`
+	Signal struct {
+		Healthy struct {
+			Enable           bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_HEALTHY_ENABLE | true}"`
+			FailureThreshold int    `mapstructure:"failureThreshold" json:"failureThreshold" default:"${CONF_SIGNAL_HEALTHY_FAILURE_THRESHOLD | 3}"`
+			Path             string `mapstructure:"path" json:"path" default:"${CONF_SIGNAL_HEALTHY_PATH | /healthz}"`
+		} `mapstructure:"healthy" json:"healthy" default:""`
+	} `mapstructure:"signal" json:"signal" default:""`
 }
 
 type LogProfile int
@@ -160,6 +167,7 @@ var KEYS = []string{
 	"signalHost:string",
 	"signalPort:int",
 	"signalSsl:bool",
+	"signalExternalUrl:string",
 	"signalCertPath:string",
 	"signalKeyPath:string",
 	"signalCors:string",
@@ -195,4 +203,7 @@ var KEYS = []string{
 	"callback.onClose:string",
 	"callback.onConnecting:string",
 	"callback.intervalMs:int",
+	"signal.healthy.enable:bool",
+	"signal.healthy.failureThreshold:int",
+	"signal.healthy.path:string",
 }

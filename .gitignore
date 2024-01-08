@@ -28,3 +28,6 @@ dist/
 /server
 dist.tar.gz
 __debug_bin*
+/deploy.sh
+/deploy.debug.sh
+/refresh.sh

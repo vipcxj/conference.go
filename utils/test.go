@@ -7,14 +7,14 @@ import (
 
 func ShouldPanic(t *testing.T, f func()) {
 	t.Helper()
-    defer func() { _ = recover() }()
-    f()
-    t.Errorf("should have panicked here")
+	defer func() { _ = recover() }()
+	f()
+	t.Errorf("should have panicked here")
 }
 
 func ShouldPanicWith(t *testing.T, msg string, f func()) {
-    t.Helper()
-    defer func() {
+	t.Helper()
+	defer func() {
 		err := recover()
 		if err == nil {
 			t.Errorf("should have panicked here")
@@ -32,13 +32,27 @@ func ShouldPanicWith(t *testing.T, msg string, f func()) {
 			}
 		}
 	}()
-    f()
+	f()
 }
 
 func AssertEqual[T comparable](t *testing.T, expected T, real T) {
 	t.Helper()
 	if expected != real {
 		t.Errorf("expect %v, but got %v", expected, real)
+	}
+}
+
+func AssertEqualSlice[T comparable, L []T](t *testing.T, expected L, real L) {
+	t.Helper()
+	if len(expected) != len(real) {
+		t.Errorf("expect %v, but got %v", expected, real)
+		return
+	}
+	for i := 0; i < len(expected); i++ {
+		if expected[i] != real[i] {
+			t.Errorf("expect %v, but got %v", expected, real)
+			return
+		}
 	}
 }
 

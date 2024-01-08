@@ -150,6 +150,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		if err != nil {
 			panic(err)
 		}
+		ctx.Sugar().Infof("received candidate %v", msg.Candidate.Candidate)
 		if peer.RemoteDescription() == nil {
 			ctx.cand_mux.Lock()
 			if peer.RemoteDescription() == nil {

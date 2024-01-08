@@ -671,6 +671,7 @@ type Segmenter struct {
 	ready                bool
 	tracks               []*Track
 	multivariantPlaylist playlist.Multivariant
+	templateContext      map[string]interface{}
 	baseTemplate         *fasttemplate.Template
 	base                 string
 	indexUriTemplate     *fasttemplate.Template
@@ -730,22 +731,23 @@ func GetCommonLabel[T any, TS []T](label string, thingsWithLabels TS, labelsExtr
 	return commonValue, start
 }
 
-func commonTemplate(w io.Writer, tag string, t time.Time, tracks []*Track) (int, error) {
+func commonTemplate(w io.Writer, tag string, t time.Time, tracks []*Track, ctx map[string]interface{}) (int, error) {
+	tagL := strings.ToLower(tag)
 	var err error
 	t = t.UTC()
-	if strings.HasPrefix(tag, "year") {
+	if strings.HasPrefix(tagL, "year") {
 		return fmt.Fprintf(w, "%04d", calcSuperExpr(t.Year(), tag[4:]))
-	} else if strings.HasPrefix(tag, "month") {
+	} else if strings.HasPrefix(tagL, "month") {
 		return fmt.Fprintf(w, "%02d", calcSuperExpr(int(t.Month()), tag[5:]))
-	} else if strings.HasPrefix(tag, "day") {
+	} else if strings.HasPrefix(tagL, "day") {
 		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Day(), tag[3:]))
-	} else if strings.HasPrefix(tag, "hour") {
+	} else if strings.HasPrefix(tagL, "hour") {
 		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Hour(), tag[4:]))
-	} else if strings.HasPrefix(tag, "minute") {
+	} else if strings.HasPrefix(tagL, "minute") {
 		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Minute(), tag[6:]))
-	} else if strings.HasPrefix(tag, "second") {
+	} else if strings.HasPrefix(tagL, "second") {
 		return fmt.Fprintf(w, "%02d", calcSuperExpr(t.Minute(), tag[6:]))
-	} else if strings.HasPrefix(tag, "label:") {
+	} else if strings.HasPrefix(tagL, "label:") {
 		if tracks == nil {
 			return 0, fmt.Errorf("unsupported tag %v", tag)
 		}
@@ -766,7 +768,7 @@ func commonTemplate(w io.Writer, tag string, t time.Time, tracks []*Track) (int,
 			}
 		}
 		return fmt.Fprint(w, labelValue)
-	} else if strings.HasPrefix(tag, "uuid") {
+	} else if strings.HasPrefix(tagL, "uuid") {
 		parts := strings.SplitN(tag, ":", 2)
 		l := 32
 		if len(parts) > 1 {
@@ -782,7 +784,11 @@ func commonTemplate(w io.Writer, tag string, t time.Time, tracks []*Track) (int,
 		s := hex.EncodeToString(u[:])
 		return fmt.Fprintf(w, s[0:l])
 	} else {
-		return 0, fmt.Errorf("unsupported tag %v", tag)
+		v, err := common.GetFieldByPath(tag, ctx)
+		if err != nil {
+			return 0, fmt.Errorf("parse template failed, %v", err)
+		}
+		return fmt.Fprintf(w, "%v", v)
 	}
 }
 
@@ -851,6 +857,12 @@ func WithPacketReleaseHandler(h func(*rtp.Packet, []byte)) Option {
 func WithSegmentHandler(h func(*SegmentContext)) Option {
 	return func(s *Segmenter) {
 		s.segmentHandler = h
+	}
+}
+
+func WithTemplateContext(ctx map[string]interface{}) Option {
+	return func(o *Segmenter) {
+		o.templateContext = ctx
 	}
 }
 
@@ -927,27 +939,28 @@ func (s *Segmenter) calcBaseTemplate(t time.Time) string {
 		return ""
 	} else {
 		return s.baseTemplate.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
-			tag = strings.ToLower(strings.TrimSpace(tag))
-			return commonTemplate(w, tag, t, s.tracks)
+			tag = strings.TrimSpace(tag)
+			return commonTemplate(w, tag, t, s.tracks, s.templateContext)
 		})
 	}
 }
 
 func (s *Segmenter) calcDirectoryTemplate(t time.Time) string {
 	return s.directoryTemplate.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
-		tag = strings.ToLower(strings.TrimSpace(tag))
-		return commonTemplate(w, tag, t, s.tracks)
+		tag = strings.TrimSpace(tag)
+		return commonTemplate(w, tag, t, s.tracks, s.templateContext)
 	})
 }
 
 func (s *Segmenter) calcIndexTemplate(t time.Time) string {
 	return s.indexUriTemplate.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
-		tag = strings.ToLower(strings.TrimSpace(tag))
-		switch tag {
+		tag = strings.TrimSpace(tag)
+		tagL := strings.ToLower(tag)
+		switch tagL {
 		case "ext":
 			return fmt.Fprint(w, ".m3u8")
 		default:
-			return commonTemplate(w, tag, t, s.tracks)
+			return commonTemplate(w, tag, t, s.tracks, s.templateContext)
 		}
 	})
 }

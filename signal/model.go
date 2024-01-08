@@ -274,8 +274,9 @@ func (me *Publication) createRecordKey(tracks []common.LabeledTrack) string {
 		panic(fmt.Errorf("conf record.dbIndex.key should not be empty when dbIndex enabled"))
 	}
 	key := fasttemplate.ExecuteFuncString(keyTemplate, "{{", "}}", func(w io.Writer, tag string) (int, error) {
-		tag = strings.ToLower(strings.TrimSpace(tag))
-		if strings.HasPrefix(tag, "label:") {
+		tag = strings.TrimSpace(tag)
+		tagL := strings.ToLower(tag)
+		if strings.HasPrefix(tagL, "label:") {
 			parts := strings.SplitN(tag, ":", 3)
 			var labelName string
 			if len(parts) > 1 {
@@ -294,7 +295,13 @@ func (me *Publication) createRecordKey(tracks []common.LabeledTrack) string {
 			}
 			return fmt.Fprint(w, labelValue)
 		} else {
-			return 0, fmt.Errorf("invalid tag in key template")
+			v, err := common.GetFieldByPath(tag, map[string]interface{}{
+				"auth": me.ctx.AuthInfo,
+			})
+			if err != nil {
+				return 0, fmt.Errorf("invalid tag in key template, %v", err)
+			}
+			return fmt.Fprintf(w, "%v", v)
 		}
 	})
 	return key
@@ -348,6 +355,9 @@ func (me *Publication) startRecord() {
 					}
 				}()
 			}
+		}),
+		segmenter.WithTemplateContext(map[string]interface{}{
+			"auth": me.ctx.AuthInfo,
 		}),
 	)
 	if err != nil {

@@ -2,6 +2,7 @@ package signal
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/valyala/fasttemplate"
 )
@@ -16,10 +17,10 @@ func NewConferenceCallback(template string, ctx *SignalContext) *ConferenceCallb
 	if template != "" {
 		urlTemplate := fasttemplate.New(template, "{{", "}}")
 		url = urlTemplate.ExecuteString(map[string]interface{}{
-			"key":   authInfo.Key,
-			"uid":   authInfo.UID,
-			"uname": authInfo.UName,
-			"nonce": authInfo.Nonce,
+			"key":           authInfo.Key,
+			"uid":           authInfo.UID,
+			"uname":         authInfo.UName,
+			"nonce":         strconv.FormatInt(int64(authInfo.Nonce), 10),
 			"closeCallback": CloseCallback(ctx.Id),
 		})
 	}

@@ -104,7 +104,7 @@ func _sha1(data []byte) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-func genAesKey(pass string) ([]byte, error) {
+func GenAesKey(pass string) ([]byte, error) {
 	data := []byte(pass)
 	hashs, err := _sha1(data)
 	if err != nil {
@@ -161,7 +161,7 @@ func Encode(authInfo *AuthInfo) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	key, err := genAesKey(config.Conf().SecretKey)
+	key, err := GenAesKey(config.Conf().SecretKey)
 	if err != nil {
 		return "", err
 	}
@@ -178,7 +178,7 @@ func Decode(token string, authInfo *AuthInfo) error {
 	if err != nil {
 		return err
 	}
-	key, err := genAesKey(config.Conf().SecretKey)
+	key, err := GenAesKey(config.Conf().SecretKey)
 	if err != nil {
 		return err
 	}
