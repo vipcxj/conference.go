@@ -1,0 +1,4 @@
+#ifndef _CFGO_CONFIGURATION_HPP_
+#define _CFGO_CONFIGURATION_HPP_
+
+#endif
