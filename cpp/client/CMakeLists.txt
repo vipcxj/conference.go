@@ -16,9 +16,11 @@ set(MY_SOURCES
 add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS})
 target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
 
+find_package(Boost REQUIRED)
+
 find_package(sioclient CONFIG REQUIRED)
 target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
 
 find_package(unofficial-usrsctp CONFIG REQUIRED) # must add it when linux
 find_package(LibDataChannel CONFIG REQUIRED)
-target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannel)
+target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannelStatic)

@@ -3,12 +3,14 @@
   "name": "cgclient",
   "version": "0.1.0",
   "dependencies": [
+    "boost-uuid",
     {
       "name": "libdatachannel",
       "features": [
         "srtp"
       ]
     },
-    "socket-io-client"
+    "socket-io-client",
+    "boost-lexical-cast"
   ]
 }
