@@ -23,4 +23,8 @@ target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclie
 
 find_package(unofficial-usrsctp CONFIG REQUIRED) # must add it when linux
 find_package(LibDataChannel CONFIG REQUIRED)
-target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannelStatic)
+if(WIN32)
+    target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannel)
+else()
+    target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannelStatic)
+endif(WIN32)

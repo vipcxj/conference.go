@@ -12,6 +12,7 @@ namespace cfgo {
         sio::client m_client;
         const std::string m_id;
     public:
+        typedef std::shared_ptr<Client> Ptr;
         Client(const Configuration& config);
         ~Client();
         void connect();
@@ -19,6 +20,12 @@ namespace cfgo {
         void bind_evt();
     };
     
+    class ClientReady {
+    private:
+        Client::Ptr m_client;
+    public:
+        void publish();
+    };
 }
 
 #endif
