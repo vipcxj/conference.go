@@ -12,9 +12,11 @@ import (
 	healthcheck "github.com/tavsec/gin-healthcheck"
 	healthchecks "github.com/tavsec/gin-healthcheck/checks"
 	healthconfig "github.com/tavsec/gin-healthcheck/config"
+	"go.uber.org/zap"
 
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/middleware"
 	"github.com/vipcxj/conference.go/signal"
 	"github.com/zishang520/socket.io/v2/socket"
@@ -60,11 +62,17 @@ func Run(ch chan error) {
 		fmt.Printf("on connection\n")
 		socket := clients[0].(*socket.Socket)
 		ctx, err := signal.InitSignal(socket)
+		var suger *zap.SugaredLogger
+		if ctx != nil {
+			suger = ctx.Sugar()
+		} else {
+			suger = log.Sugar()
+		}
 		if err != nil {
-			ctx.Sugar().Errorf("socket connect failed, %v", err)
+			suger.Errorf("socket connect failed, %v", err)
 			signal.FatalErrorAndClose(socket, signal.ErrToMsg(err), "init signal")
 		} else {
-			ctx.Sugar().Info("socket connected")
+			suger.Info("socket connected")
 		}
 	})
 	handler := io.ServeHandler(nil)

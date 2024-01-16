@@ -201,8 +201,14 @@ interface EmitEventMap {
     select: (msg: any) => void;
 }
 
+interface SocketConnectState {
+    connected: boolean;
+    reason?: string;
+}
+
 interface EventData {
-    connect: undefined;
+    connect: SocketConnectState;
+    disconnect: SocketConnectState;
     connectState: RTCPeerConnectionState;
     track: [MediaStreamTrack, readonly MediaStream[], RTCRtpTransceiver];
     subscribed: SubscribedMessage;
@@ -251,14 +257,16 @@ export class ConferenceClient {
                 id: this._id,
             },
             path,
+            autoConnect: false,
             reconnection: true,
             reconnectionDelay: 500,
             rememberUpgrade: true,
         });
         this.socket.on('connect', () => {
-            this.emitter.emit('connect');
+            this.emitter.emit('connect', { connected: true });
         });
         this.socket.on('disconnect', (reason) => {
+            this.emitter.emit('disconnect', { connected: false, reason });
             this.logger().warn(`socket disconnected because ${reason}`);
         })
         this.socket.on('error', (msg: ErrorMessage) => {
@@ -452,7 +460,12 @@ export class ConferenceClient {
             return
         }
         this.socket.connect();
-        await this.emitter.once('connect');
+        const cs = await this.emitter.once(['connect', 'disconnect']);
+        if (!cs.connected) {
+            this.logger().error(`Unable to make sure the socket connection, because ${cs.reason}`);
+            this.socket.disconnect();
+            throw new Error(cs.reason);
+        }
     }
 
     private addCandidate = async (peer: RTCPeerConnection, msg: CandidateMessage) => {

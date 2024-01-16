@@ -38,7 +38,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			return ctx, err
 		}
 	}
-	cbOnStart := NewConferenceCallback(config.Conf().Callback.OnStart, ctx)
+	cbOnStart := NewConferenceCallback("setup", config.Conf().Callback.OnStart, ctx)
 	st, err := cbOnStart.Call(ctx)
 	if err != nil {
 		msg := fmt.Sprintf("start callback invoked failed with error %v, so close the singal context.", err)
@@ -52,7 +52,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		ctx.Close(true)
 		return nil, errors.FatalError(msg)
 	}
-	ctx.SetCloseCallback(NewConferenceCallback(config.Conf().Callback.OnClose, ctx))
+	ctx.SetCloseCallback(NewConferenceCallback("close", config.Conf().Callback.OnClose, ctx))
 	GLOBAL.RegisterSignalContext(ctx)
 	s.On("disconnect", func(args ...any) {
 		reason := args[0].(string)

@@ -69,7 +69,7 @@ export const Video = (pros: VideoProps) => {
     const [client, setClient] = useState<ConferenceClient>();
     useOnce(async () => {
         const nonce = Math.floor(Math.random() * 100000);
-        const token = await fetch(`${authHost}/token?uid=${uid}&uname=${uname}&role=${role}&room=${room}&nonce=${nonce}&autojoin=true`).then(r => r.text());
+        const token = await fetch(`${authHost}/token?key=${uid}&uid=${uid}&uname=${uname}&role=${role}&room=${room}&nonce=${nonce}&autojoin=true`).then(r => r.text());
         const client = new ConferenceClient({
             name,
             signalUrl: `${signalHost}/socket.io`,
