@@ -21,12 +21,10 @@ auto make_awaitable(std::function<R()> fn, R invalid, CompletionToken&& token)
                 );
 
                 try {
-                    std::cout << "thread " << std::this_thread::get_id() << ": invoking callback..." << std::endl;
                     auto r = std::move(fn)();
                     asio::dispatch(
                         work.get_executor(),
                         asio::bind_allocator(alloc, [handler = std::move(handler), fn = std::move(fn), r = std::move(r)]() mutable {
-                            std::cout << "completion handle: thread " << std::this_thread::get_id() << std::endl;
                             std::move(handler)(std::current_exception(), std::move(r));
                         })
                     );
@@ -35,7 +33,6 @@ auto make_awaitable(std::function<R()> fn, R invalid, CompletionToken&& token)
                     asio::dispatch(
                         work.get_executor(),
                         asio::bind_allocator(alloc, [handler = std::move(handler), fn = std::move(fn), invalid = std::move(invalid), e = std::move(e)]() mutable {
-                            std::cout << "completion handle: thread " << std::this_thread::get_id() << std::endl;
                             std::move(handler)(e, std::move(invalid));
                         })
                     );
