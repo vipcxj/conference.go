@@ -5,7 +5,7 @@ namespace cfgo {
     Configuration::Configuration(
         const std::string& signal_url,
         const std::string& token,
-        const asio::io_context *io_ctx = nullptr
+        const asio::io_context *io_ctx
     ):
     m_signal_url(signal_url),
     m_token(token),
@@ -17,7 +17,7 @@ namespace cfgo {
         const std::string& signal_url,
         const std::string& token,
         const rtc::Configuration& rtc_config,
-        const asio::io_context *io_ctx = nullptr
+        const asio::io_context *io_ctx
     ):
     m_signal_url(signal_url),
     m_token(token),
