@@ -10,6 +10,7 @@ set(H_PUBLIC_PATH "${H_PUBLIC}/cfgo")
 set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/configuration.hpp"
     "${H_PUBLIC_PATH}/client.hpp"
+    "${H_PUBLIC_PATH}/error.hpp"
 )
 set(H_PRIVATE "${SRC_PATH}/private")
 set(H_PRIVATE_PATH "${H_PRIVATE}/cfgo")
@@ -20,6 +21,7 @@ set(MY_PRIVATE_HEADERS
 set(MY_SOURCES
     "${SRC_PATH}/configuration.cpp"
     "${SRC_PATH}/client.cpp"
+    "${SRC_PATH}/error.cpp"
 )
 
 add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})

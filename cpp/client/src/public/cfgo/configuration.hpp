@@ -7,22 +7,22 @@
 namespace cfgo {
     struct Configuration
     {
-        const asio::io_context * m_io_ctx;
         const std::string m_signal_url;
         const std::string m_token;
         const rtc::Configuration m_rtc_config;
+        const bool m_thread_safe;
 
         Configuration(
             const std::string& signal_url,
             const std::string& token,
-            const asio::io_context *io_ctx = nullptr
+            const bool thread_safe = false
         );
 
         Configuration(
             const std::string& signal_url,
             const std::string& token,
             const rtc::Configuration& rtc_config,
-            const asio::io_context *io_ctx = nullptr
+            const bool thread_safe = false
         );
     };
     
