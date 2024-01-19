@@ -20,7 +20,7 @@ namespace cfgo {
         {
             m_handler(m_exception);
         }
-        return trigger;
+        return handler;
     }
 
     inline void invoke_handler(co_event::handler_type&& handler, std::exception_ptr&& e) {

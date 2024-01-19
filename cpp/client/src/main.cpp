@@ -48,18 +48,17 @@ int main()
                 {
                     timer.expires_at(timer.expires_at() + interval);
                     co_await timer.async_wait(use_awaitable);
-                    co_await make_awaitable<int>([i]() -> int {
+                    co_await cfgo::make_void_awaitable([i]() {
                         withIndex(i, "waiting 1 sec...");
                         std::this_thread::sleep_for(std::chrono::seconds(1));
                         withIndex(i, "waited.");
-                        return 0;
-                    }, 0, asio::use_awaitable);
-                    auto three = co_await make_awaitable<int>([]() -> int {
+                    }, asio::use_awaitable);
+                    auto three = co_await cfgo::make_awaitable<int>([]() -> int {
                         return 3;
                     }, 0, asio::use_awaitable);
                     try
                     {
-                        co_await make_awaitable<int>([]() -> int {
+                        co_await cfgo::make_awaitable<int>([]() -> int {
                             throw std::make_error_code(std::errc::address_in_use);
                         }, 0, asio::use_awaitable);
                     }
