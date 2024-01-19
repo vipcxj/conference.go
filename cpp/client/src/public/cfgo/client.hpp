@@ -18,7 +18,7 @@ namespace cfgo {
         Client() = delete;
         Client(const Configuration& config);
         Client(const Configuration& config, const CtxPtr& io_ctx);
-        Client(const Client&&) = default;
+        Client(Client&&) = default;
         ~Client();
         Client(const Client&) = delete;
         Client& operator = (Client&) = delete;

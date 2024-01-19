@@ -17,12 +17,16 @@ set(H_PRIVATE_PATH "${H_PRIVATE}/cfgo")
 set(MY_PRIVATE_HEADERS
     "${H_PRIVATE_PATH}/cofuture.hpp"
     "${H_PRIVATE_PATH}/cothread.hpp"
+    "${H_PRIVATE_PATH}/coevent.hpp"
+    "${H_PRIVATE_PATH}/move_only_function.hpp"
 )
 set(MY_SOURCES
     "${SRC_PATH}/configuration.cpp"
     "${SRC_PATH}/client.cpp"
     "${SRC_PATH}/error.cpp"
+    "${SRC_PATH}/coevent.cpp"
 )
+set(MY_TEST_PATH "${SRC_PATH}/test")
 
 add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
 target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
@@ -55,4 +59,9 @@ else()
 endif(WIN32)
 
 enable_testing()
-add_test(NAME test1 COMMAND test1)
+
+add_executable(test-coevent "${MY_TEST_PATH}/coevent.cpp" "${SRC_PATH}/coevent.cpp" "${H_PRIVATE_PATH}/coevent.hpp")
+target_include_directories(test-coevent PRIVATE "${H_PRIVATE}")
+find_package(asio CONFIG REQUIRED)
+target_link_libraries(test-coevent PRIVATE asio::asio)
+add_test(NAME test-coevent COMMAND test-coevent)

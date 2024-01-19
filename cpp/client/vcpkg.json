@@ -3,6 +3,12 @@
   "name": "cgclient",
   "version": "0.1.0",
   "dependencies": [
+    {
+      "name": "asio",
+      "features": [
+        "coroutine"
+      ]
+    },
     "boost-uuid",
     {
       "name": "libdatachannel",

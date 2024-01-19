@@ -24,7 +24,7 @@ auto make_awaitable(std::function<R()> fn, R invalid, CompletionToken&& token)
                     auto r = std::move(fn)();
                     asio::dispatch(
                         work.get_executor(),
-                        asio::bind_allocator(alloc, [handler = std::move(handler), fn = std::move(fn), r = std::move(r)]() mutable {
+                        asio::bind_allocator(alloc, [handler = std::move(handler), r = std::move(r)]() mutable {
                             std::move(handler)(std::current_exception(), std::move(r));
                         })
                     );
@@ -32,7 +32,7 @@ auto make_awaitable(std::function<R()> fn, R invalid, CompletionToken&& token)
                     auto e = std::current_exception();
                     asio::dispatch(
                         work.get_executor(),
-                        asio::bind_allocator(alloc, [handler = std::move(handler), fn = std::move(fn), invalid = std::move(invalid), e = std::move(e)]() mutable {
+                        asio::bind_allocator(alloc, [handler = std::move(handler), invalid = std::move(invalid), e = std::move(e)]() mutable {
                             std::move(handler)(e, std::move(invalid));
                         })
                     );
@@ -67,7 +67,7 @@ auto make_void_awaitable(std::function<void()> fn, CompletionToken&& token)
                     std::move(fn)();
                     asio::dispatch(
                         work.get_executor(),
-                        asio::bind_allocator(alloc, [handler = std::move(handler), fn = std::move(fn)]() mutable {
+                        asio::bind_allocator(alloc, [handler = std::move(handler)]() mutable {
                             std::move(handler)(std::current_exception());
                         })
                     );
@@ -75,7 +75,7 @@ auto make_void_awaitable(std::function<void()> fn, CompletionToken&& token)
                     auto e = std::current_exception();
                     asio::dispatch(
                         work.get_executor(),
-                        asio::bind_allocator(alloc, [handler = std::move(handler), fn = std::move(fn), e = std::move(e)]() mutable {
+                        asio::bind_allocator(alloc, [handler = std::move(handler), e = std::move(e)]() mutable {
                             std::move(handler)(e);
                         })
                     );
@@ -83,7 +83,7 @@ auto make_void_awaitable(std::function<void()> fn, CompletionToken&& token)
             }
         ).detach();
     };
-    return asio::async_initiate<CompletionToken, void(std::exception_ptr, R)>(
+    return asio::async_initiate<CompletionToken, void(std::exception_ptr)>(
         init,
         token
     );
