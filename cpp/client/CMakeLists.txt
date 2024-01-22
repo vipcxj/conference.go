@@ -19,12 +19,14 @@ set(MY_PRIVATE_HEADERS
     "${H_PRIVATE_PATH}/cothread.hpp"
     "${H_PRIVATE_PATH}/coevent.hpp"
     "${H_PRIVATE_PATH}/move_only_function.hpp"
+    "${H_PRIVATE_PATH}/utils.hpp"
 )
 set(MY_SOURCES
     "${SRC_PATH}/configuration.cpp"
     "${SRC_PATH}/client.cpp"
     "${SRC_PATH}/error.cpp"
     "${SRC_PATH}/coevent.cpp"
+    "${SRC_PATH}/utils.cpp"
 )
 set(MY_TEST_PATH "${SRC_PATH}/test")
 
@@ -45,6 +47,10 @@ else()
     target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannelStatic)
 endif(WIN32)
 
+find_path(ASIOCHAN_INCLUDE_DIRS "asiochan/asiochan.hpp")
+target_compile_definitions(cfgoclient PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
+target_include_directories(cfgoclient PRIVATE ${ASIOCHAN_INCLUDE_DIRS})
+
 add_executable(test1 "${SRC_PATH}/main.cpp" ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
 
 set_target_properties(test1 PROPERTIES DEBUG_POSTFIX "${CMAKE_DEBUG_POSTFIX}")
@@ -60,8 +66,11 @@ endif(WIN32)
 
 enable_testing()
 
+find_package(GTest CONFIG REQUIRED)
+
 add_executable(test-coevent "${MY_TEST_PATH}/coevent.cpp" "${SRC_PATH}/coevent.cpp" "${H_PRIVATE_PATH}/coevent.hpp")
 target_include_directories(test-coevent PRIVATE "${H_PRIVATE}")
 find_package(asio CONFIG REQUIRED)
 target_link_libraries(test-coevent PRIVATE asio::asio)
+target_link_libraries(test-coevent PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
 add_test(NAME test-coevent COMMAND test-coevent)

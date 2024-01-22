@@ -1,8 +1,8 @@
 {
   "default-registry": {
     "kind": "git",
-    "baseline": "1d2302fbf90adf8bfee50b5667282fa5b652e3c6",
-    "repository": "https://github.com/vipcxj/vcpkg.git"
+    "baseline": "ed4a4c80ac69fc0e42efd804049284d28e6b39d9",
+    "repository": "https://github.com/vipcxj/vcpkg"
   },
   "registries": [
     {

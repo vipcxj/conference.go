@@ -9,6 +9,7 @@
         "coroutine"
       ]
     },
+    "asiochan",
     "boost-uuid",
     {
       "name": "libdatachannel",
@@ -17,6 +18,7 @@
       ]
     },
     "socket-io-client",
-    "boost-lexical-cast"
+    "boost-lexical-cast",
+    "gtest"
   ]
 }
