@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strings"
 )
 
 const (
@@ -15,6 +16,8 @@ const (
 	INVALID_PUB_PATTERN = 11000
 	SUB_NOT_EXIST       = 12000
 	ROOM_NO_RIGHT       = 13000
+
+	INVALID_CONFIG      = 14000
 
 	INVALID_STATE = 10000000
 )
@@ -32,9 +35,9 @@ type ConferenceError struct {
 	CallFrames []CallFrame `json:"callFrames" mapstructure:"callFrames"`
 }
 
-func (e *ConferenceError) GenCallStacks() *ConferenceError {
+func (e *ConferenceError) GenCallStacks(ignores int) *ConferenceError {
 	callers := make([]uintptr, 128)
-	n := runtime.Callers(1, callers)
+	n := runtime.Callers(ignores + 1, callers)
 	frames := runtime.CallersFrames(callers[:n])
 	callFrames := make([]CallFrame, 0, n)
 	for {
@@ -56,11 +59,32 @@ func (e *ConferenceError) Error() string {
 	return e.Msg
 }
 
+func (e *ConferenceError) ToString() string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[%d] %v", e.Code, e.Msg))
+	if len(e.CallFrames) > 0 {
+		sb.WriteString("\n")
+		for _, f := range e.CallFrames {
+			sb.WriteString("  ")
+			sb.WriteString("At ")
+			sb.WriteString(f.Filename)
+			sb.WriteString(" - ")
+			sb.WriteString(f.FuncName)
+			sb.WriteString(fmt.Sprintf("[%d]", f.Line))
+		}
+	}
+	return sb.String()
+}
+
 func NewError(code int, msg string, args ...any) *ConferenceError {
 	return &ConferenceError{
 		Msg:  fmt.Sprintf(msg, args...),
 		Code: code,
 	}
+}
+
+func NewStackError(ignores int, code int, msg string, args ...any) *ConferenceError {
+	return NewError(code, msg, args...).GenCallStacks(ignores + 1)
 }
 
 func IsOk(err error) bool {
@@ -104,6 +128,10 @@ func SubNotExist(subId string) *ConferenceError {
 
 func InvalidState(msg string, args ...any) *ConferenceError {
 	return NewError(INVALID_STATE, msg, args...)
+}
+
+func InvalidConfig(msg string, args ...any) *ConferenceError {
+	return NewError(INVALID_CONFIG, msg, args...)
 }
 
 func ThisIsImpossible() *ConferenceError {

@@ -7,6 +7,15 @@ import (
 	"github.com/vipcxj/conference.go/errors"
 )
 
+type RedisConfigure struct {
+	Mode       string `mapstructure:"mode" json:"mode" default:"${CONF_CLUSTER_REDIS_MODE | auto}"`
+	Addrs      string `mapstructure:"addrs" json:"addrs" default:"${CONF_CLUSTER_REDIS_ADDRS}"`
+	Users      string `mapstructure:"users" json:"users" default:"${CONF_CLUSTER_REDIS_USERS}"`
+	Passes     string `mapstructure:"passes" json:"passes" default:"${CONF_CLUSTER_REDIS_PASSES}"`
+	KeyPrefix  string `mapstructure:"keyPrefix" json:"keyPrefix" default:"${CONF_CLUSTER_REDIS_KEY_PREFIX}"`
+	MasterName string `mapstructure:"masterName" json:"masterName" default:"${CONF_CLUSTER_REDIS_MASTER_NAME}"`
+}
+
 type ConferenceConfigure struct {
 	Ip                string `mapstructure:"ip" default:"${CONF_IP}"`
 	Port              int    `mapstructure:"port" default:"${CONF_PORT | 0}"`
@@ -71,6 +80,11 @@ type ConferenceConfigure struct {
 			Path             string `mapstructure:"path" json:"path" default:"${CONF_SIGNAL_HEALTHY_PATH | /healthz}"`
 		} `mapstructure:"healthy" json:"healthy" default:""`
 	} `mapstructure:"signal" json:"signal" default:""`
+	Cluster struct {
+		Enable   bool           `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_ENABLE | true}"`
+		Redis    RedisConfigure `mapstructure:"redis" json:"redis" default:""`
+		NodeName string         `mapstructure:"nodeName" json:"nodeName" default:"${CONF_CLUSTER_NODE_NAME}"`
+	} `mapstructure:"cluster" json:"cluster" default:""`
 }
 
 type LogProfile int
@@ -206,4 +220,12 @@ var KEYS = []string{
 	"signal.healthy.enable:bool",
 	"signal.healthy.failureThreshold:int",
 	"signal.healthy.path:string",
+	"cluster.enable:bool",
+	"cluster.nodeName:string",
+	"cluster.redis.mode:string",
+	"cluster.redis.addrs:string",
+	"cluster.redis.users:string",
+	"cluster.redis.passes:string",
+	"cluster.redis.keyPrefix:string",
+	"cluster.redis.masterName:string",
 }

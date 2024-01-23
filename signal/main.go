@@ -31,7 +31,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	}
 	auth := ctx.AuthInfo
 	if auth == nil {
-		return ctx, errors.ThisIsImpossible().GenCallStacks()
+		return ctx, errors.ThisIsImpossible().GenCallStacks(0)
 	}
 	if auth.AutoJoin {
 		if err := ctx.JoinRoom(); err != nil {

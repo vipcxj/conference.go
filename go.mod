@@ -50,7 +50,7 @@ require (
 	github.com/pion/transport/v3 v3.0.1 // indirect
 	github.com/pion/turn/v3 v3.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/redis/go-redis/v9 v9.3.1 // indirect
+	github.com/redis/go-redis/v9 v9.4.0 // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
 	github.com/tavsec/gin-healthcheck v1.6.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

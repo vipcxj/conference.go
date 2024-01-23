@@ -612,10 +612,13 @@ func (t *Track) WriteData(pts time.Duration, data []byte) error {
 }
 
 func (t *Track) Close() error {
-	if t.closed || !t.ready {
+	if t.closed {
 		return nil
 	}
 	t.closed = true
+	if !t.ready {
+		return nil
+	}
 	err := t.writeVideo(false, false, nil)
 	if err != nil {
 		return err
@@ -1113,6 +1116,14 @@ func (s *Segmenter) WriteRtp(packet *rtp.Packet, buf []byte) error {
 	if sample != nil {
 		pts := durationMp4ToGo(uint64(sample.PacketTimestamp), track.lt.TrackRemote().Codec().ClockRate)
 		return track.WriteData(pts, sample.Data)
+	}
+	return nil
+}
+
+func (s *Segmenter) CloseTrack(ssrc uint32) error {
+	track := s.FindTrackBySSID(ssrc)
+	if track != nil {
+		return track.Close()
 	}
 	return nil
 }

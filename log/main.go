@@ -21,7 +21,7 @@ func Init() {
 	case config.LOG_PROFILE_PRODUCTION:
 		encoderCfg = zap.NewProductionEncoderConfig()
 	default:
-		err = errors.ThisIsImpossible().GenCallStacks()
+		err = errors.ThisIsImpossible().GenCallStacks(0)
 		panic(err)
 	}
 	var logger = zap.New(zapcore.NewCore(

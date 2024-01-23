@@ -32,6 +32,18 @@ func InSlice2[T any](slice []T, tester func(T) bool) bool {
 	return false
 }
 
+func IndexOf[T comparable](slice []T, target T, comparer func(T, T) bool) int {
+	if comparer == nil {
+		comparer = SimpleEqualer
+	}
+	for i, e := range slice {
+		if comparer(e, target) {
+			return i
+		}
+	}
+	return -1
+}
+
 func RemoveByIndexFromSlice[T any](slice []T, copy bool, index int) ([]T, bool) {
 	lenSlice := len(slice)
 	if index < 0 || index >= lenSlice {
@@ -147,7 +159,7 @@ func MapSlice[T any, O any](slice []T, mapper func(T) (mapped O, remove bool)) [
 	return out[0:pos]
 }
 
-func SliceToMap[T any, K comparable, V any](slice []T, mapper func(T) (key K, value V, remove bool), merger func(old V, new V) V) map[K]V {
+func SliceToMap[T any, K comparable, V any](slice []T, mapper func(T, int) (key K, value V, remove bool), merger func(old V, new V) V) map[K]V {
 	if slice == nil {
 		return nil
 	}
@@ -157,8 +169,8 @@ func SliceToMap[T any, K comparable, V any](slice []T, mapper func(T) (key K, va
 		}
 	}
 	out := map[K]V{}
-	for _, t := range slice {
-		k, v, remove := mapper(t)
+	for i, t := range slice {
+		k, v, remove := mapper(t, i)
 		if !remove {
 			old, ok := out[k]
 			if ok {

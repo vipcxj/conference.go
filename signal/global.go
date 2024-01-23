@@ -1,13 +1,25 @@
 package signal
 
-import "sync"
+import (
+	"sync"
+)
 
-var GLOBAL Global
+type Node struct {
+	Epoch uint32
+}
+
+type Room struct {
+	Servers []string
+}
 
 type Global struct {
-	sig_map map[string]*SignalContext
-	sig_mux sync.Mutex
+	sig_map  map[string]*SignalContext
+	node_map map[string]*Node
+	room_map map[string]*Room
+	sig_mux  sync.Mutex
 }
+
+var GLOBAL Global
 
 func (g *Global) RegisterSignalContext(ctx *SignalContext) {
 	g.sig_mux.Lock()

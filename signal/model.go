@@ -365,9 +365,16 @@ func (me *Publication) startRecord() {
 	}
 	pktCh := make(chan *PacketBox, 16)
 	for _, track := range tracks {
-		var onRTP RTPConsumer = func(data []byte, attrs interceptor.Attributes, err error) bool {
+		var onRTP RTPConsumer = func(ssrc webrtc.SSRC, data []byte, attrs interceptor.Attributes, err error) bool {
 			if err != nil {
-				pktCh <- nil
+				pktCh <- &PacketBox{
+					pkg: &rtp.Packet{
+						Header: rtp.Header{
+							SSRC: uint32(ssrc),
+						},
+					},
+					buff: nil,
+				}
 				if !IsRTPClosedError(err) {
 					panic(err)
 				}
@@ -395,12 +402,18 @@ func (me *Publication) startRecord() {
 		closedTrackNum := 0
 		var ready bool
 		for {
-			pkg := <-pktCh
-			if pkg == nil {
-				closedTrackNum++
+			var pkg *PacketBox
+			select {
+			case <- me.closeCh:
+				return
+			case pkg = <- pktCh:
+				if pkg.buff == nil {
+					segmenter.CloseTrack(pkg.pkg.SSRC)
+					closedTrackNum++
+					continue
+				}
 			}
 			if closedTrackNum == trackNum {
-				close(pktCh)
 				return
 			}
 			ready, err = segmenter.TryReady()
@@ -488,7 +501,7 @@ func (me *Publication) Close() {
 	close(me.closeCh)
 }
 
-type RTPConsumer func(data []byte, attrs interceptor.Attributes, err error) bool
+type RTPConsumer func(ssrc webrtc.SSRC, data []byte, attrs interceptor.Attributes, err error) bool
 
 type PublishedTrack struct {
 	pub          *Publication
@@ -530,14 +543,14 @@ func (me *PublishedTrack) OnRTPPacket(consumer *RTPConsumer) (unon func()) {
 		me.removeConsumer(consumer)
 	}
 	if len(me.consumers) == 1 {
-		ch := make(chan interface{})
-		me.consumerChan = ch
+		closeCh := make(chan interface{})
+		me.consumerChan = closeCh
 		consumes := func(data []byte, attrs interceptor.Attributes, err error) {
 			me.consumerMu.Lock()
 			defer me.consumerMu.Unlock()
 			consumers := me.consumers
 			for _, consumer := range consumers {
-				stop := (*consumer)(data, attrs, err)
+				stop := (*consumer)(me.remote.SSRC(), data, attrs, err)
 				if stop {
 					me.removeConsumer(consumer)
 				}
@@ -547,7 +560,7 @@ func (me *PublishedTrack) OnRTPPacket(consumer *RTPConsumer) (unon func()) {
 			buffer := make([]byte, PACKET_MAX_SIZE)
 			for {
 				select {
-				case <-ch:
+				case <-closeCh:
 					return
 				default:
 					n, attrs, err := me.remote.Read(buffer)
@@ -665,7 +678,7 @@ func (me *PublishedTrack) SatifySelect(sel *SelectMessage) bool {
 	if tr != nil {
 		r := GetRouter()
 		ch := r.PublishTrack(me.GlobalId(), sel.TransportId)
-		var onRTP RTPConsumer = func(data []byte, attrs interceptor.Attributes, err error) bool {
+		var onRTP RTPConsumer = func(ssrc webrtc.SSRC, data []byte, attrs interceptor.Attributes, err error) bool {
 			if err != nil {
 				r.RemoveTrack(me.GlobalId())
 				if IsRTPClosedError(err) {
@@ -872,7 +885,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 		subId = sub.id
 		return
 	default:
-		panic(errors.ThisIsImpossible().GenCallStacks())
+		panic(errors.ThisIsImpossible().GenCallStacks(0))
 	}
 
 	r := GetRouter()
@@ -948,7 +961,7 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 		return
 	}
 	if message.Op != PUB_OP_ADD {
-		err = errors.ThisIsImpossible().GenCallStacks()
+		err = errors.ThisIsImpossible().GenCallStacks(0)
 		return
 	}
 	var pub *Publication

@@ -90,16 +90,16 @@ func NewUUID(id string, base string) string {
 
 func MatchRoom(pattern string, room string) bool {
 	if pattern == "" {
-		panic(errors.InvalidParam("pattern is required").GenCallStacks())
+		panic(errors.InvalidParam("pattern is required").GenCallStacks(0))
 	}
 	if strings.Contains(pattern, "..") || strings.HasPrefix(pattern, ".") || strings.HasSuffix(pattern, ".") {
-		panic(errors.InvalidParam("invalid pattern %s", pattern).GenCallStacks())
+		panic(errors.InvalidParam("invalid pattern %s", pattern).GenCallStacks(0))
 	}
 	if room == "" {
-		panic(errors.InvalidParam("room is required").GenCallStacks())
+		panic(errors.InvalidParam("room is required").GenCallStacks(0))
 	}
 	if strings.Contains(room, "*") || strings.Contains(room, "..") || strings.HasPrefix(room, ".") || strings.HasSuffix(room, ".") {
-		panic(errors.InvalidParam("invalid room %s", room).GenCallStacks())
+		panic(errors.InvalidParam("invalid room %s", room).GenCallStacks(0))
 	}
 	if pattern == room || pattern == "**" {
 		return true
