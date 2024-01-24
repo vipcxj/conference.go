@@ -33,6 +33,13 @@ func Run(ch chan error) {
 	port := config.Conf().SignalPort
 	addr := fmt.Sprintf("%s:%d", host, port)
 	var err error
+
+	if config.Conf().Signal.Gin.Debug {
+		gin.SetMode(gin.DebugMode)
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	var g *graceful.Graceful
 	if config.Conf().SignalSsl {
 		certPath := config.Conf().SignalCertPath
@@ -41,15 +48,19 @@ func Run(ch chan error) {
 			ch <- errors.FatalError("to enable ssl for auth server, the authServerCertPath and authServerKeyPath must be provided")
 			return
 		}
-		g, err = graceful.New(gin.Default(), graceful.WithTLS(addr, certPath, keyPath))
+		g, err = graceful.New(gin.New(), graceful.WithTLS(addr, certPath, keyPath))
 	} else {
-		g, err = graceful.New(gin.Default())
+		g, err = graceful.New(gin.New())
 	}
 	if err != nil {
 		ch <- err
 		return
 	}
 	defer g.Close()
+
+	if !config.Conf().Signal.Gin.NoRequestLog {
+		g.Use(gin.Logger())
+	}
 
 	pprof.Register(g.Engine)
 	g.Use(middleware.ErrorHandler())

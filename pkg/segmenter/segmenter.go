@@ -418,12 +418,13 @@ func (t *Track) writeH26x(pts time.Duration, data []byte) error {
 	var err error
 	dts, err = t.videoDTSExtractor.Extract(au, pts)
 	if err != nil {
-		fmt.Printf("unable to extract DTS: %v\n", err)
+		fmt.Printf("unable to extract DTS with pts %v: %v", pts, err)
 		if t.lastDTSFilled {
 			dts = min(t.lastDTS+time.Millisecond, pts)
 		} else {
 			dts = pts
 		}
+		fmt.Printf(" use dts: %v", dts)
 	}
 	t.lastDTSFilled = true
 	t.lastDTS = dts

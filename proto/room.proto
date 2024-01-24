@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+message Room {
+    string name = 1;
+    string node = 2;
+}
+
+option go_package = "github.com/vipcxj/conference.go/proto";

@@ -21,6 +21,6 @@ func roomManage(ctx context.Context, errChan chan error) {
 	}
 }
 
-func InitCluster(ctx context.Context, errChan chan error) error {
+func InitCluster(ctx context.Context, errChan chan error) {
 	go roomManage(ctx, errChan)
 }

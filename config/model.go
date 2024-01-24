@@ -12,8 +12,37 @@ type RedisConfigure struct {
 	Addrs      string `mapstructure:"addrs" json:"addrs" default:"${CONF_CLUSTER_REDIS_ADDRS}"`
 	Users      string `mapstructure:"users" json:"users" default:"${CONF_CLUSTER_REDIS_USERS}"`
 	Passes     string `mapstructure:"passes" json:"passes" default:"${CONF_CLUSTER_REDIS_PASSES}"`
-	KeyPrefix  string `mapstructure:"keyPrefix" json:"keyPrefix" default:"${CONF_CLUSTER_REDIS_KEY_PREFIX}"`
+	KeyPrefix  string `mapstructure:"keyPrefix" json:"keyPrefix" default:"${CONF_CLUSTER_REDIS_KEY_PREFIX | cfgo}"`
 	MasterName string `mapstructure:"masterName" json:"masterName" default:"${CONF_CLUSTER_REDIS_MASTER_NAME}"`
+}
+
+type KafkaConfigure struct {
+	Addrs string `mapstructure:"addrs" json:"addrs" default:"${CONF_CLUSTER_KAFKA_ADDRS}"`
+	Sasl  struct {
+		Enable bool   `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_KAFKA_SASL_ENABLE | false}"`
+		Method string `mapstructure:"method" json:"method" default:"${CONF_CLUSTER_KAFKA_SASL_METHOD}"`
+		User   string `mapstructure:"user" json:"user" default:"${CONF_CLUSTER_KAFKA_SASL_USER}"`
+		Pass   string `mapstructure:"pass" json:"pass" default:"${CONF_CLUSTER_KAFKA_SASL_PASS}"`
+	} `mapstructure:"sasl" json:"sasl" default:""`
+	Tls struct {
+		Enable bool   `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_KAFKA_TLS_ENABLE | false}"`
+		Ca     string `mapstructure:"ca" json:"ca" default:"${CONF_CLUSTER_KAFKA_TLS_CA}"`
+		Cert   string `mapstructure:"cert" json:"cert" default:"${CONF_CLUSTER_KAFKA_TLS_CERT}"`
+		Key    string `mapstructure:"key" json:"key" default:"${CONF_CLUSTER_KAFKA_TLS_KEY}"`
+	} `mapstructure:"tls" json:"tls" default:""`
+	Prometheus struct {
+		Enable    bool   `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_ENABLE | false}"`
+		Namespace string `mapstructure:"namespace" json:"namespace" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_NAMESPACE | kgo}"`
+		Path      string `mapstructure:"path" json:"path" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_PATH | /metrics}"`
+	} `mapstructure:"prometheus" json:"prometheus" default:""`
+	MaxBufferedRecords   int    `mapstructure:"maxBufferedRecords" json:"maxBufferedRecords" default:"${CONF_CLUSTER_KAFKA_MAX_BUFFERED_RECORDS | 0}"`
+	MaxBufferedBytes     int    `mapstructure:"maxBufferedBytes" json:"maxBufferedBytes" default:"${CONF_CLUSTER_KAFKA_MAX_BUFFERED_BYTES | 0}"`
+	MaxConcurrentFetches int    `mapstructure:"maxConcurrentFetches" json:"maxConcurrentFetches" default:"${CONF_CLUSTER_KAFKA_MAX_CONCURRENT_FETCHES | 0}"`
+	FetchMaxBytes        int    `mapstructure:"fetchMaxBytes" json:"fetchMaxBytes" default:"${CONF_CLUSTER_KAFKA_FETCH_MAX_BYTES | 0}"`
+	BatchMaxBytes        int    `mapstructure:"batchMaxBytes" json:"batchMaxBytes" default:"${CONF_CLUSTER_KAFKA_FBATCH_MAX_BYTES | 0}"`
+	NoIdempotency        bool   `mapstructure:"noIdempotency" json:"noIdempotency" default:"${CONF_CLUSTER_KAFKA_NO_IDEMPOTENCY | false}"`
+	LingerMs             int    `mapstructure:"lingerMs" json:"lingerMs" default:"${CONF_CLUSTER_KAFKA_LINGER_MS | 0}"`
+	Compression          string `mapstructure:"compression" json:"compression" default:"${CONF_CLUSTER_KAFKA_COMPRESSION | none}"`
 }
 
 type ConferenceConfigure struct {
@@ -74,6 +103,10 @@ type ConferenceConfigure struct {
 		IntervalMs   int    `mapstructure:"intervalMs" json:"intervalMs" default:"${CONF_CALLBACK_INTERVAL_MS | 60000}"`
 	} `mapstructure:"callback" json:"callback" default:""`
 	Signal struct {
+		Gin struct {
+			Debug        bool `mapstructure:"debug" json:"debug" default:"${CONF_SIGNAL_GIN_DEBUG | false}"`
+			NoRequestLog bool `mapstructure:"noRequestLog" json:"noRequestLog" default:"${CONF_SIGNAL_GIN_NO_REQUEST_LOG | false}"`
+		} `mapstructure:"gin" json:"gin" default:""`
 		Healthy struct {
 			Enable           bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_HEALTHY_ENABLE | true}"`
 			FailureThreshold int    `mapstructure:"failureThreshold" json:"failureThreshold" default:"${CONF_SIGNAL_HEALTHY_FAILURE_THRESHOLD | 3}"`
@@ -82,6 +115,7 @@ type ConferenceConfigure struct {
 	} `mapstructure:"signal" json:"signal" default:""`
 	Cluster struct {
 		Enable   bool           `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_ENABLE | true}"`
+		Kafka    KafkaConfigure `mapstructure:"kafka" json:"kafka" default:""`
 		Redis    RedisConfigure `mapstructure:"redis" json:"redis" default:""`
 		NodeName string         `mapstructure:"nodeName" json:"nodeName" default:"${CONF_CLUSTER_NODE_NAME}"`
 	} `mapstructure:"cluster" json:"cluster" default:""`
@@ -217,11 +251,33 @@ var KEYS = []string{
 	"callback.onClose:string",
 	"callback.onConnecting:string",
 	"callback.intervalMs:int",
+	"signal.gin.debug:bool",
+	"signal.gin.noRequestLog:bool",
 	"signal.healthy.enable:bool",
 	"signal.healthy.failureThreshold:int",
 	"signal.healthy.path:string",
 	"cluster.enable:bool",
 	"cluster.nodeName:string",
+	"cluster.kafka.addrs:string",
+	"cluster.kafka.sasl.enable:bool",
+	"cluster.kafka.sasl.method:string",
+	"cluster.kafka.sasl.user:string",
+	"cluster.kafka.sasl.pass:string",
+	"cluster.kafka.tls.enable:bool",
+	"cluster.kafka.tls.ca:string",
+	"cluster.kafka.tls.cert:string",
+	"cluster.kafka.tls.key:string",
+	"cluster.kafka.prometheus.enable:bool",
+	"cluster.kafka.prometheus.namespace:string",
+	"cluster.kafka.prometheus.path:string",
+	"cluster.kafka.maxBufferedRecords:int",
+	"cluster.kafka.maxBufferedBytes:int",
+	"cluster.kafka.maxConcurrentFetches:int",
+	"cluster.kafka.fetchMaxBytes:int",
+	"cluster.kafka.batchMaxBytes:int",
+	"cluster.kafka.noIdempotency:bool",
+	"cluster.kafka.lingerMs:int",
+	"cluster.kafka.compression:string",
 	"cluster.redis.mode:string",
 	"cluster.redis.addrs:string",
 	"cluster.redis.users:string",
