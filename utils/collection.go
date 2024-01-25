@@ -183,6 +183,71 @@ func SliceToMap[T any, K comparable, V any](slice []T, mapper func(T, int) (key 
 	return out
 }
 
+func MapValues[K comparable, T any](m map[K]T) []T {
+	if m == nil {
+		return nil
+	}
+	values := make([]T, len(m))
+	i := 0
+	for _, value := range m {
+		values[i] = value
+		i++
+	}
+	return values
+}
+
+func MapValuesTo[K comparable, V any, T any](m map[K]V, mapper func(K, V) (mapped T, remove bool)) []T {
+	if m == nil {
+		return nil
+	}
+	values := make([]T, len(m))
+	i := 0
+	for key, value := range m {
+		mapped, remove := mapper(key, value)
+		if !remove {
+			values[i] = mapped
+			i++
+		}
+	}
+	return values[0:i]
+}
+
+func MapPutMap[K comparable, V any](src map[K]V, target map[K]V) map[K]V {
+	for k, v := range src {
+		target[k] = v
+	}
+	return target
+}
+
+func MapAnyMatch[K comparable, T any](m map[K]T, predicate func(K, T) bool) bool {
+	for key, value := range m {
+		if predicate(key, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func MapAllMatch[K comparable, T any](m map[K]T, predicate func(K, T) bool) bool {
+	for key, value := range m {
+		if !predicate(key, value) {
+			return false
+		}
+	}
+	return true
+}
+
+func MapFindFirst[K comparable, T any](m map[K]T, predicate func(K, T) bool) (K, T, bool) {
+	for key, value := range m {
+		if predicate(key, value) {
+			return key, value, true
+		}
+	}
+	var zk K
+	var zt T
+	return zk, zt, false
+}
+
 func XOrBytes(bytes1 []byte, bytes2 []byte, out []byte) {
 	if out == nil {
 		panic(errors.FatalError("to xor two bytes array, the output must not be nil"))

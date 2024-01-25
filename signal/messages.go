@@ -40,16 +40,10 @@ type LeaveMessage struct {
 	Rooms         []string `json:"rooms" mapstructure:"rooms"`
 }
 
-type TrackMessage struct {
-	SignalMessage `mapstructure:",squash"`
-	Op            string   `json:"op" mapstructure:"op"`
-	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
-}
-
 type WantMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	ReqTypes      []string           `json:"reqTypes" mapstructure:"reqTypes"`
-	Pattern       PublicationPattern `json:"pattern" mapstructure:"pattern"`
+	Pattern       *PublicationPattern `json:"pattern" mapstructure:"pattern"`
 	TransportId   string             `json:"transportId" mapstructure:"transportId"`
 }
 
@@ -163,7 +157,7 @@ type SubscribeMessage struct {
 	Op            SubscribeOp        `json:"op" mapstructure:"op"`
 	Id            string             `json:"id" mapstructure:"id"`
 	ReqTypes      []string           `json:"reqTypes" mapstructure:"reqTypes"`
-	Pattern       PublicationPattern `json:"pattern" mapstructure:"pattern"`
+	Pattern       *PublicationPattern `json:"pattern" mapstructure:"pattern"`
 }
 
 func (m *SubscribeMessage) Validate() error {
@@ -172,7 +166,7 @@ func (m *SubscribeMessage) Validate() error {
 		if m.Id != "" {
 			return errors.InvalidParam("the subscribe message does not need id param when the op is \"%v\"", m.Op)
 		}
-		err := m.Pattern.Validate()
+		err := Validate(m.Pattern)
 		if err != nil {
 			return err
 		}
@@ -180,7 +174,7 @@ func (m *SubscribeMessage) Validate() error {
 		if m.Id == "" {
 			return errors.InvalidParam("the subscribe message need id param when the op is \"%v\"", m.Op)
 		}
-		err := m.Pattern.Validate()
+		err := Validate(m.Pattern)
 		if err != nil {
 			return err
 		}

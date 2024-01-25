@@ -35,22 +35,52 @@ func ShouldPanicWith(t *testing.T, msg string, f func()) {
 	f()
 }
 
-func AssertEqual[T comparable](t *testing.T, expected T, real T) {
+func AssertEqualWP[T comparable](t *testing.T, expected T, real T, prefixMsg string) {
 	t.Helper()
 	if expected != real {
-		t.Errorf("expect %v, but got %v", expected, real)
+		t.Errorf("%sexpect %v, but got %v", prefixMsg, expected, real)
 	}
+}
+
+func AssertEqual[T comparable](t *testing.T, expected T, real T) {
+	t.Helper()
+	AssertEqualWP(t, expected, real, "")
 }
 
 func AssertEqualSlice[T comparable, L []T](t *testing.T, expected L, real L) {
 	t.Helper()
+	AssertEqualSliceWP(t, expected, real, "")
+}
+
+func AssertEqualSliceWP[T comparable, L []T](t *testing.T, expected L, real L, prefixMsg string) {
+	t.Helper()
 	if len(expected) != len(real) {
-		t.Errorf("expect %v, but got %v", expected, real)
+		t.Errorf("%sexpect %v, but got %v", prefixMsg, expected, real)
 		return
 	}
 	for i := 0; i < len(expected); i++ {
 		if expected[i] != real[i] {
-			t.Errorf("expect %v, but got %v", expected, real)
+			t.Errorf("%sexpect %v, but got %v", prefixMsg, expected, real)
+			return
+		}
+	}
+}
+
+func AssertEqualMap[K comparable, V comparable](t *testing.T, expected map[K]V, real map[K]V) {
+	t.Helper()
+	AssertEqualMapWP(t, expected, real, "")
+}
+
+func AssertEqualMapWP[K comparable, V comparable](t *testing.T, expected map[K]V, real map[K]V, prefixMsg string) {
+	t.Helper()
+	if len(expected) != len(real) {
+		t.Errorf("%sexpect %v, but got %v", prefixMsg, expected, real)
+		return
+	}
+	for k, v := range expected {
+		r, found := real[k]
+		if !found || r != v {
+			t.Errorf("%sexpect %v, but got %v", prefixMsg, expected, real)
 			return
 		}
 	}
@@ -58,10 +88,20 @@ func AssertEqualSlice[T comparable, L []T](t *testing.T, expected L, real L) {
 
 func AssertTrue(t *testing.T, real bool) {
 	t.Helper()
-	AssertEqual(t, true, real)
+	AssertTrueWP(t, real, "")
+}
+
+func AssertTrueWP(t *testing.T, real bool, prefixMsg string) {
+	t.Helper()
+	AssertEqualWP(t, true, real, prefixMsg)
 }
 
 func AssertFalse(t *testing.T, real bool) {
 	t.Helper()
-	AssertEqual(t, false, real)
+	AssertFalseWP(t, real, "")
+}
+
+func AssertFalseWP(t *testing.T, real bool, prefixMsg string) {
+	t.Helper()
+	AssertEqualWP(t, false, real, prefixMsg)
 }

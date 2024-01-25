@@ -18,6 +18,7 @@ const (
 	ROOM_NO_RIGHT       = 13000
 
 	INVALID_CONFIG      = 14000
+	INVALID_MESSAGE     = 15000
 
 	INVALID_STATE = 10000000
 )
@@ -132,6 +133,10 @@ func InvalidState(msg string, args ...any) *ConferenceError {
 
 func InvalidConfig(msg string, args ...any) *ConferenceError {
 	return NewError(INVALID_CONFIG, msg, args...)
+}
+
+func InvalidMessage(msg string, args ...any) *ConferenceError {
+	return NewError(INVALID_MESSAGE, msg, args...)
 }
 
 func ThisIsImpossible() *ConferenceError {

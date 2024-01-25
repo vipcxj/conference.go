@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/proto"
 	"github.com/vipcxj/conference.go/utils"
 )
 
@@ -79,17 +80,13 @@ func (op PatternOp) String() string {
 	}
 }
 
-type PublicationPattern struct {
-	Op       PatternOp            `json:"op" mapstructure:"op"`
-	Args     []string             `json:"args" mapstructure:"args"`
-	Children []PublicationPattern `json:"children" mapstructure:"children"`
-}
+type PublicationPattern = proto.PublicationPattern
 
-func (me *PublicationPattern) String() string {
+func String(me *proto.PublicationPattern) string {
 	return fmt.Sprintf("{ Op: %v, Args: %v, Children: %v }", me.Op, me.Args, me.Children)
 }
 
-func (me *PublicationPattern) checkArgsNum(n int, atLeast bool) error {
+func checkArgsNum(me *proto.PublicationPattern, n int, atLeast bool) error {
 	if !atLeast && len(me.Args) != n {
 		return errors.InvalidPubPattern(fmt.Sprintf("The pub pattern op '%v' accept %d args, but gotten %v", me.Op, n, me.Args))
 	} else if atLeast && len(me.Args) < n {
@@ -103,15 +100,15 @@ func isBoolStr(arg string) bool {
 	return arg == "true" || arg == "false"
 }
 
-func (me *PublicationPattern) Validate() error {
+func Validate(me *proto.PublicationPattern) error {
 	var err error
 	switch me.Op {
-	case PATTERN_OP_ALL, PATTERN_OP_SOME, PATTERN_OP_NONE:
-		if err = me.checkArgsNum(0, false); err != nil {
+	case proto.PatternOp_PATTERN_OP_ALL, proto.PatternOp_PATTERN_OP_SOME, proto.PatternOp_PATTERN_OP_NONE:
+		if err = checkArgsNum(me, 0, false); err != nil {
 			return err
 		}
 		for _, c := range me.Children {
-			err := c.Validate()
+			err := Validate(c)
 			if err != nil {
 				return err
 			}
@@ -121,17 +118,17 @@ func (me *PublicationPattern) Validate() error {
 			return errors.InvalidPubPattern("The pub pattern op '%v' accept zero child, but gotten %v", me.Op, me.Children)
 		}
 		switch me.Op {
-		case PATTERN_OP_PUBLISH_ID, PATTERN_OP_STREAM_ID, PATTERN_OP_TRACK_ID, PATTERN_OP_TRACK_RID, PATTERN_OP_TRACK_LABEL_ALL_HAS, PATTERN_OP_TRACK_LABEL_SOME_HAS, PATTERN_OP_TRACK_LABEL_NONE_HAS, PATTERN_OP_TRACK_TYPE:
-			if err = me.checkArgsNum(1, true); err != nil {
+		case proto.PatternOp_PATTERN_OP_PUBLISH_ID, proto.PatternOp_PATTERN_OP_STREAM_ID, proto.PatternOp_PATTERN_OP_TRACK_ID, proto.PatternOp_PATTERN_OP_TRACK_RID, proto.PatternOp_PATTERN_OP_TRACK_LABEL_ALL_HAS, proto.PatternOp_PATTERN_OP_TRACK_LABEL_SOME_HAS, proto.PatternOp_PATTERN_OP_TRACK_LABEL_NONE_HAS, proto.PatternOp_PATTERN_OP_TRACK_TYPE:
+			if err = checkArgsNum(me, 1, true); err != nil {
 				return err
 			}
-			if me.Op == PATTERN_OP_TRACK_TYPE {
+			if me.Op == proto.PatternOp_PATTERN_OP_TRACK_TYPE {
 				t := me.Args[0]
 				if t != "video" && t != "audio" {
 					return errors.InvalidPubPattern("The pub pattern op '%v' accept only \"video\" and \"audio\", but gotten %v", me.Op, me.Args)
 				}
 			}
-		case PATTERN_OP_TRACK_LABEL_ALL_MATCH, PATTERN_OP_TRACK_LABEL_SOME_MATCH, PATTERN_OP_TRACK_LABEL_NONE_MATCH:
+		case proto.PatternOp_PATTERN_OP_TRACK_LABEL_ALL_MATCH, proto.PatternOp_PATTERN_OP_TRACK_LABEL_SOME_MATCH, proto.PatternOp_PATTERN_OP_TRACK_LABEL_NONE_MATCH:
 			if l := len(me.Args); l < 2 || l%2 != 0 {
 				return errors.InvalidPubPattern("The pub pattern op '%v' accept at least 2 even number of args, but gotten %v", me.Op, me.Children)
 			}
@@ -142,38 +139,38 @@ func (me *PublicationPattern) Validate() error {
 	return nil
 }
 
-func (me *PublicationPattern) Match(track *Track) bool {
+func Match(me *proto.PublicationPattern, track *Track) bool {
 	switch me.Op {
-	case PATTERN_OP_ALL:
+	case proto.PatternOp_PATTERN_OP_ALL:
 		for _, c := range me.Children {
-			if !c.Match(track) {
+			if !Match(c, track) {
 				return false
 			}
 		}
 		return true
-	case PATTERN_OP_SOME:
+	case proto.PatternOp_PATTERN_OP_SOME:
 		for _, c := range me.Children {
-			if c.Match(track) {
+			if Match(c, track) {
 				return true
 			}
 		}
 		return false
-	case PATTERN_OP_NONE:
+	case proto.PatternOp_PATTERN_OP_NONE:
 		for _, c := range me.Children {
-			if c.Match(track) {
+			if Match(c, track) {
 				return false
 			}
 		}
 		return true
-	case PATTERN_OP_PUBLISH_ID:
+	case proto.PatternOp_PATTERN_OP_PUBLISH_ID:
 		return utils.InSlice(me.Args, track.PubId, nil)
-	case PATTERN_OP_STREAM_ID:
+	case proto.PatternOp_PATTERN_OP_STREAM_ID:
 		return utils.InSlice(me.Args, track.StreamId, nil)
-	case PATTERN_OP_TRACK_ID:
+	case proto.PatternOp_PATTERN_OP_TRACK_ID:
 		return utils.InSlice(me.Args, track.GlobalId, nil)
-	case PATTERN_OP_TRACK_RID:
+	case proto.PatternOp_PATTERN_OP_TRACK_RID:
 		return utils.InSlice(me.Args, track.RId, nil)
-	case PATTERN_OP_TRACK_LABEL_ALL_MATCH:
+	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_ALL_MATCH:
 		for i := 0; i < len(me.Args); {
 			key := me.Args[i]
 			value := me.Args[i+1]
@@ -183,7 +180,7 @@ func (me *PublicationPattern) Match(track *Track) bool {
 			i += 2
 		}
 		return true
-	case PATTERN_OP_TRACK_LABEL_SOME_MATCH:
+	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_SOME_MATCH:
 		for i := 0; i < len(me.Args); {
 			key := me.Args[i]
 			value := me.Args[i+1]
@@ -193,7 +190,7 @@ func (me *PublicationPattern) Match(track *Track) bool {
 			i += 2
 		}
 		return false
-	case PATTERN_OP_TRACK_LABEL_NONE_MATCH:
+	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_NONE_MATCH:
 		for i := 0; i < len(me.Args); {
 			key := me.Args[i]
 			value := me.Args[i+1]
@@ -203,39 +200,39 @@ func (me *PublicationPattern) Match(track *Track) bool {
 			i += 2
 		}
 		return true
-	case PATTERN_OP_TRACK_LABEL_ALL_HAS:
+	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_ALL_HAS:
 		for _, name := range me.Args {
 			if !track.HasLabel(name) {
 				return false
 			}
 		}
 		return true
-	case PATTERN_OP_TRACK_LABEL_SOME_HAS:
+	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_SOME_HAS:
 		for _, name := range me.Args {
 			if track.HasLabel(name) {
 				return true
 			}
 		}
 		return false
-	case PATTERN_OP_TRACK_LABEL_NONE_HAS:
+	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_NONE_HAS:
 		for _, name := range me.Args {
 			if track.HasLabel(name) {
 				return false
 			}
 		}
 		return true
-	case PATTERN_OP_TRACK_TYPE:
+	case proto.PatternOp_PATTERN_OP_TRACK_TYPE:
 		return utils.InSlice(me.Args, track.Type, nil)
 	default:
 		return false
 	}
 }
 
-func (me *PublicationPattern) MatchTracks(tracks []*Track, reqTypes []string) (matched []*Track, unmatched []*Track) {
+func MatchTracks(me *proto.PublicationPattern, tracks []*Track, reqTypes []string) (matched []*Track, unmatched []*Track) {
 	tracksByPub := map[string][]*Track{}
 	unmatched = []*Track{}
 	for _, track := range(tracks) {
-		if me.Match(track) {
+		if Match(me, track) {
 			ts := tracksByPub[track.PubId]
 			tracksByPub[track.PubId] = append(ts, track)
 		} else {

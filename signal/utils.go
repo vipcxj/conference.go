@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -88,19 +89,216 @@ func NewUUID(id string, base string) string {
 	return newBytes.String()
 }
 
-func MatchRoom(pattern string, room string) bool {
+type PatternNode[T any] interface {
+	GetChildPattern(p string) (PatternNode[T], bool)
+	SetChildPattern(p string, n PatternNode[T])
+}
+
+type PatternTree[T any] struct {
+	children map[string]*PatternTree[T]
+	hasData bool
+	data T
+}
+
+func (me *PatternTree[T]) IsEmpty() bool {
+	return !me.hasData && len(me.children) == 0
+}
+
+func (me *PatternTree[T]) RawData(pattern string) map[string]T {
+	results := make(map[string]T)
+	if me.hasData {
+		results[pattern] = me.data
+	}
+	for key, pt := range me.children {
+		rs := pt.RawData(fmt.Sprintf("%s.%s", pattern, key))
+		results = utils.MapPutMap(rs, results)
+	}
+	return results
+}
+
+func (me *PatternTree[T]) removePatternData(pList []string) {
+	if len(pList) == 0 {
+		var zero T
+		me.hasData = false
+		me.data = zero
+		return
+	}
+	key := pList[0]
+	next, found := me.children[key]
+	if found {
+		next.removePatternData(pList[1:])
+		if next.IsEmpty() {
+			delete(me.children, key)
+		}
+	}
+}
+
+func (me *PatternTree[T]) collect(mList []string, doubleStar bool,  results []T) []T {
+	if len(mList) == 0 {
+		if me.hasData {
+			results = append(results, me.data)
+		}
+		pt, found := me.children["**"]
+		if found {
+			results = pt.collect(mList, true, results)
+		}
+		return results
+	}
+	if doubleStar && me.hasData {
+		results = append(results, me.data)
+	}
+	key := mList[0]
+	keysLeft := mList[1:]
+	pt, found := me.children["**"]
+	if found {
+		results = pt.collect(mList, true, results)
+		results = pt.collect(keysLeft, true, results)
+	}
+	pt, found = me.children["*"]
+	if found {
+		results = pt.collect(keysLeft, false, results)
+	}
+	pt, found = me.children[key]
+	if found {
+		results = pt.collect(keysLeft, false, results)
+	}
+	return results
+}
+
+type PatternMap[T any] struct {
+	// should always nonull
+	inner map[string]*PatternTree[T]
+	mu sync.Mutex
+}
+
+func NewPatternMap[T any]() *PatternMap[T] {
+	return &PatternMap[T]{}
+}
+
+func (me *PatternMap[T]) RawData() map[string]T {
+	results := make(map[string]T)
+	for pattern, pt := range me.inner {
+		results = utils.MapPutMap(pt.RawData(pattern), results)
+	}
+	return results
+}
+
+func (me *PatternMap[T]) removePatternData(pList []string) {
+	inner := me.inner
+	if inner == nil {
+		return
+	}
+	if len(pList) == 0 {
+		panic(errors.ThisIsImpossible().GenCallStacks(0))
+	}
+	key := pList[0]
+	pt, found := inner[key]
+	if found {
+		pt.removePatternData(pList[1:])
+	}
+}
+
+func (pm *PatternMap[T]) UpdatePatternData(pattern string, mapper func(old T, found bool) (new T, remove bool)) {
+	CheckPattern(pattern)
+	pList := strings.Split(pattern, ".")
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	inner := pm.inner
+	if inner == nil {
+		inner = make(map[string]*PatternTree[T])
+		pm.inner = inner
+	}
+	for i, p := range pList {
+		found := false
+		hasData := false
+		var old T
+		var pt *PatternTree[T]
+		pt, found = inner[p]
+		if found {
+			hasData = pt.hasData
+			old = pt.data
+		}
+		if i + 1 == len(pList) {
+			var new T
+			var remove bool
+			new, remove = mapper(old, hasData)
+			if remove {
+				pm.removePatternData(pList)
+			} else {
+				if found {
+					pt.hasData = true
+					pt.data = new
+				} else {
+					pt = &PatternTree[T]{
+						hasData: true,
+						data: new,
+					}
+					inner[p] = pt
+				}
+			}
+		} else {
+			if !found {
+				pt = &PatternTree[T]{}
+				inner[p] = pt
+			}
+			inner = pt.children
+			if inner == nil {
+				inner = make(map[string]*PatternTree[T])
+				pt.children = inner
+			}
+		}
+	}
+}
+
+func (pm *PatternMap[T]) Collect(toMatch string) []T {
+	CheckRoom(toMatch)
+	if pm.inner == nil {
+		return nil
+	}
+	toMatchList := strings.Split(toMatch, ".")
+	key := toMatchList[0]
+	leftKeys := toMatchList[1:]
+	var results []T
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pt, found := pm.inner["**"]
+	if found {
+		results = pt.collect(toMatchList, true, results)
+		results = pt.collect(leftKeys, true, results)
+	}
+	pt, found = pm.inner["*"]
+	if found {
+		results = pt.collect(leftKeys, false, results)
+	}
+	pt, found = pm.inner[key]
+	if found {
+		results = pt.collect(leftKeys, false, results)
+	}
+	return results
+}
+
+
+func CheckPattern(pattern string) {
 	if pattern == "" {
-		panic(errors.InvalidParam("pattern is required").GenCallStacks(0))
+		panic(errors.InvalidParam("pattern is required").GenCallStacks(1))
 	}
 	if strings.Contains(pattern, "..") || strings.HasPrefix(pattern, ".") || strings.HasSuffix(pattern, ".") {
-		panic(errors.InvalidParam("invalid pattern %s", pattern).GenCallStacks(0))
+		panic(errors.InvalidParam("invalid pattern %s", pattern).GenCallStacks(1))
 	}
+}
+
+func CheckRoom(room string) {
 	if room == "" {
-		panic(errors.InvalidParam("room is required").GenCallStacks(0))
+		panic(errors.InvalidParam("room is required").GenCallStacks(1))
 	}
 	if strings.Contains(room, "*") || strings.Contains(room, "..") || strings.HasPrefix(room, ".") || strings.HasSuffix(room, ".") {
-		panic(errors.InvalidParam("invalid room %s", room).GenCallStacks(0))
+		panic(errors.InvalidParam("invalid room %s", room).GenCallStacks(1))
 	}
+}
+
+func MatchRoom(pattern string, room string) bool {
+	CheckPattern(pattern)
+	CheckRoom(room)
 	if pattern == room || pattern == "**" {
 		return true
 	}

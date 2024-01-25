@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+option go_package = "github.com/vipcxj/conference.go/proto";
+// go tag support need install plugin github.com/favadi/protoc-go-inject-tag. for example: go install github.com/favadi/protoc-go-inject-tag@latest
+
+package cfgo;
+
+enum PatternOp {
+	PATTERN_OP_ALL = 0;
+	PATTERN_OP_SOME = 1;
+	PATTERN_OP_NONE = 2;
+	PATTERN_OP_PUBLISH_ID = 3;
+	PATTERN_OP_STREAM_ID = 4;
+	PATTERN_OP_TRACK_ID = 5;
+	PATTERN_OP_TRACK_RID = 6;
+	PATTERN_OP_TRACK_LABEL_ALL_MATCH = 7;
+	PATTERN_OP_TRACK_LABEL_SOME_MATCH = 8;
+	PATTERN_OP_TRACK_LABEL_NONE_MATCH = 9;
+	PATTERN_OP_TRACK_LABEL_ALL_HAS = 10;
+	PATTERN_OP_TRACK_LABEL_SOME_HAS = 11;
+	PATTERN_OP_TRACK_LABEL_NONE_HAS = 12;
+	PATTERN_OP_TRACK_TYPE = 13;
+}
+
+message PublicationPattern {
+	// @gotags: mapstructure:"op"
+    PatternOp op = 1;
+	// @gotags: mapstructure:"args"
+    repeated string args = 2;
+	// @gotags: mapstructure:"children"
+    repeated PublicationPattern children = 3;
+}
+
+message Target {
+	// @gotags: mapstructure:"room"
+    string room = 1;
+	// @gotags: mapstructure:"to"
+    string to = 2;
+}
+
+message WantMessage {
+	// @gotags: mapstructure:"target"
+    Target target = 1;
+	// @gotags: mapstructure:"reqTypes"
+    repeated string reqTypes = 2;
+	// @gotags: mapstructure:"pattern"
+    PublicationPattern pattern = 3;
+	// @gotags: mapstructure:"transportId"
+    string transportId = 4;
+}
+
+message Track {
+	// @gotags: mapstructure:"type"
+	string type = 1;
+	// @gotags: mapstructure:"pubId"
+	string pubId = 2;
+	// @gotags: mapstructure:"globalId"
+	string globalId = 3;
+	// only vaild in local
+	// @gotags: mapstructure:"localId"
+	string localId = 4;
+	// used to bind local and remote track
+	// @gotags: mapstructure:"bindId"
+	string bindId = 5;
+	// @gotags: mapstructure:"rid"
+	string rid = 6;
+	// @gotags: mapstructure:"streamId"
+	string streamId = 7;
+	// @gotags: mapstructure:"labels"
+	map<string, string> labels = 8;
+}
+
+message StateMessage {
+	// @gotags: mapstructure:"target"
+    Target target = 1;
+	// @gotags: mapstructure:"pubId"
+    string pubId = 2;
+	// @gotags: mapstructure:"addr"
+    string addr = 3;
+	// @gotags: mapstructure:"tracks"
+    repeated Track tracks = 4;
+}
+
+message SelectMessage {
+	// @gotags: mapstructure:"target"
+    Target target = 1;
+	// @gotags: mapstructure:"pubId"
+    string pubId = 2;
+	// @gotags: mapstructure:"transportId"
+    string transportId = 3;
+	// @gotags: mapstructure:"tracks"
+    repeated Track tracks = 4;
+}

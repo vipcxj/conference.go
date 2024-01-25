@@ -66,7 +66,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	if s.acceptedPubId != "" && s.acceptedPubId != msg.PubId {
 		return
 	}
-	matcheds, unmatcheds := s.pattern.MatchTracks(msg.Tracks, s.reqTypes)
+	matcheds, unmatcheds := MatchTracks(s.pattern, msg.Tracks, s.reqTypes)
 	if s.acceptedPubId == msg.PubId {
 		for _, unmatch := range unmatcheds {
 			subscribedTrack, ok := s.acceptedTrack[unmatch.GlobalId]
@@ -172,16 +172,22 @@ func (s *Subscription) UnbindAccepter(accepter *Accepter) {
 	}
 }
 
-func (s *Subscription) UpdatePattern(pattern *PublicationPattern) {
+func (s *Subscription) UpdatePattern(message *SubscribeMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// when closed, s.acceptedTrack is empty, so no need check closed
-	for _, track := range s.acceptedTrack {
-		if !pattern.Match(track.pubTrack) {
-			track.Remove()
+	tracks := utils.MapValuesTo(s.acceptedTrack, func(s string, st *SubscribedTrack) (mapped *Track, remove bool) {
+		return st.pubTrack, false
+	})
+	_, unmatched := MatchTracks(message.Pattern, tracks, message.ReqTypes)
+	for _, track := range unmatched {
+		at, found := s.acceptedTrack[track.GlobalId]
+		if found {
+			at.Remove()
 		}
 	}
-	s.pattern = pattern
+	s.reqTypes = message.ReqTypes
+	s.pattern = message.Pattern
 }
 
 func (s *Subscription) Close() {
@@ -199,50 +205,40 @@ type Publication struct {
 	id          string
 	closeCh     chan struct{}
 	ctx         *SignalContext
-	tracks      *haxmap.Map[string, *PublishedTrack]
+	// after init not change, readonly, so no need mutex
+	tracks      map[string]*PublishedTrack
 	recordStart bool
 	mux         sync.Mutex
 }
 
 func (me *Publication) isAllBind() bool {
-	res := true
-	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
-		if !pt.isBind() {
-			res = false
-			return false
-		} else {
-			return true
-		}
+	return utils.MapAllMatch(me.tracks, func(k string, pt *PublishedTrack) bool {
+		return pt.isBind()
 	})
-	return res
 }
 
 func (me *Publication) Video() *PublishedTrack {
-	var ret *PublishedTrack
-	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
+	_, pt, _ := utils.MapFindFirst(me.tracks, func(s string, pt *PublishedTrack) bool {
 		rt := pt.remote
 		if rt != nil && rt.Kind() == webrtc.RTPCodecTypeVideo {
-			ret = pt
-			return false
-		} else {
 			return true
+		} else {
+			return false
 		}
 	})
-	return ret
+	return pt
 }
 
 func (me *Publication) Audio() *PublishedTrack {
-	var ret *PublishedTrack
-	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
+	_, pt, _ := utils.MapFindFirst(me.tracks, func(s string, pt *PublishedTrack) bool {
 		rt := pt.remote
 		if rt != nil && rt.Kind() == webrtc.RTPCodecTypeAudio {
-			ret = pt
-			return false
-		} else {
 			return true
+		} else {
+			return false
 		}
 	})
-	return ret
+	return pt
 }
 
 var RECORD_PACKET_POOL = &sync.Pool{
@@ -327,10 +323,8 @@ func (me *Publication) startRecord() {
 	}
 	segmentDuration := config.Conf().Record.SegmentDuration
 	gopSize := config.Conf().Record.GopSize
-	var tracks []common.LabeledTrack
-	me.tracks.ForEach(func(k string, track *PublishedTrack) bool {
-		tracks = append(tracks, track)
-		return true
+	var tracks []common.LabeledTrack = utils.MapValuesTo(me.tracks, func(k string, v *PublishedTrack) (common.LabeledTrack, bool) {
+		return v, false
 	})
 	var recorder *Recorder
 	if config.Conf().Record.DBIndex.Enable {
@@ -432,57 +426,45 @@ func (me *Publication) startRecord() {
 }
 
 func (me *Publication) Bind() bool {
-	done := false
-	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
-		if pt.Bind() {
-			done = true
-			if me.isAllBind() {
-
-				me.startRecord()
-
-				r := GetRouter()
-				var tracks []*Track
-				me.tracks.ForEach(func(_ string, pt0 *PublishedTrack) bool {
-					tracks = append(tracks, pt0.track)
-					return true
-				})
-				msg := &StateMessage{
-					PubId:  me.id,
-					Tracks: tracks,
-					Addr:   r.Addr(),
-				}
-				// to all in room include self
-				me.ctx.Socket.To(me.ctx.Rooms()...).Emit("state", msg)
-				me.ctx.Socket.Emit("state", msg)
-			}
-			return false
-		} else {
-			return true
+	allBind := true
+	for _, pt := range me.tracks {
+		if !pt.Bind() {
+			allBind = false
 		}
-	})
-	return done
+	}
+	if allBind {
+		me.startRecord()
+		r := GetRouter()
+		tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *Track, remove bool) {
+			return pt.track, false
+		})
+		msg := &StateMessage{
+			PubId:  me.id,
+			Tracks: tracks,
+			Addr:   r.Addr(),
+		}
+		// to all in room include self
+		me.ctx.Socket.To(me.ctx.Rooms()...).Emit("state", msg)
+		me.ctx.Socket.Emit("state", msg)
+		return true
+	} else {
+		return false
+	}
 }
 
 func (me *Publication) State(want *WantMessage) []*Track {
-	satifiedMap := map[string]*PublishedTrack{}
-	me.tracks.ForEach(func(gid string, pt *PublishedTrack) bool {
-		if pt.StateWant(want) {
-			satifiedMap[pt.GlobalId()] = pt
-		}
-		return true
+	tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *Track, remove bool) {
+		return pt.track, !pt.isBind()
 	})
-	var satified []*Track
-	for _, pt := range satifiedMap {
-		satified = append(satified, pt.track)
-	}
-	return satified
+	matched, _ := MatchTracks(want.Pattern, tracks, want.ReqTypes)
+	return matched
 }
 
 func (me *Publication) SatifySelect(sel *SelectMessage) {
 	for _, t := range sel.Tracks {
-		pt, ok := me.tracks.Get(t.GlobalId)
+		pt, ok := me.tracks[t.GlobalId]
 		if ok {
-			pt.SatifySelect(sel)
+			pt.SatifySelect(sel.TransportId)
 		}
 	}
 }
@@ -637,32 +619,7 @@ func (pt *PublishedTrack) Bind() bool {
 	return false
 }
 
-func (me *PublishedTrack) StateWant(want *WantMessage) bool {
-	if !want.Pattern.Match(me.track) {
-		return false
-	}
-	me.mu.Lock()
-	defer me.mu.Unlock()
-	if !me.isBind() {
-		return false
-	}
-	ctx := me.pub.ctx
-	peer, err := ctx.MakeSurePeer()
-	if err != nil {
-		panic(err)
-	}
-	tr, _ := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
-	if tr != nil {
-		if me.track.LocalId == "" {
-			me.track.LocalId = tr.ID()
-		}
-		return true
-	} else {
-		return false
-	}
-}
-
-func (me *PublishedTrack) SatifySelect(sel *SelectMessage) bool {
+func (me *PublishedTrack) SatifySelect(transportId string) bool {
 	if me.pub.IsClosed() {
 		return false
 	}
@@ -677,7 +634,7 @@ func (me *PublishedTrack) SatifySelect(sel *SelectMessage) bool {
 	ctx.Sugar().Debugf("Accepting track with codec ", tr.Codec().MimeType)
 	if tr != nil {
 		r := GetRouter()
-		ch := r.PublishTrack(me.GlobalId(), sel.TransportId)
+		ch := r.PublishTrack(me.GlobalId(), transportId)
 		var onRTP RTPConsumer = func(ssrc webrtc.SSRC, data []byte, attrs interceptor.Attributes, err error) bool {
 			if err != nil {
 				r.RemoveTrack(me.GlobalId())
@@ -862,7 +819,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 				return &Subscription{
 					id:       subId,
 					reqTypes: message.ReqTypes,
-					pattern:  &message.Pattern,
+					pattern:  message.Pattern,
 					ctx:      ctx,
 				}
 			})
@@ -873,7 +830,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 			err = errors.SubNotExist(message.Id)
 			return
 		}
-		sub.UpdatePattern(&message.Pattern)
+		sub.UpdatePattern(message)
 		subId = sub.id
 	case SUB_OP_REMOVE:
 		sub, ok := ctx.subscriptions.GetAndDel(message.Id)
@@ -972,12 +929,12 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 			pub := &Publication{
 				id:      pubId,
 				ctx:     ctx,
-				tracks:  haxmap.New[string, *PublishedTrack](),
+				tracks:  make(map[string]*PublishedTrack),
 				closeCh: make(chan struct{}),
 			}
 			for _, t := range message.Tracks {
 				tid := uuid.NewString()
-				pub.tracks.Set(tid, &PublishedTrack{
+				pub.tracks[tid] = &PublishedTrack{
 					pub: pub,
 					track: &Track{
 						Type:     t.Type,
@@ -988,7 +945,7 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 						StreamId: t.SId,
 						Labels:   t.Labels,
 					},
-				})
+				}
 			}
 			return pub
 		})
@@ -1016,10 +973,10 @@ func (ctx *SignalContext) StateWant(message *WantMessage) {
 }
 
 func (ctx *SignalContext) SatifySelect(message *SelectMessage) {
-	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
+	pub, found := ctx.publications.Get(message.PubId)
+	if found {
 		pub.SatifySelect(message)
-		return true
-	})
+	}
 }
 
 func (ctx *SignalContext) closePeer() {
