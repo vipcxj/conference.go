@@ -280,6 +280,8 @@ func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
 	}
 	if target.NodeFrom != "" && target.NodeFrom != m.nodeName {
 		return errors.InvalidMessage("invalid room message, nodeFrom %s different from current node %s", target.NodeFrom, m.nodeName)
+	} else if target.NodeFrom == "" {
+		target.NodeFrom = m.nodeName
 	}
 	switch typedMsg := msg.(type) {
 	case *proto.StateMessage:
