@@ -134,6 +134,21 @@ func RemoveByValueFromSlice[T comparable](slice []T, copy bool, value T) []T {
 	return out
 }
 
+func RemoveByValuesFromSlice[T comparable](slice []T, copy bool, values []T) []T {
+	var out []T
+	if copy {
+		out = make([]T, 0)
+	} else {
+		out = slice[0:0]
+	}
+	for _, v := range slice {
+		if !InSlice(values, v, nil) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 func InMap[K comparable, T any](m map[K]T, tester func(T) bool) bool {
 	for _, e := range m {
 		if tester(e) {

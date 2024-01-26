@@ -147,7 +147,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 		for _, room := range s.ctx.Rooms() {
 			selMsg := &SelectMessage{
 				Router: &proto.Router{
-					Room: string(room),
+					Room: room,
 				},
 				PubId:       msg.PubId,
 				Tracks:      matcheds,
@@ -444,7 +444,7 @@ func (me *Publication) Bind() bool {
 		for _, room := range me.ctx.Rooms() {
 			msg := &StateMessage{
 				Router: &proto.Router{
-					Room: string(room),
+					Room: room,
 				},
 				PubId:  me.id,
 				Tracks: tracks,
@@ -693,7 +693,8 @@ type SignalContext struct {
 	Socket            *socket.Socket
 	AuthInfo          *auth.AuthInfo
 	Peer              *webrtc.PeerConnection
-	rooms             []socket.Room
+	rooms             []string
+	rooms_mux         sync.RWMutex
 	pendingCandidates []*CandidateMessage
 	cand_mux          sync.Mutex
 	peer_mux          sync.Mutex
@@ -738,7 +739,9 @@ func (ctx *SignalContext) RoomPaterns() []string {
 	return ctx.AuthInfo.Rooms
 }
 
-func (ctx *SignalContext) Rooms() []socket.Room {
+func (ctx *SignalContext) Rooms() []string {
+	ctx.rooms_mux.RLock()
+	defer ctx.rooms_mux.RUnlock()
 	return ctx.rooms
 }
 
@@ -865,7 +868,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 	for _, room := range ctx.Rooms() {
 		want := &WantMessage{
 			Router: &proto.Router{
-				Room: string(room),
+				Room: room,
 			},
 			Pattern:     message.Pattern,
 			TransportId: r.id.String(),
@@ -1286,11 +1289,11 @@ func (ctx *SignalContext) HasRoomRight(room string) bool {
 }
 
 func (ctx *SignalContext) JoinRoom(rooms ...string) error {
-	var s_rooms []socket.Room
+	var s_rooms []string
 	if len(rooms) == 0 {
 		for _, p := range ctx.RoomPaterns() {
 			if !strings.Contains(p, "*") {
-				s_rooms = append(s_rooms, socket.Room(p))
+				s_rooms = append(s_rooms, p)
 			}
 		}
 		if len(s_rooms) == 0 {
@@ -1302,19 +1305,19 @@ func (ctx *SignalContext) JoinRoom(rooms ...string) error {
 				return errors.RoomNoRight(room)
 			}
 		}
-		s_rooms = make([]socket.Room, len(rooms))
-		for i, room := range rooms {
-			s_rooms[i] = socket.Room(room)
-		}
+		s_rooms = rooms
 	}
-	ctx.Socket.Join(s_rooms...)
+	// ctx.Socket.Join(s_rooms...)
+	ctx.rooms_mux.Lock()
+	defer ctx.rooms_mux.Unlock()
+	ctx.rooms = append(ctx.rooms, s_rooms...)
 	return nil
 }
 
 func (ctx *SignalContext) LeaveRoom(rooms ...string) {
-	for _, room := range rooms {
-		ctx.Socket.Leave(socket.Room(room))
-	}
+	ctx.rooms_mux.Lock()
+	defer ctx.rooms_mux.Unlock()
+	ctx.rooms = utils.RemoveByValuesFromSlice(ctx.rooms, false, rooms)
 }
 
 func GetSingalContext(s *socket.Socket) *SignalContext {
