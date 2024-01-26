@@ -58,7 +58,7 @@ func checkMatchPatternMap(t *testing.T, pm *signal.PatternMap[string], m string,
 	for _, p := range ps {
 		utils.AssertTrueWP(t, signal.MatchRoom(p, m), fmt.Sprintf("%s should match %s, ", m, p))
 	}
-	for p, _ := range raw {
+	for p := range raw {
 		if !utils.InSlice(ps, p, nil) {
 			utils.AssertFalseWP(t, signal.MatchRoom(p, m), fmt.Sprintf("%s should not match %s, ", m, p))
 		}

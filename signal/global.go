@@ -14,8 +14,6 @@ type Room struct {
 
 type Global struct {
 	sig_map  map[string]*SignalContext
-	node_map map[string]*Node
-	room_map map[string]*Room
 	sig_mux  sync.Mutex
 }
 
