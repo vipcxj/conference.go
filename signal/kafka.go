@@ -286,14 +286,22 @@ func (s *KafkaClient) killConsumers(lost map[string][]int32) {
 }
 
 func (s *KafkaClient) Check(ctx context.Context) error {
-	return s.cl.Ping(ctx)
+	if s != nil {
+		return s.cl.Ping(ctx)
+	}
+	return nil
 }
 
 func (s *KafkaClient) Close() {
-	s.cl.CloseAllowingRebalance()
+	if s != nil {
+		s.cl.CloseAllowingRebalance()
+	}
 }
 
 func (s *KafkaClient) Poll(ctx context.Context) {
+	if s == nil {
+		return
+	}
 	for {
 		// PollRecords is strongly recommended when using
 		// BlockRebalanceOnPoll. You can tune how many records to
@@ -331,5 +339,8 @@ func (s *KafkaClient) Poll(ctx context.Context) {
 }
 
 func (s *KafkaClient) Produce(ctx context.Context, record *kgo.Record) error {
+	if s == nil {
+		return nil
+	}
 	return s.cl.ProduceSync(ctx, record)[0].Err
 }

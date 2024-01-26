@@ -59,34 +59,36 @@ func NewMessager(g GinLike) (*Messager, error) {
 	clusterConfig := &config.Conf().Cluster
 	logger := log.Logger().With(zap.String("tag", "messager"))
 	messager := &Messager{
-		nodeName: clusterConfig.NodeName,
 		onStateCallbacks: NewPatternMap[OnStateFuncBoxes](),
 		onWantCallbacks: NewPatternMap[OnWantFuncBoxes](),
 		onSelectCallbacks: NewPatternMap[OnSelectFuncBoxes](),
 		logger: logger,
 		sugar: logger.Sugar(),
 	}
-	topicState := MakeKafkaTopic("cluster:state")
-	topicWant := MakeKafkaTopic("cluster:want")
-	topicSelect := MakeKafkaTopic("cluster:select")
-	workers := map[string]func(*kgo.Record) {
-		topicState: messager.onTopicState,
-		topicWant: messager.onTopicWant,
-		topicSelect: messager.onTopicSelect,
+	if clusterConfig.Enable {
+		messager.nodeName = clusterConfig.NodeName
+		topicState := MakeKafkaTopic("cluster:state")
+		topicWant := MakeKafkaTopic("cluster:want")
+		topicSelect := MakeKafkaTopic("cluster:select")
+		workers := map[string]func(*kgo.Record) {
+			topicState: messager.onTopicState,
+			topicWant: messager.onTopicWant,
+			topicSelect: messager.onTopicSelect,
+		}
+		kafka, err := NewKafkaClient(
+			KafkaOptGroup(clusterConfig.NodeName),
+			KafkaOptTopics(topicState, topicWant, topicSelect),
+			KafkaOptInstallMetrics(func(metrics *kprom.Metrics) {
+				ghandle := gin.WrapH(metrics.Handler())
+				g.Use(ghandle)
+			}),
+			KafkaOptWorkers(workers),
+		)
+		if err != nil {
+			return nil, err
+		}
+		messager.kafka = kafka
 	}
-	kafka, err := NewKafkaClient(
-		KafkaOptGroup(clusterConfig.NodeName),
-		KafkaOptTopics(topicState, topicWant, topicSelect),
-		KafkaOptInstallMetrics(func(metrics *kprom.Metrics) {
-			ghandle := gin.WrapH(metrics.Handler())
-			g.Use(ghandle)
-		}),
-		KafkaOptWorkers(workers),
-	)
-	if err != nil {
-		return nil, err
-	}
-	messager.kafka = kafka
 	return messager, nil
 }
 
