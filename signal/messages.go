@@ -3,6 +3,7 @@ package signal
 import (
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/proto"
 )
 
 type SignalMessage struct {
@@ -40,26 +41,29 @@ type LeaveMessage struct {
 	Rooms         []string `json:"rooms" mapstructure:"rooms"`
 }
 
-type WantMessage struct {
-	SignalMessage `mapstructure:",squash"`
-	ReqTypes      []string           `json:"reqTypes" mapstructure:"reqTypes"`
-	Pattern       *PublicationPattern `json:"pattern" mapstructure:"pattern"`
-	TransportId   string             `json:"transportId" mapstructure:"transportId"`
-}
+//	type WantMessage struct {
+//		SignalMessage `mapstructure:",squash"`
+//		ReqTypes      []string           `json:"reqTypes" mapstructure:"reqTypes"`
+//		Pattern       *PublicationPattern `json:"pattern" mapstructure:"pattern"`
+//		TransportId   string             `json:"transportId" mapstructure:"transportId"`
+//	}
+type WantMessage = proto.WantMessage
 
-type StateMessage struct {
-	SignalMessage `mapstructure:",squash"`
-	PubId         string   `json:"pubId" mapstructure:"pubId"`
-	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
-	Addr          string   `json:"addr" mapstructure:"addr"`
-}
+//	type StateMessage struct {
+//		SignalMessage `mapstructure:",squash"`
+//		PubId         string   `json:"pubId" mapstructure:"pubId"`
+//		Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
+//		Addr          string   `json:"addr" mapstructure:"addr"`
+//	}
+type StateMessage = proto.StateMessage
 
-type SelectMessage struct {
-	SignalMessage `mapstructure:",squash"`
-	PubId         string   `json:"pubId" mapstructure:"pubId"`
-	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
-	TransportId   string   `json:"transportId" mapstructure:"transportId"`
-}
+//	type SelectMessage struct {
+//		SignalMessage `mapstructure:",squash"`
+//		PubId         string   `json:"pubId" mapstructure:"pubId"`
+//		Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
+//		TransportId   string   `json:"transportId" mapstructure:"transportId"`
+//	}
+type SelectMessage = proto.SelectMessage
 
 type PublishOp int
 
@@ -82,8 +86,8 @@ func (op PublishOp) String() string {
 type TrackToPublish struct {
 	Type   string            `json:"type" mapstructure:"type"`
 	BindId string            `json:"bindId" mapstructure:"bindId"`
-	RId    string            `json:"rid" mapstructure:"rid"`
-	SId    string            `json:"sid" mapstructure:"sid"`
+	Rid    string            `json:"rid" mapstructure:"rid"`
+	Sid    string            `json:"sid" mapstructure:"sid"`
 	Labels map[string]string `json:"labels" mapstructure:"labels"`
 }
 
@@ -154,9 +158,9 @@ func (op SubscribeOp) String() string {
 
 type SubscribeMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	Op            SubscribeOp        `json:"op" mapstructure:"op"`
-	Id            string             `json:"id" mapstructure:"id"`
-	ReqTypes      []string           `json:"reqTypes" mapstructure:"reqTypes"`
+	Op            SubscribeOp         `json:"op" mapstructure:"op"`
+	Id            string              `json:"id" mapstructure:"id"`
+	ReqTypes      []string            `json:"reqTypes" mapstructure:"reqTypes"`
 	Pattern       *PublicationPattern `json:"pattern" mapstructure:"pattern"`
 }
 
@@ -194,8 +198,8 @@ type SubscribeResultMessage struct {
 
 type SubscribedMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	SubId         string   `json:"subId" mapstructure:"subId"`
-	PubId         string   `json:"pubId" mapstructure:"pubId"`
-	SdpId         int      `json:"sdpId" mapstructure:"sdpId"`
-	Tracks        []*Track `json:"tracks" mapstructure:"tracks"`
+	SubId         string         `json:"subId" mapstructure:"subId"`
+	PubId         string         `json:"pubId" mapstructure:"pubId"`
+	SdpId         int            `json:"sdpId" mapstructure:"sdpId"`
+	Tracks        []*proto.Track `json:"tracks" mapstructure:"tracks"`
 }

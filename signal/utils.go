@@ -139,8 +139,11 @@ func (me *PatternTree[T]) collect(mList []string, doubleStar bool,  results []T)
 			results = append(results, me.data)
 		}
 		pt, found := me.children["**"]
-		if found {
-			results = pt.collect(mList, true, results)
+		for found {
+			if pt.hasData {
+				results = append(results, pt.data)
+			}
+			pt, found = pt.children["**"]
 		}
 		return results
 	}
@@ -148,19 +151,22 @@ func (me *PatternTree[T]) collect(mList []string, doubleStar bool,  results []T)
 		results = append(results, me.data)
 	}
 	key := mList[0]
-	keysLeft := mList[1:]
 	pt, found := me.children["**"]
 	if found {
 		results = pt.collect(mList, true, results)
-		results = pt.collect(keysLeft, true, results)
 	}
 	pt, found = me.children["*"]
 	if found {
-		results = pt.collect(keysLeft, false, results)
+		results = pt.collect(mList[1:], false, results)
 	}
 	pt, found = me.children[key]
 	if found {
-		results = pt.collect(keysLeft, false, results)
+		results = pt.collect(mList[1:], false, results)
+	}
+	if doubleStar {
+		for i := 1; i < len(mList); i++ {
+			results = me.collect(mList[i:], false, results)
+		}
 	}
 	return results
 }
@@ -264,7 +270,6 @@ func (pm *PatternMap[T]) Collect(toMatch string) []T {
 	pt, found := pm.inner["**"]
 	if found {
 		results = pt.collect(toMatchList, true, results)
-		results = pt.collect(leftKeys, true, results)
 	}
 	pt, found = pm.inner["*"]
 	if found {
@@ -339,7 +344,16 @@ func matchRoom(pt_parts []string, rm_parts []string) bool {
 		if pt_i >= len(pt_parts) {
 			return rm_i == len_rm
 		} else if rm_i >= len_rm {
-			return pt_i == len_pt || pt_parts[pt_i] == "**"
+			if pt_i == len_pt {
+				return true
+			} else {
+				for i := pt_i; i < len_pt; i++ {
+					if pt_parts[i] != "**" {
+						return false
+					}
+				}
+				return true
+			}
 		}
 	}
 }

@@ -198,33 +198,9 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			Id: subId,
 		}
 	})
-	s.On("state", func(args ...any) {
-		msg := StateMessage{}
-		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "subscribe")
-		if err != nil {
-			panic(err)
-		}
-		go ctx.AcceptTrack(&msg)
-	})
-	s.On("want", func(args ...any) {
-		msg := WantMessage{}
-		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "want")
-		if err != nil {
-			panic(err)
-		}
-		go ctx.StateWant(&msg)
-	})
-	s.On("select", func(args ...any) {
-		msg := SelectMessage{}
-		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "select")
-		if err != nil {
-			panic(err)
-		}
-		go ctx.SatifySelect(&msg)
-	})
+	ctx.Messager.OnState(ctx.Id, ctx.AcceptTrack, ctx.RoomPaterns()...)
+	ctx.Messager.OnWant(ctx.Id, ctx.StateWant, ctx.RoomPaterns()...)
+	ctx.Messager.OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
 	return ctx, nil
 }
 

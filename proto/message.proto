@@ -31,16 +31,22 @@ message PublicationPattern {
     repeated PublicationPattern children = 3;
 }
 
-message Target {
+message Router {
 	// @gotags: mapstructure:"room"
-    string room = 1;
-	// @gotags: mapstructure:"to"
-    string to = 2;
+	string room = 1;
+	// @gotags: mapstructure:"nodeFrom"
+	string nodeFrom = 2;
+	// @gotags: mapstructure:"nodeTo"
+    string nodeTo = 3;
+	// @gotags: mapstructure:"userFrom"
+	string userFrom = 4;
+	// @gotags: mapstructure:"userTo"
+	string userTo = 5;
 }
 
 message WantMessage {
-	// @gotags: mapstructure:"target"
-    Target target = 1;
+	// @gotags: mapstructure:"router"
+    Router router = 1;
 	// @gotags: mapstructure:"reqTypes"
     repeated string reqTypes = 2;
 	// @gotags: mapstructure:"pattern"
@@ -71,8 +77,8 @@ message Track {
 }
 
 message StateMessage {
-	// @gotags: mapstructure:"target"
-    Target target = 1;
+	// @gotags: mapstructure:"router"
+    Router router = 1;
 	// @gotags: mapstructure:"pubId"
     string pubId = 2;
 	// @gotags: mapstructure:"addr"
@@ -82,8 +88,8 @@ message StateMessage {
 }
 
 message SelectMessage {
-	// @gotags: mapstructure:"target"
-    Target target = 1;
+	// @gotags: mapstructure:"router"
+    Router router = 1;
 	// @gotags: mapstructure:"pubId"
     string pubId = 2;
 	// @gotags: mapstructure:"transportId"

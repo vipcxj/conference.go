@@ -1,18 +1,18 @@
 package middleware
 
 import (
+	"fmt"
 	"reflect"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/vipcxj/conference.go/auth"
-	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/signal"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
-func SocketIOAuthHandler() func(*socket.Socket, func(*socket.ExtendedError)) {
+func SocketIOAuthHandler(messager *signal.Messager) func(*socket.Socket, func(*socket.ExtendedError)) {
 	return func(s *socket.Socket, next func(*socket.ExtendedError)) {
 		sCtx := signal.GetSingalContext(s)
 		if sCtx != nil && sCtx.Authed() {
@@ -27,14 +27,14 @@ func SocketIOAuthHandler() func(*socket.Socket, func(*socket.ExtendedError)) {
 		}
 		token, ok := tokenAny.(string)
 		if !ok {
-			panic(errors.FatalError("Invalid token type %v", reflect.TypeOf(tokenAny)))
+			next(socket.NewExtendedError(fmt.Sprintf("Invalid token type %v", reflect.TypeOf(tokenAny)), nil))
 		}
 		var signalId string
 		signalIdAny, ok := authData["id"]
 		if ok {
 			signalId, ok = signalIdAny.(string)
 			if !ok {
-				panic(errors.FatalError("Invalid signal id type %v", reflect.TypeOf(signalIdAny)))
+				next(socket.NewExtendedError(fmt.Sprintf("Invalid signal id type %v", reflect.TypeOf(signalIdAny)), nil))
 			}
 		} else {
 			signalId = uuid.NewString()
@@ -46,7 +46,8 @@ func SocketIOAuthHandler() func(*socket.Socket, func(*socket.ExtendedError)) {
 			next(socket.NewExtendedError("Unauthorized", err))
 			return
 		}
-		signal.SetAuthInfoAndId(s, authInfo, signalId)
+		sCtx = signal.SetAuthInfoAndId(s, authInfo, signalId)
+		sCtx.Messager = messager
 		next(nil)
 	}
 }

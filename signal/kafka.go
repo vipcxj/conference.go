@@ -2,6 +2,7 @@ package signal
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -34,13 +35,15 @@ type pconsumer struct {
 	recs chan kgo.FetchTopicPartition
 }
 
-func (pc *pconsumer) consume() {
+func (pc *pconsumer) consume(ctx context.Context) {
 	defer close(pc.done)
 	log.Sugar().Infof("start consuming kafka topic %s of partition %d", pc.topic, pc.partition)
 	defer log.Sugar().Infof("stop consuming kafka topic %s of partition %d", pc.topic, pc.partition)
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <- pc.quit:
 			return
 		case p := <- pc.recs:
@@ -71,6 +74,16 @@ func parseKafkaAddrs(addrs string) []string {
 }
 
 type KafkaOpt func(client *KafkaClient)
+
+func MakeKafkaTopic(topic string) string {
+	prefix := config.Conf().Cluster.Kafka.TopicPrefix
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return topic
+	} else {
+		return fmt.Sprintf("%s%s", prefix, topic)
+	}
+}
 
 func KafkaOptInstallMetrics(installer func(metrics *kprom.Metrics)) KafkaOpt {
 	return func(client *KafkaClient) {
@@ -215,7 +228,7 @@ func NewKafkaClient(copts... KafkaOpt) (*KafkaClient, error) {
 	return client, nil
 }
 
-func (s *KafkaClient) assigned(_ context.Context, cl *kgo.Client, assigned map[string][]int32) {
+func (s *KafkaClient) assigned(ctx context.Context, cl *kgo.Client, assigned map[string][]int32) {
 	if s.workers == nil {
 		log.Sugar().Warnf("did you forget to set workers to kafka client")
 		return
@@ -235,7 +248,7 @@ func (s *KafkaClient) assigned(_ context.Context, cl *kgo.Client, assigned map[s
 					recs: make(chan kgo.FetchTopicPartition, 5),
 				}
 				s.consumers[tp{topic, partition}] = pc
-				go pc.consume()
+				go pc.consume(ctx)
 			}
 		}
 	}
@@ -276,6 +289,10 @@ func (s *KafkaClient) Check(ctx context.Context) error {
 	return s.cl.Ping(ctx)
 }
 
+func (s *KafkaClient) Close() {
+	s.cl.CloseAllowingRebalance()
+}
+
 func (s *KafkaClient) Poll(ctx context.Context) {
 	for {
 		// PollRecords is strongly recommended when using
@@ -285,6 +302,9 @@ func (s *KafkaClient) Poll(ctx context.Context) {
 		// enough to not block a rebalance too long.
 		fetches := s.cl.PollRecords(ctx, 10000)
 		if fetches.IsClientClosed() {
+			return
+		}
+		if fetches.Err() == context.Canceled {
 			return
 		}
 		fetches.EachError(func(_ string, _ int32, err error) {
@@ -308,4 +328,8 @@ func (s *KafkaClient) Poll(ctx context.Context) {
 		})
 		s.cl.AllowRebalance()
 	}
+}
+
+func (s *KafkaClient) Produce(ctx context.Context, record *kgo.Record) error {
+	return s.cl.ProduceSync(ctx, record)[0].Err
 }

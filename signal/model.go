@@ -1,6 +1,7 @@
 package signal
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/pkg/common"
 	"github.com/vipcxj/conference.go/pkg/segmenter"
+	"github.com/vipcxj/conference.go/proto"
 	"github.com/vipcxj/conference.go/utils"
 	"github.com/zishang520/socket.io/v2/socket"
 	"go.uber.org/zap"
@@ -98,7 +100,8 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	for _, matched := range matcheds {
 		subscribedTrack, ok := s.acceptedTrack[matched.GlobalId]
 		if !ok {
-			accepter := router.AcceptTrack(matched)
+			track := NewTrack(matched)
+			accepter := router.AcceptTrack(track)
 			sender, err := peer.AddTrack(accepter.track)
 			if err != nil {
 				panic(err)
@@ -120,7 +123,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 			subscribedTrack = &SubscribedTrack{
 				sub:      s,
 				sid:      sid,
-				pubTrack: matched,
+				pubTrack: track,
 				bindId:   mid,
 				accepter: accepter,
 				sender:   sender,
@@ -141,13 +144,19 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 		sdpId := s.ctx.NextSdpMsgId()
 		s.ctx.Sugar().Infof("gen sdp id: %v", sdpId)
 
-		selMsg := &SelectMessage{
-			PubId:       msg.PubId,
-			Tracks:      matcheds,
-			TransportId: router.id.String(),
+		for _, room := range s.ctx.Rooms() {
+			selMsg := &SelectMessage{
+				Router: &proto.Router{
+					Room: string(room),
+				},
+				PubId:       msg.PubId,
+				Tracks:      matcheds,
+				TransportId: router.id.String(),
+			}
+			s.ctx.Messager.Emit(context.TODO(), selMsg)
 		}
-		s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
-		s.ctx.Socket.Emit("select", selMsg)
+		// s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
+		// s.ctx.Socket.Emit("select", selMsg)
 		respMsg := &SubscribedMessage{
 			SubId:  s.id,
 			PubId:  msg.PubId,
@@ -202,19 +211,13 @@ func (s *Subscription) Close() {
 }
 
 type Publication struct {
-	id          string
-	closeCh     chan struct{}
-	ctx         *SignalContext
+	id      string
+	closeCh chan struct{}
+	ctx     *SignalContext
 	// after init not change, readonly, so no need mutex
 	tracks      map[string]*PublishedTrack
 	recordStart bool
 	mux         sync.Mutex
-}
-
-func (me *Publication) isAllBind() bool {
-	return utils.MapAllMatch(me.tracks, func(k string, pt *PublishedTrack) bool {
-		return pt.isBind()
-	})
 }
 
 func (me *Publication) Video() *PublishedTrack {
@@ -398,9 +401,9 @@ func (me *Publication) startRecord() {
 		for {
 			var pkg *PacketBox
 			select {
-			case <- me.closeCh:
+			case <-me.closeCh:
 				return
-			case pkg = <- pktCh:
+			case pkg = <-pktCh:
 				if pkg.buff == nil {
 					segmenter.CloseTrack(pkg.pkg.SSRC)
 					closedTrackNum++
@@ -435,29 +438,37 @@ func (me *Publication) Bind() bool {
 	if allBind {
 		me.startRecord()
 		r := GetRouter()
-		tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *Track, remove bool) {
-			return pt.track, false
+		tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *proto.Track, remove bool) {
+			return pt.track.ToProto(), false
 		})
-		msg := &StateMessage{
-			PubId:  me.id,
-			Tracks: tracks,
-			Addr:   r.Addr(),
+		for _, room := range me.ctx.Rooms() {
+			msg := &StateMessage{
+				Router: &proto.Router{
+					Room: string(room),
+				},
+				PubId:  me.id,
+				Tracks: tracks,
+				Addr:   r.Addr(),
+			}
+			// to all in room include self
+			me.ctx.Messager.Emit(context.TODO(), msg)
 		}
-		// to all in room include self
-		me.ctx.Socket.To(me.ctx.Rooms()...).Emit("state", msg)
-		me.ctx.Socket.Emit("state", msg)
+		// me.ctx.Socket.To(me.ctx.Rooms()...).Emit("state", msg)
+		// me.ctx.Socket.Emit("state", msg)
 		return true
 	} else {
 		return false
 	}
 }
 
-func (me *Publication) State(want *WantMessage) []*Track {
+func (me *Publication) State(want *WantMessage) []*proto.Track {
 	tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *Track, remove bool) {
 		return pt.track, !pt.isBind()
 	})
 	matched, _ := MatchTracks(want.Pattern, tracks, want.ReqTypes)
-	return matched
+	return utils.MapSlice(matched, func(t *Track) (*proto.Track, bool) {
+		return t.ToProto(), false
+	})
 }
 
 func (me *Publication) SatifySelect(sel *SelectMessage) {
@@ -575,8 +586,8 @@ func (me *PublishedTrack) Remote() *webrtc.TrackRemote {
 	return me.remote
 }
 
-func (me *PublishedTrack) RId() string {
-	return me.track.RId
+func (me *PublishedTrack) Rid() string {
+	return me.track.Rid
 }
 
 func (me *PublishedTrack) BindId() string {
@@ -595,7 +606,7 @@ func (pt *PublishedTrack) Bind() bool {
 	}
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
-	rt, t := ctx.findTracksRemoteByMidAndRid(peer, pt.StreamId(), pt.BindId(), pt.RId())
+	rt, t := ctx.findTracksRemoteByMidAndRid(peer, pt.StreamId(), pt.BindId(), pt.Rid())
 	if rt != nil {
 		if rt == pt.remote {
 			return false
@@ -630,7 +641,7 @@ func (me *PublishedTrack) SatifySelect(transportId string) bool {
 	}
 	me.mu.Lock()
 	defer me.mu.Unlock()
-	tr, _ := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.RId())
+	tr, _ := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.Rid())
 	ctx.Sugar().Debugf("Accepting track with codec ", tr.Codec().MimeType)
 	if tr != nil {
 		r := GetRouter()
@@ -678,6 +689,7 @@ func (me *PublishedTrack) SatifySelect(transportId string) bool {
 
 type SignalContext struct {
 	Id                string
+	Messager          *Messager
 	Socket            *socket.Socket
 	AuthInfo          *auth.AuthInfo
 	Peer              *webrtc.PeerConnection
@@ -686,7 +698,7 @@ type SignalContext struct {
 	cand_mux          sync.Mutex
 	peer_mux          sync.Mutex
 	neg_mux           sync.Mutex
-	close_cb_disabled  bool
+	close_cb_disabled bool
 	close_cb_mux      sync.Mutex
 	close_cb          *ConferenceCallback
 	subscriptions     *haxmap.Map[string, *Subscription]
@@ -754,6 +766,9 @@ func (ctx *SignalContext) Close(disableCloseCallback bool) {
 	if disableCloseCallback {
 		ctx.disableCloseCallback()
 	}
+	ctx.Messager.OffState(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager.OffWant(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager.OffSelect(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Sugar().Debugf("signal context closing")
 	ctx.closePeer()
 	ctx.publications.ForEach(func(k string, pub *Publication) bool {
@@ -846,14 +861,18 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 	}
 
 	r := GetRouter()
-	want := &WantMessage{
-		Pattern:     message.Pattern,
-		TransportId: r.id.String(),
+
+	for _, room := range ctx.Rooms() {
+		want := &WantMessage{
+			Router: &proto.Router{
+				Room: string(room),
+			},
+			Pattern:     message.Pattern,
+			TransportId: r.id.String(),
+		}
+		ctx.Messager.Emit(context.TODO(), want)
+		// broadcast above include self, the pub in self may satify the sub too. so should check self.
 	}
-	// broadcast to the room to request the sub
-	ctx.Socket.To(ctx.Rooms()...).Emit("want", want)
-	// broadcast above not include self, the pub in self may satify the sub too. so check self here.
-	go ctx.StateWant(want)
 	return
 }
 
@@ -941,8 +960,8 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 						PubId:    pubId,
 						GlobalId: tid,
 						BindId:   t.BindId,
-						RId:      t.RId,
-						StreamId: t.SId,
+						Rid:      t.Rid,
+						StreamId: t.Sid,
 						Labels:   t.Labels,
 					},
 				}
@@ -965,8 +984,9 @@ func (ctx *SignalContext) StateWant(message *WantMessage) {
 				Addr:   r.Addr(),
 			}
 			// to all in room include self
-			ctx.Socket.To(ctx.Rooms()...).Emit("state", msg)
-			ctx.Socket.Emit("state", msg)
+			ctx.Messager.Emit(context.TODO(), msg)
+			// ctx.Socket.To(ctx.Rooms()...).Emit("state", msg)
+			// ctx.Socket.Emit("state", msg)
 		}
 		return true
 	})

@@ -67,8 +67,15 @@ func Run(ch chan error) {
 	if cors := config.Conf().SignalCors; cors != "" {
 		g.Use(middleware.Cors(cors))
 	}
+
+	messager, err := signal.NewMessager(g)
+	if err != nil {
+		ch <- err
+		return
+	}
+
 	io := socket.NewServer(nil, nil)
-	io.Use(middleware.SocketIOAuthHandler())
+	io.Use(middleware.SocketIOAuthHandler(messager))
 	io.On("connection", func(clients ...any) {
 		fmt.Printf("on connection\n")
 		socket := clients[0].(*socket.Socket)
@@ -89,13 +96,15 @@ func Run(ch chan error) {
 	handler := io.ServeHandler(nil)
 	g.GET("/socket.io/", gin.WrapH(handler))
 	g.POST("/socket.io/", gin.WrapH(handler))
-	g.GET(fmt.Sprintf("%v/:id", signal.CLOSE_CALLBACK_PREFIX), func(ctx *gin.Context) {
-		id := ctx.Param("id")
+	g.GET(fmt.Sprintf("%v/:id", signal.CLOSE_CALLBACK_PREFIX), func(gctx *gin.Context) {
+		id := gctx.Param("id")
 		signal.GLOBAL.CloseSignalContext(id, true)
 	})
 
 	ctx, stop := ossignal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	go messager.Run(ctx)
 
 	if config.Conf().Signal.Healthy.Enable {
 		healthConf := healthconfig.DefaultConfig()

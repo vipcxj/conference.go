@@ -2,6 +2,7 @@ package signal
 
 import (
 	"github.com/pion/webrtc/v4"
+	"github.com/vipcxj/conference.go/proto"
 )
 
 // RTCPFeedback signals the connection to use additional RTCP packet types.
@@ -86,6 +87,17 @@ func (me *RTPCodecParameters) ToWebrtc() *webrtc.RTPCodecParameters {
 	}
 }
 
+type ITrack interface {
+	GetType() string
+	GetPubId() string
+	GetGlobalId() string
+	GetLocalId() string
+	GetBindId() string
+	GetRid() string
+	GetStreamId() string
+	GetLabels() map[string]string
+}
+
 type Track struct {
 	Type     string `json:"type" mapstructure:"type"`
 	PubId    string `json:"pubId" mapstructure:"pubId"`
@@ -94,25 +106,93 @@ type Track struct {
 	LocalId string `json:"localId" mapstructure:"localId"`
 	// used to bind local and remote track
 	BindId   string              `json:"bindId" mapstructure:"bindId"`
-	RId      string              `json:"rid" mapstructure:"rid"`
+	Rid      string              `json:"rid" mapstructure:"rid"`
 	StreamId string              `json:"streamId" mapstructure:"streamId"`
 	Codec    *RTPCodecParameters `json:"codec" mapstructure:"codec"`
 	Labels   map[string]string   `json:"labels" mapstructure:"labels"`
 }
 
-func (me *Track) MatchLabel(name, value string) bool {
-	v, ok := me.Labels[name]
-	if ok {
-		return v == value
-	} else {
-		return false
+func NewTrack(src *proto.Track) *Track {
+	return &Track{
+		Type: src.Type,
+		PubId: src.PubId,
+		GlobalId: src.GlobalId,
+		LocalId: src.LocalId,
+		BindId: src.BindId,
+		Rid: src.Rid,
+		StreamId: src.StreamId,
+		Labels: src.Labels,
 	}
 }
 
-func (me *Track) HasLabel(name string) bool {
-	if me.Labels == nil {
-		return false
+func (x *Track) ToProto() *proto.Track {
+	if x == nil {
+		return nil
 	}
-	_, ok := me.Labels[name]
-	return ok
+	return &proto.Track{
+		Type: x.Type,
+		PubId: x.PubId,
+		GlobalId: x.GlobalId,
+		LocalId: x.LocalId,
+		BindId: x.BindId,
+		Rid: x.Rid,
+		StreamId: x.StreamId,
+		Labels: x.Labels,
+	}
+}
+
+func (x *Track) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *Track) GetPubId() string {
+	if x != nil {
+		return x.PubId
+	}
+	return ""
+}
+
+func (x *Track) GetGlobalId() string {
+	if x != nil {
+		return x.GlobalId
+	}
+	return ""
+}
+
+func (x *Track) GetLocalId() string {
+	if x != nil {
+		return x.LocalId
+	}
+	return ""
+}
+
+func (x *Track) GetBindId() string {
+	if x != nil {
+		return x.BindId
+	}
+	return ""
+}
+
+func (x *Track) GetRid() string {
+	if x != nil {
+		return x.Rid
+	}
+	return ""
+}
+
+func (x *Track) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *Track) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
 }

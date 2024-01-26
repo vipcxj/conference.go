@@ -139,7 +139,24 @@ func Validate(me *proto.PublicationPattern) error {
 	return nil
 }
 
-func Match(me *proto.PublicationPattern, track *Track) bool {
+func MatchLabel[T ITrack](me T, name, value string) bool {
+	v, ok := me.GetLabels()[name]
+	if ok {
+		return v == value
+	} else {
+		return false
+	}
+}
+
+func HasLabel[T ITrack](me T, name string) bool {
+	if me.GetLabels() == nil {
+		return false
+	}
+	_, ok := me.GetLabels()[name]
+	return ok
+}
+
+func Match[T ITrack](me *proto.PublicationPattern, track T) bool {
 	switch me.Op {
 	case proto.PatternOp_PATTERN_OP_ALL:
 		for _, c := range me.Children {
@@ -163,18 +180,18 @@ func Match(me *proto.PublicationPattern, track *Track) bool {
 		}
 		return true
 	case proto.PatternOp_PATTERN_OP_PUBLISH_ID:
-		return utils.InSlice(me.Args, track.PubId, nil)
+		return utils.InSlice(me.Args, track.GetPubId(), nil)
 	case proto.PatternOp_PATTERN_OP_STREAM_ID:
-		return utils.InSlice(me.Args, track.StreamId, nil)
+		return utils.InSlice(me.Args, track.GetStreamId(), nil)
 	case proto.PatternOp_PATTERN_OP_TRACK_ID:
-		return utils.InSlice(me.Args, track.GlobalId, nil)
+		return utils.InSlice(me.Args, track.GetGlobalId(), nil)
 	case proto.PatternOp_PATTERN_OP_TRACK_RID:
-		return utils.InSlice(me.Args, track.RId, nil)
+		return utils.InSlice(me.Args, track.GetRid(), nil)
 	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_ALL_MATCH:
 		for i := 0; i < len(me.Args); {
 			key := me.Args[i]
 			value := me.Args[i+1]
-			if !track.MatchLabel(key, value) {
+			if !MatchLabel(track, key, value) {
 				return false
 			}
 			i += 2
@@ -184,7 +201,7 @@ func Match(me *proto.PublicationPattern, track *Track) bool {
 		for i := 0; i < len(me.Args); {
 			key := me.Args[i]
 			value := me.Args[i+1]
-			if track.MatchLabel(key, value) {
+			if MatchLabel(track, key, value) {
 				return true
 			}
 			i += 2
@@ -194,7 +211,7 @@ func Match(me *proto.PublicationPattern, track *Track) bool {
 		for i := 0; i < len(me.Args); {
 			key := me.Args[i]
 			value := me.Args[i+1]
-			if track.MatchLabel(key, value) {
+			if MatchLabel(track, key, value) {
 				return false
 			}
 			i += 2
@@ -202,54 +219,54 @@ func Match(me *proto.PublicationPattern, track *Track) bool {
 		return true
 	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_ALL_HAS:
 		for _, name := range me.Args {
-			if !track.HasLabel(name) {
+			if !HasLabel(track, name) {
 				return false
 			}
 		}
 		return true
 	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_SOME_HAS:
 		for _, name := range me.Args {
-			if track.HasLabel(name) {
+			if HasLabel(track, name) {
 				return true
 			}
 		}
 		return false
 	case proto.PatternOp_PATTERN_OP_TRACK_LABEL_NONE_HAS:
 		for _, name := range me.Args {
-			if track.HasLabel(name) {
+			if HasLabel(track, name) {
 				return false
 			}
 		}
 		return true
 	case proto.PatternOp_PATTERN_OP_TRACK_TYPE:
-		return utils.InSlice(me.Args, track.Type, nil)
+		return utils.InSlice(me.Args, track.GetType(), nil)
 	default:
 		return false
 	}
 }
 
-func MatchTracks(me *proto.PublicationPattern, tracks []*Track, reqTypes []string) (matched []*Track, unmatched []*Track) {
-	tracksByPub := map[string][]*Track{}
-	unmatched = []*Track{}
-	for _, track := range(tracks) {
+func MatchTracks[T ITrack](me *proto.PublicationPattern, tracks []T, reqTypes []string) (matched []T, unmatched []T) {
+	tracksByPub := map[string][]T{}
+	unmatched = []T{}
+	for _, track := range tracks {
 		if Match(me, track) {
-			ts := tracksByPub[track.PubId]
-			tracksByPub[track.PubId] = append(ts, track)
+			ts := tracksByPub[track.GetPubId()]
+			tracksByPub[track.GetPubId()] = append(ts, track)
 		} else {
 			unmatched = append(unmatched, track)
 		}
 	}
 	reqVideo := utils.InSlice(reqTypes, "video", nil)
 	reqAudio := utils.InSlice(reqTypes, "audio", nil)
-	matched = []*Track{}
+	matched = []T{}
 	for _, ts := range tracksByPub {
 		videoCond := !reqVideo
 		audioCond := !reqAudio
 		if !videoCond || !audioCond {
 			for _, track := range ts {
-				if track.Type == "video" {
+				if track.GetType() == "video" {
 					videoCond = true
-				} else if track.Type == "audio" {
+				} else if track.GetType() == "audio" {
 					audioCond = true
 				}
 				if videoCond && audioCond {

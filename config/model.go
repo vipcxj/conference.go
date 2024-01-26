@@ -12,12 +12,13 @@ type RedisConfigure struct {
 	Addrs      string `mapstructure:"addrs" json:"addrs" default:"${CONF_CLUSTER_REDIS_ADDRS}"`
 	Users      string `mapstructure:"users" json:"users" default:"${CONF_CLUSTER_REDIS_USERS}"`
 	Passes     string `mapstructure:"passes" json:"passes" default:"${CONF_CLUSTER_REDIS_PASSES}"`
-	KeyPrefix  string `mapstructure:"keyPrefix" json:"keyPrefix" default:"${CONF_CLUSTER_REDIS_KEY_PREFIX | cfgo}"`
+	KeyPrefix  string `mapstructure:"keyPrefix" json:"keyPrefix" default:"${CONF_CLUSTER_REDIS_KEY_PREFIX | cfgo:}"`
 	MasterName string `mapstructure:"masterName" json:"masterName" default:"${CONF_CLUSTER_REDIS_MASTER_NAME}"`
 }
 
 type KafkaConfigure struct {
 	Addrs string `mapstructure:"addrs" json:"addrs" default:"${CONF_CLUSTER_KAFKA_ADDRS}"`
+	TopicPrefix string `mapstructure:"topicPrefix" json:"topicPrefix" default:"${CONF_CLUSTER_KAFKA_TOPIC_PREFIX | cfgo:}"`
 	Sasl  struct {
 		Enable bool   `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_KAFKA_SASL_ENABLE | false}"`
 		Method string `mapstructure:"method" json:"method" default:"${CONF_CLUSTER_KAFKA_SASL_METHOD}"`
@@ -259,6 +260,7 @@ var KEYS = []string{
 	"cluster.enable:bool",
 	"cluster.nodeName:string",
 	"cluster.kafka.addrs:string",
+	"cluster.kafka.topicPrefix:string",
 	"cluster.kafka.sasl.enable:bool",
 	"cluster.kafka.sasl.method:string",
 	"cluster.kafka.sasl.user:string",

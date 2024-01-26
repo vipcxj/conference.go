@@ -206,6 +206,7 @@ func TestMatchRoom(t *testing.T) {
 	utils.AssertTrue(t, signal.MatchRoom("a.**.b", "a.b.c.b"))
 	utils.AssertFalse(t, signal.MatchRoom("a.**.b", "a.b.c.b.c"))
 	utils.AssertTrue(t, signal.MatchRoom("a.**.*.b", "a.b.c.b"))
+	utils.AssertFalse(t, signal.MatchRoom("a.**.*.b", "a"))
 	utils.AssertFalse(t, signal.MatchRoom("a.**.*.b", "a.b"))
 	utils.AssertTrue(t, signal.MatchRoom("a.**.**.b", "a.b"))
 	utils.AssertFalse(t, signal.MatchRoom("a.**.**.*.b", "a.b"))
