@@ -326,7 +326,7 @@ type Router struct {
 var ROUTER *Router = &Router{}
 
 func InitRouter() error {
-	ROUTER.ip = config.Conf().Ip
+	ROUTER.ip = config.Conf().HostOrIp
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return err
@@ -366,7 +366,22 @@ func (r *Router) makeSureServer() (*net.UDPConn, error) {
 		return r.server, nil
 	}
 	defer r.mu.Unlock()
-	ser, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP(config.Conf().Ip), Port: config.Conf().Port})
+	listenHostOrIp := config.Conf().Router.ListenHostOrIp
+	if listenHostOrIp == "" {
+		listenHostOrIp = config.Conf().HostOrIp
+	}
+	if listenHostOrIp == "" {
+		listenHostOrIp = "0.0.0.0"
+	}
+	listenPort := config.Conf().Router.ListenPort
+	if listenPort > 0 {
+		listenHostOrIp = fmt.Sprintf("%s:%d", listenHostOrIp, listenPort)
+	}
+	addr, err := net.ResolveUDPAddr("udp", listenHostOrIp)
+	if err != nil {
+		return nil, err
+	}
+	ser, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		return nil, err
 	}

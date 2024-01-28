@@ -284,11 +284,11 @@ func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
 		target.NodeFrom = m.nodeName
 	}
 	switch typedMsg := msg.(type) {
-	case *proto.StateMessage:
+	case *StateMessage:
 		m.consumeState(typedMsg)
-	case *proto.WantMessage:
+	case *WantMessage:
 		m.consumeWant(typedMsg)
-	case *proto.SelectMessage:
+	case *SelectMessage:
 		m.consumeSelect(typedMsg)
 	default:
 		return errors.InvalidMessage("invalid room message, unknown message type %v", reflect.TypeOf(msg))

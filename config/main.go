@@ -8,7 +8,6 @@ import (
 	"github.com/gookit/config/v2/json5"
 	"github.com/gookit/config/v2/toml"
 	"github.com/gookit/config/v2/yamlv3"
-	"github.com/vipcxj/conference.go/errors"
 )
 
 var CONFIGURE = &ConferenceConfigure{}
@@ -45,9 +44,6 @@ func Init() error {
 	err = config.Decode(CONFIGURE)
 	if err != nil {
 		return err
-	}
-	if CONFIGURE.Ip == "" {
-		return errors.FatalError("The configure property ip is required.")
 	}
 	return nil
 }

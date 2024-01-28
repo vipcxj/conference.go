@@ -17,9 +17,9 @@ type RedisConfigure struct {
 }
 
 type KafkaConfigure struct {
-	Addrs string `mapstructure:"addrs" json:"addrs" default:"${CONF_CLUSTER_KAFKA_ADDRS}"`
+	Addrs       string `mapstructure:"addrs" json:"addrs" default:"${CONF_CLUSTER_KAFKA_ADDRS}"`
 	TopicPrefix string `mapstructure:"topicPrefix" json:"topicPrefix" default:"${CONF_CLUSTER_KAFKA_TOPIC_PREFIX | cfgo:}"`
-	Sasl  struct {
+	Sasl        struct {
 		Enable bool   `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_KAFKA_SASL_ENABLE | false}"`
 		Method string `mapstructure:"method" json:"method" default:"${CONF_CLUSTER_KAFKA_SASL_METHOD}"`
 		User   string `mapstructure:"user" json:"user" default:"${CONF_CLUSTER_KAFKA_SASL_USER}"`
@@ -47,8 +47,7 @@ type KafkaConfigure struct {
 }
 
 type ConferenceConfigure struct {
-	Ip                string `mapstructure:"ip" default:"${CONF_IP}"`
-	Port              int    `mapstructure:"port" default:"${CONF_PORT | 0}"`
+	HostOrIp          string `mapstructure:"hostOrIp" default:"${CONF_HOST_OR_IP}"`
 	SignalEnable      bool   `mapstructure:"signalEnable" default:"${CONF_SIGNAL_ENABLE | true}"`
 	SignalHost        string `mapstructure:"signalHost" default:"${CONF_SIGNAL_HOST | localhost}"`
 	SignalPort        int    `mapstructure:"signalPort" default:"${CONF_SIGNAL_PORT | 8080}"`
@@ -57,7 +56,11 @@ type ConferenceConfigure struct {
 	SignalCertPath    string `mapstructure:"signalCertPath" default:"${CONF_SIGNAL_CERT_PATH}"`
 	SignalKeyPath     string `mapstructure:"signalKeyPath" default:"${CONF_SIGNAL_KEY_PATH}"`
 	SignalCors        string `mapstructure:"signalCors" default:"${CONF_SIGNAL_CORS}"`
-	WebRTC            struct {
+	Router            struct {
+		ListenHostOrIp string `mapstructure:"listenHostOrIp" default:"${CONF_ROUTER_LISTEN_HOST_OR_IP}"`
+		ListenPort int `mapstructure:"listenPort" default:"${CONF_ROUTER_LISTEN_PORT | 0}"`
+	} `mapstructure:"router" default:""`
+	WebRTC struct {
 		ICEServer struct {
 			URLs           string `json:"urls" mapstructure:"urls" default:"${CONF_WEBRTC_ICESERVER_URLS}"`
 			Username       string `json:"username,omitempty" mapstructure:"username" default:"${CONF_WEBRTC_ICESERVER_USERNAME}"`
@@ -210,8 +213,7 @@ func (c *ConferenceConfigure) LogProfile() LogProfile {
 }
 
 var KEYS = []string{
-	"ip:string",
-	"port:int",
+	"hostOrIp:string",
 	"signalEnable:bool",
 	"signalHost:string",
 	"signalPort:int",
@@ -220,6 +222,8 @@ var KEYS = []string{
 	"signalCertPath:string",
 	"signalKeyPath:string",
 	"signalCors:string",
+	"router.listenHostOrIp:string",
+	"router.listenPort:int",
 	"webrtc.iceServer.urls:string",
 	"webrtc.iceServer.username:string",
 	"webrtc.iceServer.credential:string",
