@@ -680,16 +680,17 @@ export class ConferenceClient {
             if (tracks.length == 0) {
                 return
             }
-            const sdpId = this.nextSdpMsgId();
-            this.logger().debug(`gen sdp id ${sdpId}`);
-            await this.negotiate(sdpId, true, null);
-            const evts = this.emitter.events(['published', 'connectState'])
-            this.logger().debug('send publish msg');
+            // publish must happen before negotiate, because in server, bind only happen in onTrack, which must ensure publication exists
             const { id: pubId } = await this.socket.emitWithAck('publish', {
                 op: PUB_OP_ADD,
                 tracks,
             });
             this.logger().debug(`accept publish id ${pubId}`);
+            const sdpId = this.nextSdpMsgId();
+            this.logger().debug(`gen sdp id ${sdpId}`);
+            await this.negotiate(sdpId, true, null);
+            const evts = this.emitter.events(['published', 'connectState'])
+            this.logger().debug('send publish msg');
             let pubNum = 0;
             for await (const evt of evts) {
                 if (typeof evt === 'string') {

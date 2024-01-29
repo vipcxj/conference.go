@@ -139,7 +139,7 @@ func Validate(me *proto.PublicationPattern) error {
 	return nil
 }
 
-func MatchLabel[T ITrack](me T, name, value string) bool {
+func MatchLabel(me *Track, name, value string) bool {
 	v, ok := me.GetLabels()[name]
 	if ok {
 		return v == value
@@ -148,7 +148,7 @@ func MatchLabel[T ITrack](me T, name, value string) bool {
 	}
 }
 
-func HasLabel[T ITrack](me T, name string) bool {
+func HasLabel(me *Track, name string) bool {
 	if me.GetLabels() == nil {
 		return false
 	}
@@ -156,7 +156,7 @@ func HasLabel[T ITrack](me T, name string) bool {
 	return ok
 }
 
-func Match[T ITrack](me *proto.PublicationPattern, track T) bool {
+func Match(me *proto.PublicationPattern, track *Track) bool {
 	switch me.Op {
 	case proto.PatternOp_PATTERN_OP_ALL:
 		for _, c := range me.Children {
@@ -245,9 +245,9 @@ func Match[T ITrack](me *proto.PublicationPattern, track T) bool {
 	}
 }
 
-func MatchTracks[T ITrack](me *proto.PublicationPattern, tracks []T, reqTypes []string) (matched []T, unmatched []T) {
-	tracksByPub := map[string][]T{}
-	unmatched = []T{}
+func MatchTracks(me *proto.PublicationPattern, tracks []*Track, reqTypes []string) (matched []*Track, unmatched []*Track) {
+	tracksByPub := map[string][]*Track{}
+	unmatched = []*Track{}
 	for _, track := range tracks {
 		if Match(me, track) {
 			ts := tracksByPub[track.GetPubId()]
@@ -258,7 +258,7 @@ func MatchTracks[T ITrack](me *proto.PublicationPattern, tracks []T, reqTypes []
 	}
 	reqVideo := utils.InSlice(reqTypes, "video", nil)
 	reqAudio := utils.InSlice(reqTypes, "audio", nil)
-	matched = []T{}
+	matched = []*Track{}
 	for _, ts := range tracksByPub {
 		videoCond := !reqVideo
 		audioCond := !reqAudio

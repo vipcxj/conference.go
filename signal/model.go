@@ -97,10 +97,11 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 		s.acceptedTrack = map[string]*SubscribedTrack{}
 	}
 	need_neg := false
+	var subTracks []*Track
 	for _, matched := range matcheds {
-		subscribedTrack, ok := s.acceptedTrack[matched.GlobalId]
+		track := CopyTrack(matched)
+		subscribedTrack, ok := s.acceptedTrack[track.GlobalId]
 		if !ok {
-			track := NewTrack(matched)
 			accepter := router.AcceptTrack(track)
 			sender, err := peer.AddTrack(accepter.track)
 			if err != nil {
@@ -127,18 +128,19 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 				bindId:   mid,
 				accepter: accepter,
 				sender:   sender,
-				labels:   matched.Labels,
+				labels:   track.Labels,
 			}
-			s.acceptedTrack[matched.GlobalId] = subscribedTrack
+			s.acceptedTrack[track.GlobalId] = subscribedTrack
 			accepter.BindSub(s)
-			matched.LocalId = accepter.track.ID()
-			matched.BindId = mid
-			matched.StreamId = sid
+			track.LocalId = accepter.track.ID()
+			track.BindId = mid
+			track.StreamId = sid
 		} else {
-			matched.LocalId = subscribedTrack.accepter.track.ID()
-			matched.BindId = subscribedTrack.bindId
-			matched.StreamId = subscribedTrack.sid
+			track.LocalId = subscribedTrack.accepter.track.ID()
+			track.BindId = subscribedTrack.bindId
+			track.StreamId = subscribedTrack.sid
 		}
+		subTracks = append(subTracks, track)
 	}
 	if need_neg {
 		sdpId := s.ctx.NextSdpMsgId()
@@ -161,7 +163,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 			SubId:  s.id,
 			PubId:  msg.PubId,
 			SdpId:  sdpId,
-			Tracks: matcheds,
+			Tracks: subTracks,
 		}
 		s.ctx.Socket.Emit("subscribed", respMsg)
 		go func() {
@@ -246,21 +248,22 @@ func (me *Publication) Audio() *PublishedTrack {
 
 var RECORD_PACKET_POOL = &sync.Pool{
 	New: func() any {
-		return make([]byte, PACKET_MAX_SIZE)
+		buf := make([]byte, PACKET_MAX_SIZE)
+		return &buf
 	},
 }
 
-func BorrowRecordPacketBuf() []byte {
-	return RECORD_PACKET_POOL.Get().([]byte)
+func BorrowRecordPacketBuf() *[]byte {
+	return RECORD_PACKET_POOL.Get().(*[]byte)
 }
 
-func ReturnRecordPacketBuf(buf []byte) {
+func ReturnRecordPacketBuf(buf *[]byte) {
 	RECORD_PACKET_POOL.Put(buf)
 }
 
 type PacketBox struct {
 	pkg  *rtp.Packet
-	buff []byte
+	buff *[]byte
 }
 
 func extractLabelsFromLabeledTrack(t common.LabeledTrack) map[string]string {
@@ -340,7 +343,7 @@ func (me *Publication) startRecord() {
 	segmenter, err := segmenter.NewSegmenter(
 		tracks, dirTemplate, indexTemplate, segmentDuration, gopSize,
 		segmenter.WithBaseTemplate(config.Conf().Record.BasePath),
-		segmenter.WithPacketReleaseHandler(func(p *rtp.Packet, b []byte) {
+		segmenter.WithPacketReleaseHandler(func(p *rtp.Packet, b *[]byte) {
 			ReturnRecordPacketBuf(b)
 		}),
 		segmenter.WithSegmentHandler(func(sc *segmenter.SegmentContext) {
@@ -378,9 +381,9 @@ func (me *Publication) startRecord() {
 				return true
 			}
 			buf := BorrowRecordPacketBuf()
-			copy(buf, data)
+			copy(*buf, data)
 			packet := &rtp.Packet{}
-			err = packet.Unmarshal(buf[:len(data)])
+			err = packet.Unmarshal((*buf)[:len(data)])
 			if err != nil {
 				panic(err)
 			}
@@ -428,18 +431,21 @@ func (me *Publication) startRecord() {
 	}()
 }
 
+func (me *Publication) isAllBind() bool {
+	return utils.MapAllMatch(me.tracks, func(s string, pt *PublishedTrack) bool {
+		return pt.isBind()
+	})
+}
+
 func (me *Publication) Bind() bool {
-	allBind := true
 	for _, pt := range me.tracks {
-		if !pt.Bind() {
-			allBind = false
-		}
+		pt.Bind()
 	}
-	if allBind {
+	if me.isAllBind() {
 		me.startRecord()
 		r := GetRouter()
 		tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *proto.Track, remove bool) {
-			return pt.track.ToProto(), false
+			return pt.track, false
 		})
 		for _, room := range me.ctx.Rooms() {
 			msg := &StateMessage{
@@ -466,9 +472,7 @@ func (me *Publication) State(want *WantMessage) []*proto.Track {
 		return pt.track, !pt.isBind()
 	})
 	matched, _ := MatchTracks(want.Pattern, tracks, want.ReqTypes)
-	return utils.MapSlice(matched, func(t *Track) (*proto.Track, bool) {
-		return t.ToProto(), false
-	})
+	return matched
 }
 
 func (me *Publication) SatifySelect(sel *SelectMessage) {
@@ -609,9 +613,9 @@ func (pt *PublishedTrack) Bind() bool {
 	rt, t := ctx.findTracksRemoteByMidAndRid(peer, pt.StreamId(), pt.BindId(), pt.Rid())
 	if rt != nil {
 		if rt == pt.remote {
-			return false
+			return true
 		} else if pt.remote != nil {
-			fmt.Println("rebind")
+			ctx.Sugar().Debugf("rebind track, old track: %s/%s", pt.remote.ID(), pt.remote.Msid())
 		}
 		ctx.Sugar().Debugf("bind track with mid %s/%s", pt.BindId(), t.Mid())
 		codec := rt.Codec()
@@ -642,8 +646,8 @@ func (me *PublishedTrack) SatifySelect(transportId string) bool {
 	me.mu.Lock()
 	defer me.mu.Unlock()
 	tr, _ := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.Rid())
-	ctx.Sugar().Debugf("Accepting track with codec ", tr.Codec().MimeType)
 	if tr != nil {
+		ctx.Sugar().Debugf("Accepting track with codec ", tr.Codec().MimeType)
 		r := GetRouter()
 		ch := r.PublishTrack(me.GlobalId(), transportId)
 		var onRTP RTPConsumer = func(ssrc webrtc.SSRC, data []byte, attrs interceptor.Attributes, err error) bool {
@@ -943,11 +947,11 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 		err = errors.ThisIsImpossible().GenCallStacks(0)
 		return
 	}
-	var pub *Publication
+	// var pub *Publication
 	var loaded bool = true
 	for loaded {
 		pubId = uuid.NewString()
-		pub, loaded = ctx.publications.GetOrCompute(pubId, func() *Publication {
+		_, loaded = ctx.publications.GetOrCompute(pubId, func() *Publication {
 			pub := &Publication{
 				id:      pubId,
 				ctx:     ctx,
@@ -972,7 +976,7 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 			return pub
 		})
 	}
-	pub.Bind()
+	// pub.Bind()
 	return
 }
 
@@ -981,15 +985,18 @@ func (ctx *SignalContext) StateWant(message *WantMessage) {
 	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
 		satified := pub.State(message)
 		if len(satified) > 0 {
-			msg := &StateMessage{
-				PubId:  pub.id,
-				Tracks: satified,
-				Addr:   r.Addr(),
+			for _, room := range ctx.Rooms() {
+				msg := &StateMessage{
+					Router: &proto.Router{
+						Room: room,
+					},
+					PubId:  pub.id,
+					Tracks: satified,
+					Addr:   r.Addr(),
+				}
+				// to all in room include self
+				ctx.Messager.Emit(context.TODO(), msg)
 			}
-			// to all in room include self
-			ctx.Messager.Emit(context.TODO(), msg)
-			// ctx.Socket.To(ctx.Rooms()...).Emit("state", msg)
-			// ctx.Socket.Emit("state", msg)
 		}
 		return true
 	})

@@ -12,7 +12,7 @@ import (
 type packet struct {
 	start, end bool
 	packet     *rtp.Packet
-	buff       []byte
+	buff       *[]byte
 }
 
 // SampleBuilder buffers packets and produces media frames
@@ -26,7 +26,7 @@ type SampleBuilder struct {
 
 	maxLate              uint16
 	depacketizer         rtp.Depacketizer
-	packetReleaseHandler func(*rtp.Packet, []byte)
+	packetReleaseHandler func(*rtp.Packet, *[]byte)
 	sampleRate           uint32
 
 	// indicates whether the lastSeqno field is valid
@@ -69,7 +69,7 @@ type Option func(o *SampleBuilder)
 
 // WithPacketReleaseHandler sets a callback that is called when the
 // builder is about to release some packet.
-func WithPacketReleaseHandler(h func(*rtp.Packet, []byte)) Option {
+func WithPacketReleaseHandler(h func(*rtp.Packet, *[]byte)) Option {
 	return func(s *SampleBuilder) {
 		s.packetReleaseHandler = h
 	}
@@ -227,7 +227,7 @@ func (s *SampleBuilder) drop() (bool, uint32) {
 //
 // Push does not copy the input: the packet will be retained by s.  If you
 // plan to reuse the packet or its buffer, make sure to perform a copy.
-func (s *SampleBuilder) Push(p *rtp.Packet, buf []byte) {
+func (s *SampleBuilder) Push(p *rtp.Packet, buf *[]byte) {
 	if s.lastSeqnoValid {
 		if (s.lastSeqno-p.SequenceNumber)&0x8000 == 0 {
 			// late packet

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-contrib/graceful"
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	healthcheck "github.com/tavsec/gin-healthcheck"
 	healthchecks "github.com/tavsec/gin-healthcheck/checks"
 	healthconfig "github.com/tavsec/gin-healthcheck/config"
@@ -24,13 +25,13 @@ import (
 
 func Run(ch chan error) {
 	signal.InitRouter()
-	if !config.Conf().SignalEnable {
+	if !config.Conf().Signal.Enable {
 		ch <- errors.Ok()
 		return
 	}
 
-	host := config.Conf().SignalHost
-	port := config.Conf().SignalPort
+	host := config.Conf().Signal.HostOrIp
+	port := config.Conf().Signal.Port
 	addr := fmt.Sprintf("%s:%d", host, port)
 	var err error
 
@@ -41,16 +42,16 @@ func Run(ch chan error) {
 	}
 
 	var g *graceful.Graceful
-	if config.Conf().SignalSsl {
-		certPath := config.Conf().SignalCertPath
-		keyPath := config.Conf().SignalKeyPath
+	if config.Conf().Signal.Tls.Enable {
+		certPath := config.Conf().Signal.Tls.Cert
+		keyPath := config.Conf().Signal.Tls.Key
 		if certPath == "" || keyPath == "" {
 			ch <- errors.FatalError("to enable ssl for auth server, the authServerCertPath and authServerKeyPath must be provided")
 			return
 		}
 		g, err = graceful.New(gin.New(), graceful.WithTLS(addr, certPath, keyPath))
 	} else {
-		g, err = graceful.New(gin.New())
+		g, err = graceful.New(gin.New(), graceful.WithAddr(addr))
 	}
 	if err != nil {
 		ch <- err
@@ -62,13 +63,19 @@ func Run(ch chan error) {
 		g.Use(gin.Logger())
 	}
 
+	if config.Conf().PromEnable() {
+		g.GET("/metrics", gin.WrapH(promhttp.HandlerFor(config.Prom().Registry(), promhttp.HandlerOpts{
+			Registry: config.Prom().Registry(),
+		})))
+	}
+
 	pprof.Register(g.Engine)
 	g.Use(middleware.ErrorHandler())
-	if cors := config.Conf().SignalCors; cors != "" {
+	if cors := config.Conf().Signal.Cors; cors != "" {
 		g.Use(middleware.Cors(cors))
 	}
 
-	messager, err := signal.NewMessager(g)
+	messager, err := signal.NewMessager()
 	if err != nil {
 		ch <- err
 		return

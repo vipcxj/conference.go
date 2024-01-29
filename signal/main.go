@@ -13,13 +13,11 @@ import (
 const CLOSE_CALLBACK_PREFIX = "/conference/close"
 
 func CloseCallback(id string) string {
-	externalUrl := config.Conf().SignalExternalUrl
-	if externalUrl == "" {
-		if config.Conf().SignalSsl {
-			externalUrl = fmt.Sprintf("https://%v:%v", config.Conf().SignalHost, config.Conf().SignalPort)
-		} else {
-			externalUrl = fmt.Sprintf("http://%v:%v", config.Conf().SignalHost, config.Conf().SignalPort)
-		}
+	var externalUrl string
+	if config.Conf().Signal.Tls.Enable {
+		externalUrl = fmt.Sprintf("https://%v:%v", config.Conf().HostOrIp, config.Conf().Signal.Port)
+	} else {
+		externalUrl = fmt.Sprintf("http://%v:%v", config.Conf().HostOrIp, config.Conf().Signal.Port)
 	}
 	return fmt.Sprintf("%v%v/%v", externalUrl, CLOSE_CALLBACK_PREFIX, id)
 }

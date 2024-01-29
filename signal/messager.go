@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/plugin/kprom"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
@@ -55,7 +54,7 @@ type GinLike interface {
 	Use(middleware ...gin.HandlerFunc) gin.IRoutes
 }
 
-func NewMessager(g GinLike) (*Messager, error) {
+func NewMessager() (*Messager, error) {
 	clusterConfig := &config.Conf().Cluster
 	logger := log.Logger().With(zap.String("tag", "messager"))
 	messager := &Messager{
@@ -78,10 +77,6 @@ func NewMessager(g GinLike) (*Messager, error) {
 		kafka, err := NewKafkaClient(
 			KafkaOptGroup(clusterConfig.NodeName),
 			KafkaOptTopics(topicState, topicWant, topicSelect),
-			KafkaOptInstallMetrics(func(metrics *kprom.Metrics) {
-				ghandle := gin.WrapH(metrics.Handler())
-				g.Use(ghandle)
-			}),
 			KafkaOptWorkers(workers),
 		)
 		if err != nil {
@@ -189,10 +184,14 @@ func consumeMessage[M RoomMessage](
 	pm *PatternMap[map[string]*messagerCallbackBox[M]],
 	msg M,
 	sugar *zap.SugaredLogger,
+	nodeName string,
 ) []func(M) {
 	target := msg.GetRouter()
 	if target == nil || target.Room == "" {
 		sugar.Errorf("accept a message without router or room: %v", msg)
+		return nil
+	}
+	if target.NodeTo != "" && target.NodeTo != nodeName {
 		return nil
 	}
 	bm := make(map[string]func(M))
@@ -220,7 +219,7 @@ func (m *Messager) consumeState(msg *proto.StateMessage) {
 	funs := func () []OnStateFunc {
 		m.onStateMutex.RLock()
 		defer m.onStateMutex.RUnlock()
-		return consumeMessage(m.onStateCallbacks, msg, m.sugar)
+		return consumeMessage(m.onStateCallbacks, msg, m.sugar, m.nodeName)
 	}()
 	for _, fun := range funs {
 		go fun(msg)
@@ -243,7 +242,7 @@ func (m *Messager) consumeWant(msg *proto.WantMessage) {
 	funs := func () []OnWantFunc {
 		m.onWantMutex.RLock()
 		defer m.onWantMutex.RUnlock()
-		return consumeMessage(m.onWantCallbacks, msg, m.sugar)
+		return consumeMessage(m.onWantCallbacks, msg, m.sugar, m.nodeName)
 	}()
 	for _, fun := range funs {
 		go fun(msg)
@@ -266,10 +265,91 @@ func (m *Messager) consumeSelect(msg *proto.SelectMessage) {
 	funs := func () []OnSelectFunc {
 		m.onSelectMutex.RLock()
 		defer m.onSelectMutex.RUnlock()
-		return consumeMessage(m.onSelectCallbacks, msg, m.sugar)
+		return consumeMessage(m.onSelectCallbacks, msg, m.sugar, m.nodeName)
 	}()
 	for _, fun := range funs {
 		go fun(msg)
+	}
+}
+
+func (m *Messager) logEmitMsg(msg RoomMessage, msgType string) {
+	router := msg.GetRouter()
+	if router.GetNodeTo() != "" {
+		if router.GetUserFrom() != "" {
+			if router.GetUserTo() != "" {
+				m.Sugar().Debugf(
+					"send %s msg from user %s in node %s to use %s in room %s of node %s, msg: %v",
+					msgType,
+					router.GetUserFrom(), router.GetNodeFrom(),
+					router.GetUserTo(), router.GetRoom(), router.GetNodeTo(),
+					msg,
+				)
+			} else {
+				m.Sugar().Debugf(
+					"send %s msg from user %s in node %s to room %s of node %s, msg: %v",
+					msgType,
+					router.GetUserFrom(), router.GetNodeFrom(),
+					router.GetRoom(), router.GetNodeTo(),
+					msg,
+				)
+			}
+		} else {
+			if router.GetUserTo() != "" {
+				m.Sugar().Debugf(
+					"send %s msg from node %s to use %s in room %s of node %s, msg: %v",
+					msgType,
+					router.GetNodeFrom(),
+					router.GetUserTo(), router.GetRoom(), router.GetNodeTo(),
+					msg,
+				)
+			} else {
+				m.Sugar().Debugf(
+					"send %s msg from node %s to room %s of node %s, msg: %v",
+					msgType,
+					router.GetNodeFrom(),
+					router.GetRoom(), router.GetNodeTo(),
+					msg,
+				)
+			}
+		}
+	} else {
+		if router.GetUserFrom() != "" {
+			if router.GetUserTo() != "" {
+				m.Sugar().Debugf(
+					"send %s msg from user %s in node %s to use %s in room %s, msg: %v",
+					msgType,
+					router.GetUserFrom(), router.GetNodeFrom(),
+					router.GetUserTo(), router.GetRoom(),
+					msg,
+				)
+			} else {
+				m.Sugar().Debugf(
+					"send %s msg from user %s in node %s to room %s, msg: %v",
+					msgType,
+					router.GetUserFrom(), router.GetNodeFrom(),
+					router.GetRoom(),
+					msg,
+				)
+			}
+		} else {
+			if router.GetUserTo() != "" {
+				m.Sugar().Debugf(
+					"send %s msg from node %s to use %s in room %s, msg: %v",
+					msgType,
+					router.GetNodeFrom(),
+					router.GetUserTo(), router.GetRoom(),
+					msg,
+				)
+			} else {
+				m.Sugar().Debugf(
+					"send %s msg from node %s to room %s, msg: %v",
+					msgType,
+					router.GetNodeFrom(),
+					router.GetRoom(),
+					msg,
+				)
+			}
+		}
 	}
 }
 
@@ -285,10 +365,13 @@ func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
 	}
 	switch typedMsg := msg.(type) {
 	case *StateMessage:
+		m.logEmitMsg(msg, "state")
 		m.consumeState(typedMsg)
 	case *WantMessage:
+		m.logEmitMsg(msg, "want")
 		m.consumeWant(typedMsg)
 	case *SelectMessage:
+		m.logEmitMsg(msg, "select")
 		m.consumeSelect(typedMsg)
 	default:
 		return errors.InvalidMessage("invalid room message, unknown message type %v", reflect.TypeOf(msg))

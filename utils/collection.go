@@ -174,6 +174,24 @@ func MapSlice[T any, O any](slice []T, mapper func(T) (mapped O, remove bool)) [
 	return out[0:pos]
 }
 
+func SliceAnyMatch[T any](slice []T, predicate func(T) bool) bool {
+	for _, v := range slice {
+		if predicate(v) {
+			return true
+		}
+	}
+	return false
+}
+
+func SliceAllMatch[T any](slice []T, predicate func(T) bool) bool {
+	for _, v := range slice {
+		if !predicate(v) {
+			return false
+		}
+	}
+	return true
+}
+
 func SliceToMap[T any, K comparable, V any](slice []T, mapper func(T, int) (key K, value V, remove bool), merger func(old V, new V) V) map[K]V {
 	if slice == nil {
 		return nil

@@ -258,7 +258,7 @@ type Accepter struct {
 func NewAccepter(track *Track) *Accepter {
 	var capability webrtc.RTPCodecCapability
 	if track.Codec != nil {
-		capability = track.Codec.ToWebrtc().RTPCodecCapability
+		capability = RTPCodecParametersToWebrtc(track.Codec).RTPCodecCapability
 	} else {
 		capability = webrtc.RTPCodecCapability{
 			MimeType: webrtc.MimeTypeVP8,
@@ -366,16 +366,18 @@ func (r *Router) makeSureServer() (*net.UDPConn, error) {
 		return r.server, nil
 	}
 	defer r.mu.Unlock()
-	listenHostOrIp := config.Conf().Router.ListenHostOrIp
+	listenHostOrIp := config.Conf().Router.HostOrIp
 	if listenHostOrIp == "" {
 		listenHostOrIp = config.Conf().HostOrIp
 	}
 	if listenHostOrIp == "" {
 		listenHostOrIp = "0.0.0.0"
 	}
-	listenPort := config.Conf().Router.ListenPort
-	if listenPort > 0 {
-		listenHostOrIp = fmt.Sprintf("%s:%d", listenHostOrIp, listenPort)
+	port := config.Conf().Router.Port
+	if port > 0 {
+		listenHostOrIp = fmt.Sprintf("%s:%d", listenHostOrIp, port)
+	} else {
+		return nil, errors.InvalidConfig("invalid config, router.port is required for cluster mode")
 	}
 	addr, err := net.ResolveUDPAddr("udp", listenHostOrIp)
 	if err != nil {

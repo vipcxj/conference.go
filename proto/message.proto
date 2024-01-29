@@ -55,6 +55,41 @@ message WantMessage {
     string transportId = 4;
 }
 
+// RTCPFeedback signals the connection to use additional RTCP packet types.
+// https://draft.ortc.org/#dom-rtcrtcpfeedback
+message RTCPFeedback {
+    // Type is the type of feedback.
+    // see: https://draft.ortc.org/#dom-rtcrtcpfeedback
+    // valid: ack, ccm, nack, goog-remb, transport-cc
+	string type = 1; // @gotags: mapstructure:"type"
+    // The parameter value depends on the type.
+    // For example, type="nack" parameter="pli" will send Picture Loss Indicator packets.
+	string parameter = 2; // @gotags: mapstructure:"parameter"
+}
+
+// RTPCodecCapability provides information about codec capabilities.
+//
+// https://w3c.github.io/webrtc-pc/#dictionary-rtcrtpcodeccapability-members
+// RTPCodecParameters is a sequence containing the media codecs that an RtpSender
+// will choose from, as well as entries for RTX, RED and FEC mechanisms. This also
+// includes the PayloadType that has been negotiated
+//
+// https://w3c.github.io/webrtc-pc/#rtcrtpcodecparameters
+message RTPCodecParameters {
+	// @gotags: mapstructure:"mimeType"
+	string mimeType = 1;
+	// @gotags: mapstructure:"clockRate"
+	uint32 clockRate = 2;
+	// @gotags: mapstructure:"channels"
+	uint32 channels = 3;
+	// @gotags: mapstructure:"sdpFmtpLine"
+	string sdpFmtpLine = 4;
+	// @gotags: mapstructure:"rtcpFeedback"
+	repeated RTCPFeedback rtcpFeedback = 5;
+	// @gotags: mapstructure:"payloadType"
+	uint32 payloadType = 6;
+}
+
 message Track {
 	// @gotags: mapstructure:"type"
 	string type = 1;
@@ -72,8 +107,10 @@ message Track {
 	string rid = 6;
 	// @gotags: mapstructure:"streamId"
 	string streamId = 7;
+	// @gotags: mapstructure:"codec"
+	RTPCodecParameters codec = 8;
 	// @gotags: mapstructure:"labels"
-	map<string, string> labels = 8;
+	map<string, string> labels = 9;
 }
 
 message StateMessage {

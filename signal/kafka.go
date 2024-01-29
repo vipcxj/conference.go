@@ -85,14 +85,6 @@ func MakeKafkaTopic(topic string) string {
 	}
 }
 
-func KafkaOptInstallMetrics(installer func(metrics *kprom.Metrics)) KafkaOpt {
-	return func(client *KafkaClient) {
-		if client.metrics != nil {
-			installer(client.metrics)
-		}
-	}
-}
-
 func KafkaOptGroup(group string) KafkaOpt {
 	return func(client *KafkaClient) {
 		client.group = group
@@ -137,7 +129,7 @@ func NewKafkaClient(copts... KafkaOpt) (*KafkaClient, error) {
 	}
 	var metrics *kprom.Metrics
 	if conf.Prometheus.Enable {
-		metrics = kprom.NewMetrics(conf.Prometheus.Namespace)
+		metrics = kprom.NewMetrics(conf.Prometheus.Namespace, kprom.Registry(config.Prom().Registry()), kprom.Subsystem(conf.Prometheus.Subsystem))
 		opts = append(opts, kgo.WithHooks(metrics))
 	}
 	if conf.LingerMs > 0 {

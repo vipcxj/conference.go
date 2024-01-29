@@ -689,7 +689,7 @@ type Segmenter struct {
 	indexCreated         bool
 	closing              bool
 	closed               bool
-	packetReleaseHandler func(*rtp.Packet, []byte)
+	packetReleaseHandler func(*rtp.Packet, *[]byte)
 	segmentHandler       func(*SegmentContext)
 }
 
@@ -852,7 +852,7 @@ func WithBaseTemplate(template string) Option {
 
 // WithPacketReleaseHandler sets a callback that is called when the
 // builder is about to release some packet.
-func WithPacketReleaseHandler(h func(*rtp.Packet, []byte)) Option {
+func WithPacketReleaseHandler(h func(*rtp.Packet, *[]byte)) Option {
 	return func(s *Segmenter) {
 		s.packetReleaseHandler = h
 	}
@@ -1104,7 +1104,7 @@ func (s *Segmenter) UpdateIndex(forceCreate bool) error {
 	return nil
 }
 
-func (s *Segmenter) WriteRtp(packet *rtp.Packet, buf []byte) error {
+func (s *Segmenter) WriteRtp(packet *rtp.Packet, buf *[]byte) error {
 	if s.closed {
 		return fmt.Errorf("segmenter closed")
 	}
