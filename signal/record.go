@@ -65,42 +65,42 @@ func createMongoAuth(opt *options.ClientOptions) {
 	}
 }
 
-func prepareDB(ctx context.Context) (*mongo.Collection, error) {
-	if !config.Conf().Record.Enable {
+func prepareDB(conf *config.ConferenceConfigure, ctx context.Context) (*mongo.Collection, error) {
+	if !conf.Record.Enable {
 		return nil, ErrRecordNotEnabled
 	}
-	conf := config.Conf().Record.DBIndex
-	if !conf.Enable {
+	cfg := conf.Record.DBIndex
+	if !cfg.Enable {
 		return nil, ErrRecordDBIndexNotEnabled
 	}
-	url := conf.MongoUrl
+	url := cfg.MongoUrl
 	if url == "" {
 		return nil, ErrRecordDBIndexMongoUrlRequired
 	}
 
-	if conf.Database == "" {
+	if cfg.Database == "" {
 		return nil, ErrRecordDBIndexDatabaseRequired
 	}
-	col := conf.Collection
+	col := cfg.Collection
 	if col == "" {
 		col = "record"
 	}
 
 	opt := options.Client().ApplyURI(url)
-	if conf.Auth.User != "" {
+	if cfg.Auth.User != "" {
 		createMongoAuth(opt)
-		opt.Auth.Username = conf.Auth.User
+		opt.Auth.Username = cfg.Auth.User
 	}
-	if conf.Auth.Pass != "" {
+	if cfg.Auth.Pass != "" {
 		createMongoAuth(opt)
-		opt.Auth.Password = conf.Auth.Pass
+		opt.Auth.Password = cfg.Auth.Pass
 	}
 	client, err := mongo.Connect(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
 
-	db := client.Database(conf.Database)
+	db := client.Database(cfg.Database)
 	collection := db.Collection(col)
 	_, err = collection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.M{
@@ -122,6 +122,7 @@ func prepareDB(ctx context.Context) (*mongo.Collection, error) {
 }
 
 type Recorder struct {
+	conf       *config.ConferenceConfigure
 	id         primitive.ObjectID
 	ctx        context.Context
 	collection *mongo.Collection
@@ -130,8 +131,9 @@ type Recorder struct {
 	mux        sync.Mutex
 }
 
-func NewRecorder(key string) *Recorder {
+func NewRecorder(conf *config.ConferenceConfigure, key string) *Recorder {
 	return &Recorder{
+		conf: conf,
 		key: key,
 	}
 }
@@ -202,7 +204,7 @@ func (r *Recorder) Record(segCtx *segmenter.SegmentContext) (bool, error) {
 			panic(ErrRecordThisIsImpossible)
 		}
 		r.ctx = context.Background()
-		r.collection, err = prepareDB(r.ctx)
+		r.collection, err = prepareDB(r.conf, r.ctx)
 		if err != nil {
 			r.err = err
 			return false, err

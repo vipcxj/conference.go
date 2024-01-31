@@ -96,10 +96,6 @@ func checkArgsNum(me *proto.PublicationPattern, n int, atLeast bool) error {
 	}
 }
 
-func isBoolStr(arg string) bool {
-	return arg == "true" || arg == "false"
-}
-
 func Validate(me *proto.PublicationPattern) error {
 	var err error
 	switch me.Op {

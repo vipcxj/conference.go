@@ -86,7 +86,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	}
 	s.ctx.Sugar().Infof("accept pub %v", msg)
 	s.acceptedPubId = msg.PubId
-	router := GetRouter()
+	router := s.ctx.Global.Router()
 	// accept track from addr
 	router.makeSureExternelConn(msg.Addr)
 	peer, err := s.ctx.MakeSurePeer()
@@ -155,7 +155,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 				Tracks:      matcheds,
 				TransportId: router.id.String(),
 			}
-			s.ctx.Messager.Emit(context.TODO(), selMsg)
+			s.ctx.Messager().Emit(context.TODO(), selMsg)
 		}
 		// s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
 		// s.ctx.Socket.Emit("select", selMsg)
@@ -246,6 +246,10 @@ func (me *Publication) Audio() *PublishedTrack {
 	return pt
 }
 
+func (me *Publication) Conf() *config.ConferenceConfigure {
+	return me.ctx.Global.Conf()
+}
+
 var RECORD_PACKET_POOL = &sync.Pool{
 	New: func() any {
 		buf := make([]byte, PACKET_MAX_SIZE)
@@ -271,7 +275,7 @@ func extractLabelsFromLabeledTrack(t common.LabeledTrack) map[string]string {
 }
 
 func (me *Publication) createRecordKey(tracks []common.LabeledTrack) string {
-	keyTemplate := config.Conf().Record.DBIndex.Key
+	keyTemplate := me.Conf().Record.DBIndex.Key
 	if keyTemplate == "" {
 		panic(fmt.Errorf("conf record.dbIndex.key should not be empty when dbIndex enabled"))
 	}
@@ -310,7 +314,7 @@ func (me *Publication) createRecordKey(tracks []common.LabeledTrack) string {
 }
 
 func (me *Publication) startRecord() {
-	enable := config.Conf().Record.Enable
+	enable := me.Conf().Record.Enable
 	if !enable {
 		return
 	}
@@ -322,27 +326,27 @@ func (me *Publication) startRecord() {
 	}
 	me.recordStart = true
 
-	dirTemplate := config.Conf().Record.DirPath
-	indexTemplate := config.Conf().Record.IndexName
+	dirTemplate := me.Conf().Record.DirPath
+	indexTemplate := me.Conf().Record.IndexName
 	if indexTemplate == "" {
 		panic(fmt.Errorf("conf record.indexName should not be empty"))
 	}
-	segmentDuration := config.Conf().Record.SegmentDuration
-	gopSize := config.Conf().Record.GopSize
+	segmentDuration := me.Conf().Record.SegmentDuration
+	gopSize := me.Conf().Record.GopSize
 	var tracks []common.LabeledTrack = utils.MapValuesTo(me.tracks, func(k string, v *PublishedTrack) (common.LabeledTrack, bool) {
 		return v, false
 	})
 	var recorder *Recorder
-	if config.Conf().Record.DBIndex.Enable {
+	if me.Conf().Record.DBIndex.Enable {
 		recordKey := me.createRecordKey(tracks)
 		if recordKey == "" {
 			panic(fmt.Errorf("conf record.dbIndex.key should not be empty"))
 		}
-		recorder = NewRecorder(recordKey)
+		recorder = NewRecorder(me.Conf(), recordKey)
 	}
 	segmenter, err := segmenter.NewSegmenter(
 		tracks, dirTemplate, indexTemplate, segmentDuration, gopSize,
-		segmenter.WithBaseTemplate(config.Conf().Record.BasePath),
+		segmenter.WithBaseTemplate(me.Conf().Record.BasePath),
 		segmenter.WithPacketReleaseHandler(func(p *rtp.Packet, b *[]byte) {
 			ReturnRecordPacketBuf(b)
 		}),
@@ -442,8 +446,9 @@ func (me *Publication) Bind() bool {
 		pt.Bind()
 	}
 	if me.isAllBind() {
+		me.ctx.Sugar().Debugf("pub %s all bind", me.id)
 		me.startRecord()
-		r := GetRouter()
+		r := me.ctx.Global.Router()
 		tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *proto.Track, remove bool) {
 			return pt.track, false
 		})
@@ -457,7 +462,7 @@ func (me *Publication) Bind() bool {
 				Addr:   r.Addr(),
 			}
 			// to all in room include self
-			me.ctx.Messager.Emit(context.TODO(), msg)
+			me.ctx.Messager().Emit(context.TODO(), msg)
 		}
 		// me.ctx.Socket.To(me.ctx.Rooms()...).Emit("state", msg)
 		// me.ctx.Socket.Emit("state", msg)
@@ -561,6 +566,7 @@ func (me *PublishedTrack) OnRTPPacket(consumer *RTPConsumer) (unon func()) {
 					return
 				default:
 					n, attrs, err := me.remote.Read(buffer)
+					me.pub.ctx.Metrics().OnWebrtcRtpRead(me.pub.ctx, n)
 					if err != nil {
 						consumes(nil, nil, err)
 						break
@@ -620,10 +626,13 @@ func (pt *PublishedTrack) Bind() bool {
 		ctx.Sugar().Debugf("bind track with mid %s/%s", pt.BindId(), t.Mid())
 		codec := rt.Codec()
 		if codec.MimeType != "" {
+			ctx.Sugar().Debugf("track mime type gotten: %s", codec.MimeType)
 			pt.track.Codec = NewRTPCodecParameters(&codec)
 		} else {
+			ctx.Sugar().Debugf("no track mime type found, track with mid %s/%s bind failed", pt.BindId(), t.Mid())
 			return false
 		}
+		ctx.Sugar().Debugf("track with mid %s/%s bind successfully", pt.BindId(), t.Mid())
 		pt.remote = rt
 		pt.track.LocalId = rt.ID()
 		ctx.Socket.Emit("published", &PublishedMessage{
@@ -648,7 +657,7 @@ func (me *PublishedTrack) SatifySelect(transportId string) bool {
 	tr, _ := ctx.findTracksRemoteByMidAndRid(peer, me.StreamId(), me.BindId(), me.Rid())
 	if tr != nil {
 		ctx.Sugar().Debugf("Accepting track with codec ", tr.Codec().MimeType)
-		r := GetRouter()
+		r := me.pub.ctx.Global.Router()
 		ch := r.PublishTrack(me.GlobalId(), transportId)
 		var onRTP RTPConsumer = func(ssrc webrtc.SSRC, data []byte, attrs interceptor.Attributes, err error) bool {
 			if err != nil {
@@ -693,7 +702,7 @@ func (me *PublishedTrack) SatifySelect(transportId string) bool {
 
 type SignalContext struct {
 	Id                string
-	Messager          *Messager
+	Global            *Global
 	Socket            *socket.Socket
 	AuthInfo          *auth.AuthInfo
 	Peer              *webrtc.PeerConnection
@@ -725,6 +734,14 @@ func newSignalContext(socket *socket.Socket, authInfo *auth.AuthInfo, id string)
 		logger:        logger,
 		sugar:         logger.Sugar(),
 	}
+}
+
+func (ctx *SignalContext) Messager() *Messager {
+	return ctx.Global.GetMessager()
+}
+
+func (ctx *SignalContext) Metrics() *Metrics {
+	return ctx.Global.GetMetrics()
 }
 
 func (ctx *SignalContext) Logger() *zap.Logger {
@@ -773,9 +790,9 @@ func (ctx *SignalContext) Close(disableCloseCallback bool) {
 	if disableCloseCallback {
 		ctx.disableCloseCallback()
 	}
-	ctx.Messager.OffState(ctx.Id, ctx.RoomPaterns()...)
-	ctx.Messager.OffWant(ctx.Id, ctx.RoomPaterns()...)
-	ctx.Messager.OffSelect(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffState(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffWant(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffSelect(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Sugar().Debugf("signal context closing")
 	ctx.closePeer()
 	ctx.publications.ForEach(func(k string, pub *Publication) bool {
@@ -867,7 +884,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 		panic(errors.ThisIsImpossible().GenCallStacks(0))
 	}
 
-	r := GetRouter()
+	r := ctx.Global.Router()
 
 	for _, room := range ctx.Rooms() {
 		want := &WantMessage{
@@ -877,7 +894,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 			Pattern:     message.Pattern,
 			TransportId: r.id.String(),
 		}
-		ctx.Messager.Emit(context.TODO(), want)
+		ctx.Messager().Emit(context.TODO(), want)
 		// broadcast above include self, the pub in self may satify the sub too. so should check self.
 	}
 	return
@@ -981,7 +998,7 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 }
 
 func (ctx *SignalContext) StateWant(message *WantMessage) {
-	r := GetRouter()
+	r := ctx.Global.Router()
 	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
 		satified := pub.State(message)
 		if len(satified) > 0 {
@@ -995,7 +1012,7 @@ func (ctx *SignalContext) StateWant(message *WantMessage) {
 					Addr:   r.Addr(),
 				}
 				// to all in room include self
-				ctx.Messager.Emit(context.TODO(), msg)
+				ctx.Messager().Emit(context.TODO(), msg)
 			}
 		}
 		return true
@@ -1170,9 +1187,9 @@ func RegisterLeastCodecs(m *webrtc.MediaEngine) error {
 	return nil
 }
 
-func createPeer() (*webrtc.PeerConnection, error) {
+func createPeer(conf *config.ConferenceConfigure) (*webrtc.PeerConnection, error) {
 	m := &webrtc.MediaEngine{}
-	if config.Conf().Record.Enable {
+	if conf.Record.Enable {
 		if err := RegisterLeastCodecs(m); err != nil {
 			return nil, err
 		}
@@ -1197,7 +1214,7 @@ func createPeer() (*webrtc.PeerConnection, error) {
 	i.Add(intervalPliFactory)
 	// Create the API object with the MediaEngine
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
-	config := config.Conf().GetWebrtcConfiguration()
+	config := conf.GetWebrtcConfiguration()
 	// Create a new RTCPeerConnection
 	peer, err := api.NewPeerConnection(config)
 	if err != nil {
@@ -1220,7 +1237,7 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 	if ctx.Peer != nil {
 		peer = ctx.Peer
 	} else {
-		peer, err = createPeer()
+		peer, err = createPeer(ctx.Global.Conf())
 		if err != nil {
 			return
 		}
@@ -1257,7 +1274,10 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 		peer.OnConnectionStateChange(func(pcs webrtc.PeerConnectionState) {
 			ctx.Sugar().Info("peer connect state changed from ", lastState, " to ", pcs)
 			lastState = pcs
-			if pcs == webrtc.PeerConnectionStateClosed {
+			if pcs == webrtc.PeerConnectionStateConnected {
+				ctx.Metrics().OnWebrtcConnectStart(ctx)
+			} else if pcs == webrtc.PeerConnectionStateClosed {
+				ctx.Metrics().OnWebrtcConnectClose(ctx)
 				ctx.Close(false)
 			}
 		})

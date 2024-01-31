@@ -38,13 +38,14 @@ type OnSelectFuncBox = messagerCallbackBox[*proto.SelectMessage]
 type OnSelectFuncBoxes = map[string]*OnSelectFuncBox
 
 type Messager struct {
+	global            *Global
 	nodeName          string
 	kafka             *KafkaClient
 	onStateMutex      sync.RWMutex
 	onStateCallbacks  *PatternMap[OnStateFuncBoxes]
-	onWantMutex      sync.RWMutex
+	onWantMutex       sync.RWMutex
 	onWantCallbacks   *PatternMap[OnWantFuncBoxes]
-	onSelectMutex      sync.RWMutex
+	onSelectMutex     sync.RWMutex
 	onSelectCallbacks *PatternMap[OnSelectFuncBoxes]
 	logger            *zap.Logger
 	sugar             *zap.SugaredLogger
@@ -54,33 +55,35 @@ type GinLike interface {
 	Use(middleware ...gin.HandlerFunc) gin.IRoutes
 }
 
-func NewMessager() (*Messager, error) {
-	clusterConfig := &config.Conf().Cluster
+func NewMessager(global *Global) (*Messager, error) {
+	clusterConfig := &global.Conf().Cluster
 	logger := log.Logger().With(zap.String("tag", "messager"))
 	messager := &Messager{
-		onStateCallbacks: NewPatternMap[OnStateFuncBoxes](),
-		onWantCallbacks: NewPatternMap[OnWantFuncBoxes](),
+		global:            global,
+		onStateCallbacks:  NewPatternMap[OnStateFuncBoxes](),
+		onWantCallbacks:   NewPatternMap[OnWantFuncBoxes](),
 		onSelectCallbacks: NewPatternMap[OnSelectFuncBoxes](),
-		logger: logger,
-		sugar: logger.Sugar(),
+		logger:            logger,
+		sugar:             logger.Sugar(),
 	}
 	if clusterConfig.Enable {
-		messager.nodeName = clusterConfig.NodeName
-		topicState := MakeKafkaTopic("cluster:state")
-		topicWant := MakeKafkaTopic("cluster:want")
-		topicSelect := MakeKafkaTopic("cluster:select")
-		workers := map[string]func(*kgo.Record) {
-			topicState: messager.onTopicState,
-			topicWant: messager.onTopicWant,
+		messager.nodeName = clusterConfig.GetNodeName()
+		topicState := MakeKafkaTopic(global.Conf(), "cluster:state")
+		topicWant := MakeKafkaTopic(global.Conf(), "cluster:want")
+		topicSelect := MakeKafkaTopic(global.Conf(), "cluster:select")
+		workers := map[string]func(*kgo.Record){
+			topicState:  messager.onTopicState,
+			topicWant:   messager.onTopicWant,
 			topicSelect: messager.onTopicSelect,
 		}
 		kafka, err := NewKafkaClient(
-			KafkaOptGroup(clusterConfig.NodeName),
+			global,
+			KafkaOptGroup(clusterConfig.GetNodeName()),
 			KafkaOptTopics(topicState, topicWant, topicSelect),
 			KafkaOptWorkers(workers),
 		)
 		if err != nil {
-			return nil, err
+			return nil, errors.FatalError("unable to create messager, %v", err)
 		}
 		messager.kafka = kafka
 	}
@@ -93,6 +96,10 @@ func (m *Messager) Logger() *zap.Logger {
 
 func (m *Messager) Sugar() *zap.SugaredLogger {
 	return m.sugar
+}
+
+func (m *Messager) Conf() *config.ConferenceConfigure {
+	return m.global.Conf()
 }
 
 func (m *Messager) Run(ctx context.Context) {
@@ -216,7 +223,7 @@ func (m *Messager) OffState(funId string, roomPattern ...string) {
 }
 
 func (m *Messager) consumeState(msg *proto.StateMessage) {
-	funs := func () []OnStateFunc {
+	funs := func() []OnStateFunc {
 		m.onStateMutex.RLock()
 		defer m.onStateMutex.RUnlock()
 		return consumeMessage(m.onStateCallbacks, msg, m.sugar, m.nodeName)
@@ -239,7 +246,7 @@ func (m *Messager) OffWant(funId string, roomPattern ...string) {
 }
 
 func (m *Messager) consumeWant(msg *proto.WantMessage) {
-	funs := func () []OnWantFunc {
+	funs := func() []OnWantFunc {
 		m.onWantMutex.RLock()
 		defer m.onWantMutex.RUnlock()
 		return consumeMessage(m.onWantCallbacks, msg, m.sugar, m.nodeName)
@@ -262,7 +269,7 @@ func (m *Messager) OffSelect(funId string, roomPattern ...string) {
 }
 
 func (m *Messager) consumeSelect(msg *proto.SelectMessage) {
-	funs := func () []OnSelectFunc {
+	funs := func() []OnSelectFunc {
 		m.onSelectMutex.RLock()
 		defer m.onSelectMutex.RUnlock()
 		return consumeMessage(m.onSelectCallbacks, msg, m.sugar, m.nodeName)

@@ -22,7 +22,7 @@ func NewConferenceCallback(name string, template string, ctx *SignalContext) *Co
 			"uid":           authInfo.UID,
 			"uname":         authInfo.UName,
 			"nonce":         strconv.FormatInt(int64(authInfo.Nonce), 10),
-			"closeCallback": CloseCallback(ctx.Id),
+			"closeCallback": CloseCallback(ctx.Global.Conf(), ctx.Id),
 		})
 	}
 	return &ConferenceCallback{

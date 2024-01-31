@@ -12,14 +12,8 @@ import (
 
 const CLOSE_CALLBACK_PREFIX = "/conference/close"
 
-func CloseCallback(id string) string {
-	var externalUrl string
-	if config.Conf().Signal.Tls.Enable {
-		externalUrl = fmt.Sprintf("https://%v:%v", config.Conf().HostOrIp, config.Conf().Signal.Port)
-	} else {
-		externalUrl = fmt.Sprintf("http://%v:%v", config.Conf().HostOrIp, config.Conf().Signal.Port)
-	}
-	return fmt.Sprintf("%v%v/%v", externalUrl, CLOSE_CALLBACK_PREFIX, id)
+func CloseCallback(conf *config.ConferenceConfigure, id string) string {
+	return fmt.Sprintf("%v%v/%v", conf.SignalExternalAddress(), CLOSE_CALLBACK_PREFIX, id)
 }
 
 func InitSignal(s *socket.Socket) (*SignalContext, error) {
@@ -36,7 +30,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			return ctx, err
 		}
 	}
-	cbOnStart := NewConferenceCallback("setup", config.Conf().Callback.OnStart, ctx)
+	cbOnStart := NewConferenceCallback("setup", ctx.Global.Conf().Callback.OnStart, ctx)
 	st, err := cbOnStart.Call(ctx)
 	if err != nil {
 		msg := fmt.Sprintf("start callback invoked failed with error %v, so close the singal context.", err)
@@ -50,9 +44,11 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		ctx.Close(true)
 		return nil, errors.FatalError(msg)
 	}
-	ctx.SetCloseCallback(NewConferenceCallback("close", config.Conf().Callback.OnClose, ctx))
-	GLOBAL.RegisterSignalContext(ctx)
+	ctx.Metrics().OnSignalConnectStart(ctx)
+	ctx.SetCloseCallback(NewConferenceCallback("close", ctx.Global.Conf().Callback.OnClose, ctx))
+	ctx.Global.RegisterSignalContext(ctx)
 	s.On("disconnect", func(args ...any) {
+		ctx.Metrics().OnSignalConnectClose(ctx)
 		reason := args[0].(string)
 		if reason != "ping timeout" {
 			ctx.Sugar().Infof("socket disconnect because %s", reason)
@@ -196,9 +192,9 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			Id: subId,
 		}
 	})
-	ctx.Messager.OnState(ctx.Id, ctx.AcceptTrack, ctx.RoomPaterns()...)
-	ctx.Messager.OnWant(ctx.Id, ctx.StateWant, ctx.RoomPaterns()...)
-	ctx.Messager.OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
+	ctx.Messager().OnState(ctx.Id, ctx.AcceptTrack, ctx.RoomPaterns()...)
+	ctx.Messager().OnWant(ctx.Id, ctx.StateWant, ctx.RoomPaterns()...)
+	ctx.Messager().OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
 	return ctx, nil
 }
 
@@ -219,10 +215,10 @@ func processCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, msg *Can
 	var err error
 	ctx := GetSingalContext(s)
 	if msg.Op == "add" {
-		ctx.Sugar().Debugf("Received candidate ", msg.Candidate.Candidate)
+		ctx.Sugar().Debugf("received candidate ", msg.Candidate.Candidate)
 		err = peer.AddICECandidate(msg.Candidate)
 	} else {
-		ctx.Sugar().Debugf("Received candidate completed")
+		ctx.Sugar().Debugf("received candidate completed")
 		err = peer.AddICECandidate(webrtc.ICECandidateInit{})
 	}
 	return err

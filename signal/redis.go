@@ -144,7 +144,7 @@ func MakeRedisClient(redisConfig config.RedisConfigure) (redis.UniversalClient, 
 			addrs = append(addrs, addr)
 		}
 	}
-	clientName := config.Conf().Cluster.NodeName
+	clientName := config.Conf().ClusterNodeName()
 	auths, err := parseRedisAuth(redisConfig)
 	if err != nil {
 		return nil, err

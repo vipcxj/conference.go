@@ -293,6 +293,9 @@ func (a *Accepter) Write(buf []byte) error {
 	if a.closed {
 		return io.ErrClosedPipe
 	}
+	for _, sub := range a.subs {
+		sub.ctx.Metrics().OnWebrtcRtpWrite(sub.ctx, len(buf))
+	}
 	_, err := a.track.Write(buf)
 	return err
 }
@@ -308,7 +311,7 @@ func (a *Accepter) Close() {
 }
 
 type Router struct {
-	ip            string
+	global        *Global
 	server        *net.UDPConn
 	id            uuid.UUID
 	mu            sync.Mutex
@@ -325,35 +328,31 @@ type Router struct {
 
 var ROUTER *Router = &Router{}
 
-func InitRouter() error {
-	ROUTER.ip = config.Conf().HostOrIp
+func NewRouter(global *Global) (*Router, error) {
+	router := &Router{
+		global: global,
+		track2transports: haxmap.New[string, *haxmap.Map[string, int]](),
+		track2accepters: haxmap.New[string, *Accepter](),
+		addrMap: haxmap.New[string, string](),
+		externalTransports: map[string]*net.UDPConn{},
+	}
 	id, err := uuid.NewRandom()
 	if err != nil {
-		return err
+		return nil, errors.FatalError("unable to create router, %v", err)
 	}
-	ROUTER.id = id
+	router.id = id
 	for i := 0; i < CHAN_COUNT; i++ {
-		ROUTER.incomingChans[i] = make(chan *Packet, CHAN_BUF_SIZE)
+		router.incomingChans[i] = make(chan *Packet, CHAN_BUF_SIZE)
 	}
-	ROUTER.track2transports = haxmap.New[string, *haxmap.Map[string, int]]()
-	ROUTER.track2accepters = haxmap.New[string, *Accepter]()
-	ROUTER.addrMap = haxmap.New[string, string]()
-	ROUTER.externalTransports = map[string]*net.UDPConn{}
-	return nil
+	return router, nil
 }
 
-func GetRouter() *Router {
-	return ROUTER
+func (r *Router) Conf() *config.ConferenceConfigure {
+	return r.global.Conf()
 }
 
 func (r *Router) Addr() string {
-	ser, err := r.makeSureServer()
-	if err != nil {
-		panic(err)
-	}
-	addr, _ := ser.LocalAddr().(*net.UDPAddr)
-	port := addr.Port
-	return fmt.Sprintf("%s:%d", r.ip, port)
+	return r.Conf().RouterExternalAddress()
 }
 
 func (r *Router) makeSureServer() (*net.UDPConn, error) {
@@ -366,20 +365,8 @@ func (r *Router) makeSureServer() (*net.UDPConn, error) {
 		return r.server, nil
 	}
 	defer r.mu.Unlock()
-	listenHostOrIp := config.Conf().Router.HostOrIp
-	if listenHostOrIp == "" {
-		listenHostOrIp = config.Conf().HostOrIp
-	}
-	if listenHostOrIp == "" {
-		listenHostOrIp = "0.0.0.0"
-	}
-	port := config.Conf().Router.Port
-	if port > 0 {
-		listenHostOrIp = fmt.Sprintf("%s:%d", listenHostOrIp, port)
-	} else {
-		return nil, errors.InvalidConfig("invalid config, router.port is required for cluster mode")
-	}
-	addr, err := net.ResolveUDPAddr("udp", listenHostOrIp)
+
+	addr, err := net.ResolveUDPAddr("udp", r.Conf().RouterListenAddress())
 	if err != nil {
 		return nil, err
 	}

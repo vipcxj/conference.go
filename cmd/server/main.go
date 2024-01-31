@@ -21,7 +21,7 @@ func main() {
 
 	ch := make(chan error)
 	go authserver.Run(ch)
-	go signalserver.Run(ch)
+	go signalserver.Run(config.Conf(), ch)
 	n := 2
 	for {
 		err = <-ch

@@ -23,35 +23,30 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
-func Run(ch chan error) {
-	signal.InitRouter()
-	if !config.Conf().Signal.Enable {
+func Run(conf *config.ConferenceConfigure, ch chan error) {
+	if !conf.Signal.Enable {
 		ch <- errors.Ok()
 		return
 	}
-
-	host := config.Conf().Signal.HostOrIp
-	port := config.Conf().Signal.Port
-	addr := fmt.Sprintf("%s:%d", host, port)
 	var err error
 
-	if config.Conf().Signal.Gin.Debug {
+	if conf.Signal.Gin.Debug {
 		gin.SetMode(gin.DebugMode)
 	} else {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	var g *graceful.Graceful
-	if config.Conf().Signal.Tls.Enable {
-		certPath := config.Conf().Signal.Tls.Cert
-		keyPath := config.Conf().Signal.Tls.Key
+	if conf.Signal.Tls.Enable {
+		certPath := conf.Signal.Tls.Cert
+		keyPath := conf.Signal.Tls.Key
 		if certPath == "" || keyPath == "" {
 			ch <- errors.FatalError("to enable ssl for auth server, the authServerCertPath and authServerKeyPath must be provided")
 			return
 		}
-		g, err = graceful.New(gin.New(), graceful.WithTLS(addr, certPath, keyPath))
+		g, err = graceful.New(gin.New(), graceful.WithTLS(conf.SignalListenAddress(), certPath, keyPath))
 	} else {
-		g, err = graceful.New(gin.New(), graceful.WithAddr(addr))
+		g, err = graceful.New(gin.New(), graceful.WithAddr(conf.SignalListenAddress()))
 	}
 	if err != nil {
 		ch <- err
@@ -59,30 +54,30 @@ func Run(ch chan error) {
 	}
 	defer g.Close()
 
-	if !config.Conf().Signal.Gin.NoRequestLog {
+	if !conf.Signal.Gin.NoRequestLog {
 		g.Use(gin.Logger())
 	}
 
-	if config.Conf().PromEnable() {
-		g.GET("/metrics", gin.WrapH(promhttp.HandlerFor(config.Prom().Registry(), promhttp.HandlerOpts{
-			Registry: config.Prom().Registry(),
-		})))
-	}
-
-	pprof.Register(g.Engine)
-	g.Use(middleware.ErrorHandler())
-	if cors := config.Conf().Signal.Cors; cors != "" {
-		g.Use(middleware.Cors(cors))
-	}
-
-	messager, err := signal.NewMessager()
+	global, err := signal.NewGlobal(conf)
 	if err != nil {
 		ch <- err
 		return
 	}
 
+	if conf.PromEnable() {
+		g.GET("/metrics", gin.WrapH(promhttp.HandlerFor(global.GetPromReg(), promhttp.HandlerOpts{
+			Registry: global.GetPromReg(),
+		})))
+	}
+
+	pprof.Register(g.Engine)
+	g.Use(middleware.ErrorHandler())
+	if cors := conf.Signal.Cors; cors != "" {
+		g.Use(middleware.Cors(cors))
+	}
+
 	io := socket.NewServer(nil, nil)
-	io.Use(middleware.SocketIOAuthHandler(messager))
+	io.Use(middleware.SocketIOAuthHandler(global))
 	io.On("connection", func(clients ...any) {
 		fmt.Printf("on connection\n")
 		socket := clients[0].(*socket.Socket)
@@ -105,20 +100,20 @@ func Run(ch chan error) {
 	g.POST("/socket.io/", gin.WrapH(handler))
 	g.GET(fmt.Sprintf("%v/:id", signal.CLOSE_CALLBACK_PREFIX), func(gctx *gin.Context) {
 		id := gctx.Param("id")
-		signal.GLOBAL.CloseSignalContext(id, true)
+		global.CloseSignalContext(id, true)
 	})
 
 	ctx, stop := ossignal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	go messager.Run(ctx)
+	go global.GetMessager().Run(ctx)
 
-	if config.Conf().Signal.Healthy.Enable {
+	if conf.Signal.Healthy.Enable {
 		healthConf := healthconfig.DefaultConfig()
 		healthConf.FailureNotification.Chan = make(chan error, 1)
 		defer close(healthConf.FailureNotification.Chan)
-		healthConf.FailureNotification.Threshold = uint32(config.Conf().Signal.Healthy.FailureThreshold)
-		healthConf.HealthPath = config.Conf().Signal.Healthy.Path
+		healthConf.FailureNotification.Threshold = uint32(conf.Signal.Healthy.FailureThreshold)
+		healthConf.HealthPath = conf.Signal.Healthy.Path
 
 		signalsCheck := healthchecks.NewContextCheck(ctx, "signals")
 		healthcheck.New(g.Engine, healthConf, []healthchecks.Check{signalsCheck})

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/pion/webrtc/v4"
@@ -14,6 +15,30 @@ type RedisConfigure struct {
 	Passes     string `mapstructure:"passes" json:"passes" default:"${CONF_CLUSTER_REDIS_PASSES}"`
 	KeyPrefix  string `mapstructure:"keyPrefix" json:"keyPrefix" default:"${CONF_CLUSTER_REDIS_KEY_PREFIX | cfgo:}"`
 	MasterName string `mapstructure:"masterName" json:"masterName" default:"${CONF_CLUSTER_REDIS_MASTER_NAME}"`
+}
+
+type PrometheusConfigure struct {
+	Enable    bool   `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_ENABLE | false}"`
+	Namespace string `mapstructure:"namespace" json:"namespace" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_NAMESPACE | cfgo}"`
+}
+
+type CommonPrometheusConfigure struct {
+	Enable       bool   `mapstructure:"enable" json:"enable" default:"${CONF_PROMETHEUS_ENABLE | false}"`
+	Namespace    string `mapstructure:"namespace" json:"namespace" default:"${CONF_PROMETHEUS_NAMESPACE | cfgo}"`
+	Subsystem    string `mapstructure:"subsystem" json:"subsystem" default:"${CONF_PROMETHEUS_SUBSYSTEM | common}"`
+	GoCollectors bool   `mapstructure:"goCollectors" json:"goCollectors" default:"${CONF_PROMETHEUS_GO_COLLECTORS | false}"`
+}
+
+type SignalPrometheusConfigure struct {
+	Enable    bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_PROMETHEUS_ENABLE | false}"`
+	Namespace string `mapstructure:"namespace" json:"namespace" default:"${CONF_SIGNAL_PROMETHEUS_NAMESPACE | cfgo}"`
+	Subsystem string `mapstructure:"subsystem" json:"subsystem" default:"${CONF_SIGNAL_PROMETHEUS_SUBSYSTEM | signal}"`
+}
+
+type KafkaPrometheusConfigure struct {
+	Enable    bool   `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_ENABLE | false}"`
+	Namespace string `mapstructure:"namespace" json:"namespace" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_NAMESPACE | cfgo}"`
+	Subsystem string `mapstructure:"subsystem" json:"subsystem" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_SUBSYSTEM | kafka}"`
 }
 
 type KafkaConfigure struct {
@@ -31,19 +56,42 @@ type KafkaConfigure struct {
 		Cert   string `mapstructure:"cert" json:"cert" default:"${CONF_CLUSTER_KAFKA_TLS_CERT}"`
 		Key    string `mapstructure:"key" json:"key" default:"${CONF_CLUSTER_KAFKA_TLS_KEY}"`
 	} `mapstructure:"tls" json:"tls" default:""`
-	Prometheus struct {
-		Enable    bool   `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_ENABLE | false}"`
-		Namespace string `mapstructure:"namespace" json:"namespace" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_NAMESPACE | kgo}"`
-		Subsystem string `mapstructure:"subsystem" json:"subsystem" default:"${CONF_CLUSTER_KAFKA_PROMETHEUS_SUBSYSTEM | kafka}"`
-	} `mapstructure:"prometheus" json:"prometheus" default:""`
-	MaxBufferedRecords   int    `mapstructure:"maxBufferedRecords" json:"maxBufferedRecords" default:"${CONF_CLUSTER_KAFKA_MAX_BUFFERED_RECORDS | 0}"`
-	MaxBufferedBytes     int    `mapstructure:"maxBufferedBytes" json:"maxBufferedBytes" default:"${CONF_CLUSTER_KAFKA_MAX_BUFFERED_BYTES | 0}"`
-	MaxConcurrentFetches int    `mapstructure:"maxConcurrentFetches" json:"maxConcurrentFetches" default:"${CONF_CLUSTER_KAFKA_MAX_CONCURRENT_FETCHES | 0}"`
-	FetchMaxBytes        int    `mapstructure:"fetchMaxBytes" json:"fetchMaxBytes" default:"${CONF_CLUSTER_KAFKA_FETCH_MAX_BYTES | 0}"`
-	BatchMaxBytes        int    `mapstructure:"batchMaxBytes" json:"batchMaxBytes" default:"${CONF_CLUSTER_KAFKA_FBATCH_MAX_BYTES | 0}"`
-	NoIdempotency        bool   `mapstructure:"noIdempotency" json:"noIdempotency" default:"${CONF_CLUSTER_KAFKA_NO_IDEMPOTENCY | false}"`
-	LingerMs             int    `mapstructure:"lingerMs" json:"lingerMs" default:"${CONF_CLUSTER_KAFKA_LINGER_MS | 0}"`
-	Compression          string `mapstructure:"compression" json:"compression" default:"${CONF_CLUSTER_KAFKA_COMPRESSION | none}"`
+	Prometheus           KafkaPrometheusConfigure `mapstructure:"prometheus" json:"prometheus" default:""`
+	MaxBufferedRecords   int                      `mapstructure:"maxBufferedRecords" json:"maxBufferedRecords" default:"${CONF_CLUSTER_KAFKA_MAX_BUFFERED_RECORDS | 0}"`
+	MaxBufferedBytes     int                      `mapstructure:"maxBufferedBytes" json:"maxBufferedBytes" default:"${CONF_CLUSTER_KAFKA_MAX_BUFFERED_BYTES | 0}"`
+	MaxConcurrentFetches int                      `mapstructure:"maxConcurrentFetches" json:"maxConcurrentFetches" default:"${CONF_CLUSTER_KAFKA_MAX_CONCURRENT_FETCHES | 0}"`
+	FetchMaxBytes        int                      `mapstructure:"fetchMaxBytes" json:"fetchMaxBytes" default:"${CONF_CLUSTER_KAFKA_FETCH_MAX_BYTES | 0}"`
+	BatchMaxBytes        int                      `mapstructure:"batchMaxBytes" json:"batchMaxBytes" default:"${CONF_CLUSTER_KAFKA_FBATCH_MAX_BYTES | 0}"`
+	NoIdempotency        bool                     `mapstructure:"noIdempotency" json:"noIdempotency" default:"${CONF_CLUSTER_KAFKA_NO_IDEMPOTENCY | false}"`
+	LingerMs             int                      `mapstructure:"lingerMs" json:"lingerMs" default:"${CONF_CLUSTER_KAFKA_LINGER_MS | 0}"`
+	Compression          string                   `mapstructure:"compression" json:"compression" default:"${CONF_CLUSTER_KAFKA_COMPRESSION | none}"`
+}
+
+func (c *KafkaConfigure) GetProm() *KafkaPrometheusConfigure {
+	return &c.Prometheus
+}
+
+type ClusterConfigure struct {
+	Enable   bool           `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_ENABLE | true}"`
+	Kafka    KafkaConfigure `mapstructure:"kafka" json:"kafka" default:""`
+	Redis    RedisConfigure `mapstructure:"redis" json:"redis" default:""`
+	NodeName string         `mapstructure:"nodeName" json:"nodeName" default:"${CONF_CLUSTER_NODE_NAME}"`
+}
+
+func (c *ClusterConfigure) GetKafka() *KafkaConfigure {
+	return &c.Kafka
+}
+
+func (c *ClusterConfigure) GetRedis() *RedisConfigure {
+	return &c.Redis
+}
+
+func (c *ClusterConfigure) GetNodeName() string {
+	if c.NodeName == "" {
+		return "node0"
+	} else {
+		return c.NodeName
+	}
 }
 
 type ConferenceConfigure struct {
@@ -61,14 +109,15 @@ type ConferenceConfigure struct {
 		} `json:"iceServer,omitempty" mapstructure:"iceServer" default:""`
 		ICETransportPolicy string `json:"iceTransportPolicy,omitempty" mapstructure:"iceTransportPolicy" default:"${CONF_WEBRTC_ICETRANSPORT_POLICY}"`
 	} `json:"webrtc,omitempty" mapstructure:"webrtc" default:""`
-	AuthServerEnable   bool   `mapstructure:"authServerEnable" default:"${CONF_AUTH_SERVER_ENABLE | true}"`
-	AuthServerHost     string `mapstructure:"authServerHost" default:"${CONF_AUTH_SERVER_HOST | localhost}"`
-	AuthServerPort     int    `mapstructure:"authServerPort" default:"${CONF_AUTH_SERVER_PORT | 3100}"`
-	AuthServerSsl      bool   `mapstructure:"authServerSsl" default:"${CONF_AUTH_SERVER_SSL | false}"`
-	AuthServerCertPath string `mapstructure:"authServerCertPath" default:"${CONF_AUTH_SERVER_CERT_PATH}"`
-	AuthServerKeyPath  string `mapstructure:"authServerKeyPath" default:"${CONF_AUTH_SERVER_KEY_PATH}"`
-	AuthServerCors     string `mapstructure:"authServerCors" default:"${CONF_AUTH_SERVER_CORS}"`
-	SecretKey          string `mapstructure:"secretKey" default:"${CONF_SECRET_KEY}"`
+	Prometheus         CommonPrometheusConfigure `mapstructure:"prometheus" json:"prometheus" default:""`
+	AuthServerEnable   bool                      `mapstructure:"authServerEnable" default:"${CONF_AUTH_SERVER_ENABLE | true}"`
+	AuthServerHost     string                    `mapstructure:"authServerHost" default:"${CONF_AUTH_SERVER_HOST | localhost}"`
+	AuthServerPort     int                       `mapstructure:"authServerPort" default:"${CONF_AUTH_SERVER_PORT | 3100}"`
+	AuthServerSsl      bool                      `mapstructure:"authServerSsl" default:"${CONF_AUTH_SERVER_SSL | false}"`
+	AuthServerCertPath string                    `mapstructure:"authServerCertPath" default:"${CONF_AUTH_SERVER_CERT_PATH}"`
+	AuthServerKeyPath  string                    `mapstructure:"authServerKeyPath" default:"${CONF_AUTH_SERVER_KEY_PATH}"`
+	AuthServerCors     string                    `mapstructure:"authServerCors" default:"${CONF_AUTH_SERVER_CORS}"`
+	SecretKey          string                    `mapstructure:"secretKey" default:"${CONF_SECRET_KEY}"`
 	Log                struct {
 		Profile string `mapstructure:"profile" json:"profile" default:"${CONF_LOG_PROFILE | production}"`
 		Level   string `mapstructure:"level" json:"level" default:"${CONF_LOG_LEVEL | info}"`
@@ -101,7 +150,7 @@ type ConferenceConfigure struct {
 	Signal struct {
 		Enable   bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_ENABLE | true}"`
 		HostOrIp string `mapstructure:"hostOrIp" json:"hostOrIp" default:"${CONF_SIGNAL_HOST_OR_IP}"`
-		Port     int    `mapstructure:"port" json:"port" default:"${CONF_SIGNAL_PORT | 8080}"`
+		Port     int    `mapstructure:"port" json:"port" default:"${CONF_SIGNAL_PORT | 0}"`
 		Cors     string `mapstructure:"cors" json:"cors" default:"${CONF_SIGNAL_CORS}"`
 		Tls      struct {
 			Enable bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_TLS_ENABLE | false}"`
@@ -117,18 +166,9 @@ type ConferenceConfigure struct {
 			FailureThreshold int    `mapstructure:"failureThreshold" json:"failureThreshold" default:"${CONF_SIGNAL_HEALTHY_FAILURE_THRESHOLD | 3}"`
 			Path             string `mapstructure:"path" json:"path" default:"${CONF_SIGNAL_HEALTHY_PATH | /healthz}"`
 		} `mapstructure:"healthy" json:"healthy" default:""`
-		Prometheus struct {
-			Enable    bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_PROMETHEUS_ENABLE | false}"`
-			Namespace string `mapstructure:"namespace" json:"namespace" default:"${CONF_SIGNAL_PROMETHEUS_NAMESPACE | kgo}"`
-			Subsystem string `mapstructure:"subsystem" json:"subsystem" default:"${CONF_SIGNAL_PROMETHEUS_SUBSYSTEM | signal}"`
-		} `mapstructure:"prometheus" json:"prometheus" default:""`
+		Prometheus SignalPrometheusConfigure `mapstructure:"prometheus" json:"prometheus" default:""`
 	} `mapstructure:"signal" json:"signal" default:""`
-	Cluster struct {
-		Enable   bool           `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_ENABLE | true}"`
-		Kafka    KafkaConfigure `mapstructure:"kafka" json:"kafka" default:""`
-		Redis    RedisConfigure `mapstructure:"redis" json:"redis" default:""`
-		NodeName string         `mapstructure:"nodeName" json:"nodeName" default:"${CONF_CLUSTER_NODE_NAME}"`
-	} `mapstructure:"cluster" json:"cluster" default:""`
+	Cluster ClusterConfigure `mapstructure:"cluster" json:"cluster" default:""`
 }
 
 type LogProfile int
@@ -219,11 +259,125 @@ func (c *ConferenceConfigure) LogProfile() LogProfile {
 }
 
 func (c *ConferenceConfigure) PromEnable() bool {
-	return c.Signal.Prometheus.Enable || c.Cluster.Kafka.Prometheus.Enable
+	return c.Prometheus.Enable || c.Signal.Prometheus.Enable || c.Cluster.Kafka.Prometheus.Enable
+}
+
+func (c *ConferenceConfigure) GetProm() *CommonPrometheusConfigure {
+	return &c.Prometheus
+}
+
+func (c *ConferenceConfigure) GetCluster() *ClusterConfigure {
+	return &c.Cluster
+}
+
+func (c *ConferenceConfigure) ExternalHostOrIp() string {
+	return c.HostOrIp
+}
+
+func (c *ConferenceConfigure) RouterListenHostOrIp() string {
+	if c.Router.HostOrIp != "" {
+		return c.Router.HostOrIp
+	} else {
+		return c.ExternalHostOrIp()
+	}
+}
+
+func (c *ConferenceConfigure) RouterPort() int {
+	return c.Router.Port
+}
+
+func (c *ConferenceConfigure) RouterListenAddress() string {
+	return fmt.Sprintf("%s:%d", c.RouterListenHostOrIp(), c.RouterPort())
+}
+
+func (c *ConferenceConfigure) RouterExternalAddress() string {
+	return fmt.Sprintf("%s:%d", c.ExternalHostOrIp(), c.RouterPort())
+}
+
+func (c *ConferenceConfigure) SignalListenHostOrIp() string {
+	if c.Signal.HostOrIp != "" {
+		return c.Signal.HostOrIp
+	} else {
+		return c.ExternalHostOrIp()
+	}
+}
+
+func (c *ConferenceConfigure) SignalPort() int {
+	port := c.Signal.Port
+	if port == 0 {
+		if c.Signal.Tls.Enable {
+			return 4430
+		} else {
+			return 8080
+		}
+	} else {
+		return port
+	}
+}
+
+func (c *ConferenceConfigure) SignalListenAddress() string {
+	return fmt.Sprintf("%s:%d", c.SignalListenHostOrIp(), c.SignalPort())
+}
+
+func (c *ConferenceConfigure) SignalExternalAddress() string {
+	port := c.SignalPort()
+	if c.Signal.Tls.Enable {
+		if port != 443 {
+			return fmt.Sprintf("https://%s:%d", c.ExternalHostOrIp(), port)
+		} else {
+			return fmt.Sprintf("https://%s", c.ExternalHostOrIp())
+		}
+	} else {
+		if port != 80 {
+			return fmt.Sprintf("http://%s:%d", c.ExternalHostOrIp(), port)
+		} else {
+			return fmt.Sprintf("http://%s", c.ExternalHostOrIp())
+		}
+	}
+}
+
+func (c *ConferenceConfigure) ClusterNodeName() string {
+	return c.Cluster.GetNodeName()
+}
+
+func requiredString(name string, value string, postfix string) error {
+	if value == "" {
+		return errors.InvalidConfig("invalid config, %s is required%s", name, postfix)
+	}
+	return nil
+}
+
+func requiredInt(name string, value int, postfix string) error {
+	if value == 0 {
+		return errors.InvalidConfig("invalid config, %s is required%s", name, postfix)
+	}
+	return nil
+}
+
+func (c *ConferenceConfigure) Validate() error {
+	err := requiredString("hostOrIp", c.HostOrIp, "")
+	if err != nil {
+		return err
+	}
+	if c.Cluster.Enable {
+		err = requiredInt("router.port", c.RouterPort(), " in cluster mode")
+		if err != nil {
+			return err
+		}
+		err = requiredString("cluster.nodeName", c.ClusterNodeName(), " in cluster mode")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var KEYS = []string{
 	"hostOrIp:string",
+	"prometheus.enable:bool",
+	"prometheus.namespace:string",
+	"prometheus.subsystem:string",
+	"prometheus.goCollectors:bool",
 	"signal.enable:bool",
 	"signal.hostOrIp:string",
 	"signal.port:int",

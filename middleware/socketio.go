@@ -12,7 +12,7 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
-func SocketIOAuthHandler(messager *signal.Messager) func(*socket.Socket, func(*socket.ExtendedError)) {
+func SocketIOAuthHandler(global *signal.Global) func(*socket.Socket, func(*socket.ExtendedError)) {
 	return func(s *socket.Socket, next func(*socket.ExtendedError)) {
 		sCtx := signal.GetSingalContext(s)
 		if sCtx != nil && sCtx.Authed() {
@@ -47,7 +47,7 @@ func SocketIOAuthHandler(messager *signal.Messager) func(*socket.Socket, func(*s
 			return
 		}
 		sCtx = signal.SetAuthInfoAndId(s, authInfo, signalId)
-		sCtx.Messager = messager
+		sCtx.Global = global
 		next(nil)
 	}
 }

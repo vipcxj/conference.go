@@ -57,7 +57,6 @@ type KafkaClient struct {
 	cl *kgo.Client
 	consumers map[tp]*pconsumer
 	workers map[string]func(record *kgo.Record)
-	metrics *kprom.Metrics
 	group string
 	topics []string
 }
@@ -75,8 +74,8 @@ func parseKafkaAddrs(addrs string) []string {
 
 type KafkaOpt func(client *KafkaClient)
 
-func MakeKafkaTopic(topic string) string {
-	prefix := config.Conf().Cluster.Kafka.TopicPrefix
+func MakeKafkaTopic(conf *config.ConferenceConfigure, topic string) string {
+	prefix := conf.Cluster.Kafka.TopicPrefix
 	prefix = strings.TrimSpace(prefix)
 	if prefix == "" {
 		return topic
@@ -103,8 +102,8 @@ func KafkaOptWorkers(workers map[string]func(*kgo.Record)) KafkaOpt {
 	}
 }
 
-func NewKafkaClient(copts... KafkaOpt) (*KafkaClient, error) {
-	conf := &config.Conf().Cluster.Kafka
+func NewKafkaClient(global *Global, copts... KafkaOpt) (*KafkaClient, error) {
+	conf := &global.Conf().Cluster.Kafka
 	var opts []kgo.Opt
 
 	addrs := parseKafkaAddrs(conf.Addrs)
@@ -129,7 +128,7 @@ func NewKafkaClient(copts... KafkaOpt) (*KafkaClient, error) {
 	}
 	var metrics *kprom.Metrics
 	if conf.Prometheus.Enable {
-		metrics = kprom.NewMetrics(conf.Prometheus.Namespace, kprom.Registry(config.Prom().Registry()), kprom.Subsystem(conf.Prometheus.Subsystem))
+		metrics = kprom.NewMetrics(conf.Prometheus.Namespace, kprom.Registry(global.GetPromReg()), kprom.Subsystem(conf.Prometheus.Subsystem))
 		opts = append(opts, kgo.WithHooks(metrics))
 	}
 	if conf.LingerMs > 0 {
