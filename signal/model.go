@@ -21,7 +21,7 @@ import (
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/pkg/common"
-	"github.com/vipcxj/conference.go/pkg/segmenter"
+	sgt "github.com/vipcxj/conference.go/pkg/segmenter"
 	"github.com/vipcxj/conference.go/proto"
 	"github.com/vipcxj/conference.go/utils"
 	"github.com/zishang520/socket.io/v2/socket"
@@ -268,6 +268,7 @@ func ReturnRecordPacketBuf(buf *[]byte) {
 type PacketBox struct {
 	pkg  *rtp.Packet
 	buff *[]byte
+	n    uint16
 }
 
 func extractLabelsFromLabeledTrack(t common.LabeledTrack) map[string]string {
@@ -291,7 +292,7 @@ func (me *Publication) createRecordKey(tracks []common.LabeledTrack) string {
 				return 0, fmt.Errorf("label name is empty")
 			}
 
-			labelValue, ok := segmenter.GetCommonLabel(labelName, tracks, extractLabelsFromLabeledTrack)
+			labelValue, ok := sgt.GetCommonLabel(labelName, tracks, extractLabelsFromLabeledTrack)
 			if !ok {
 				if len(parts) > 2 {
 					labelValue = parts[2]
@@ -313,6 +314,49 @@ func (me *Publication) createRecordKey(tracks []common.LabeledTrack) string {
 	return key
 }
 
+func (me *Publication) makeSegmenter(tracks []common.LabeledTrack) (*sgt.Segmenter, error) {
+	var recorder *Recorder
+	if me.Conf().Record.DBIndex.Enable {
+		recordKey := me.createRecordKey(tracks)
+		if recordKey == "" {
+			panic(fmt.Errorf("conf record.dbIndex.key should not be empty"))
+		}
+		recorder = NewRecorder(me.Conf(), recordKey, me.ctx.Global.Mongo())
+	}
+	dirTemplate := me.Conf().Record.DirPath
+	indexTemplate := me.Conf().Record.IndexName
+	if indexTemplate == "" {
+		panic(fmt.Errorf("conf record.indexName should not be empty"))
+	}
+	segmentDuration := me.Conf().Record.SegmentDuration
+	gopSize := me.Conf().Record.GopSize
+	segmenter, err := sgt.NewSegmenter(
+		tracks, dirTemplate, indexTemplate, segmentDuration, gopSize,
+		sgt.WithBaseTemplate(me.Conf().Record.BasePath),
+		sgt.WithPacketReleaseHandler(func(p *rtp.Packet, b *[]byte) {
+			ReturnRecordPacketBuf(b)
+		}),
+		sgt.WithSegmentHandler(func(sc *sgt.SegmentContext) {
+			if recorder != nil {
+				go func() {
+					_, err := recorder.Record(sc)
+					if err != nil {
+						me.ctx.Logger().Sugar().Errorf("record failed, %v", err)
+					}
+				}()
+			}
+		}),
+		sgt.WithTemplateContext(map[string]interface{}{
+			"auth": me.ctx.AuthInfo,
+		}),
+	)
+	if err != nil {
+		return nil, err
+	} else {
+		return segmenter, nil
+	}
+}
+
 func (me *Publication) startRecord() {
 	enable := me.Conf().Record.Enable
 	if !enable {
@@ -325,45 +369,11 @@ func (me *Publication) startRecord() {
 		return
 	}
 	me.recordStart = true
-
-	dirTemplate := me.Conf().Record.DirPath
-	indexTemplate := me.Conf().Record.IndexName
-	if indexTemplate == "" {
-		panic(fmt.Errorf("conf record.indexName should not be empty"))
-	}
-	segmentDuration := me.Conf().Record.SegmentDuration
-	gopSize := me.Conf().Record.GopSize
 	var tracks []common.LabeledTrack = utils.MapValuesTo(me.tracks, func(k string, v *PublishedTrack) (common.LabeledTrack, bool) {
 		return v, false
 	})
-	var recorder *Recorder
-	if me.Conf().Record.DBIndex.Enable {
-		recordKey := me.createRecordKey(tracks)
-		if recordKey == "" {
-			panic(fmt.Errorf("conf record.dbIndex.key should not be empty"))
-		}
-		recorder = NewRecorder(me.Conf(), recordKey)
-	}
-	segmenter, err := segmenter.NewSegmenter(
-		tracks, dirTemplate, indexTemplate, segmentDuration, gopSize,
-		segmenter.WithBaseTemplate(me.Conf().Record.BasePath),
-		segmenter.WithPacketReleaseHandler(func(p *rtp.Packet, b *[]byte) {
-			ReturnRecordPacketBuf(b)
-		}),
-		segmenter.WithSegmentHandler(func(sc *segmenter.SegmentContext) {
-			if recorder != nil {
-				go func() {
-					_, err := recorder.Record(sc)
-					if err != nil {
-						me.ctx.Logger().Sugar().Errorf("record failed, %v", err)
-					}
-				}()
-			}
-		}),
-		segmenter.WithTemplateContext(map[string]interface{}{
-			"auth": me.ctx.AuthInfo,
-		}),
-	)
+
+	segmenter, err := me.makeSegmenter(tracks)
 	if err != nil {
 		panic(err)
 	}
@@ -385,7 +395,7 @@ func (me *Publication) startRecord() {
 				return true
 			}
 			buf := BorrowRecordPacketBuf()
-			copy(*buf, data)
+			n := copy(*buf, data)
 			packet := &rtp.Packet{}
 			err = packet.Unmarshal((*buf)[:len(data)])
 			if err != nil {
@@ -395,6 +405,7 @@ func (me *Publication) startRecord() {
 			pktCh <- &PacketBox{
 				pkg:  packet,
 				buff: buf,
+				n:    uint16(n),
 			}
 			return false
 		}
@@ -429,7 +440,16 @@ func (me *Publication) startRecord() {
 			}
 			err := segmenter.WriteRtp(pkg.pkg, pkg.buff)
 			if err != nil {
-				panic(err)
+				if err == sgt.ErrBadDts {
+					segmenter.Close()
+					segmenter, err = me.makeSegmenter(tracks)
+					if err != nil {
+						panic(err)
+					}
+					continue
+				} else {
+					panic(err)
+				}
 			}
 		}
 	}()

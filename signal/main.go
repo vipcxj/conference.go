@@ -50,8 +50,8 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	s.On("disconnect", func(args ...any) {
 		ctx.Metrics().OnSignalConnectClose(ctx)
 		reason := args[0].(string)
+		ctx.Sugar().Infof("socket disconnect because %s", reason)
 		if reason != "ping timeout" {
-			ctx.Sugar().Infof("socket disconnect because %s", reason)
 			ctx.Sugar().Infof("close the socket")
 			ctx.Close(false)
 		}

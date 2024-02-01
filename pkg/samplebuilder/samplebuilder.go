@@ -22,6 +22,8 @@ type SampleBuilder struct {
 	// invariants that this data structure obeys are codified in the
 	// function check below.
 	packets    []packet
+	// o x x x x x x o
+	//   t           h
 	head, tail uint16
 
 	maxLate              uint16
@@ -92,7 +94,7 @@ func (s *SampleBuilder) check() {
 	if s.lastSeqnoValid {
 		// the last dropped packet is before tail
 		diff := s.packets[s.tail].packet.SequenceNumber - s.lastSeqno
-		if diff == 0 || diff&0x8000 != 0 {
+		if diff == 0 || diff&0x8000 != 0 { // diff <= 0 -> tailSeqno <= s.lastSeqno
 			panic("lastSeqno is after tail")
 		}
 	}
@@ -171,19 +173,33 @@ func (s *SampleBuilder) isEnd(p *rtp.Packet) bool {
 	return s.depacketizer.IsPartitionTail(p.Marker, p.Payload)
 }
 
+func (s *SampleBuilder) oldestPacket() *rtp.Packet {
+	return s.packets[s.tail].packet
+}
+
+func (s *SampleBuilder) oldestBuff() *[]byte {
+	return s.packets[s.tail].buff
+}
+
 // release releases the last packet.
 // clean packets[s.tail] and s.tail to s.tail + x where packets[s.tail + x] is not empty or packets is empty
 func (s *SampleBuilder) release() bool {
 	if s.head == s.tail {
 		return false
 	}
+	// o x o x x o
+	//   t       h
 	s.lastSeqnoValid = true
-	s.lastSeqno = s.packets[s.tail].packet.SequenceNumber
+	s.lastSeqno = s.oldestPacket().SequenceNumber
 	if s.packetReleaseHandler != nil {
-		s.packetReleaseHandler(s.packets[s.tail].packet, s.packets[s.tail].buff)
+		s.packetReleaseHandler(s.oldestPacket(), s.oldestBuff())
 	}
+	// o o o x x o
+	//     t     h   
 	s.packets[s.tail] = packet{}
 	s.tail = s.inc(s.tail)
+	// o o o x x o
+	//       t   h 
 	for s.tail != s.head && s.packets[s.tail].packet == nil {
 		s.tail = s.inc(s.tail)
 	}
@@ -207,11 +223,15 @@ func (s *SampleBuilder) drop() (bool, uint32) {
 	if s.tail == s.head {
 		return false, 0
 	}
-	ts := s.packets[s.tail].packet.Timestamp
+	// o x o x x x x o
+	//   t           h
+	ts := s.oldestPacket().Timestamp
 	s.release()
+	// o o o x x x x o
+	//       t       h
 	for s.tail != s.head {
 		if s.packets[s.tail].start ||
-			s.packets[s.tail].packet.Timestamp != ts {
+			s.oldestPacket().Timestamp != ts {
 			break
 		}
 		s.release()
@@ -229,19 +249,19 @@ func (s *SampleBuilder) drop() (bool, uint32) {
 // plan to reuse the packet or its buffer, make sure to perform a copy.
 func (s *SampleBuilder) Push(p *rtp.Packet, buf *[]byte) {
 	if s.lastSeqnoValid {
-		if (s.lastSeqno-p.SequenceNumber)&0x8000 == 0 {
+		if (s.lastSeqno-p.SequenceNumber) & 0x8000 == 0 { // s.lastSeqno >= p.SequenceNumber
 			// late packet
-			if s.lastSeqno-p.SequenceNumber > s.maxLate {
+			if s.lastSeqno - p.SequenceNumber > s.maxLate {
 				s.lastSeqnoValid = false
 			} else {
 				return
 			}
 		} else {
 			last := p.SequenceNumber - s.maxLate
-			if (last-s.lastSeqno)&0x8000 == 0 {
-				if s.head != s.tail {
-					seqno := s.packets[s.tail].packet.SequenceNumber - 1
-					if (last-seqno)&0x8000 == 0 {
+			if (last - s.lastSeqno) & 0x8000 == 0 { // last >= s.lastSeqno
+				if s.head != s.tail { // not empty
+					seqno := s.oldestPacket().SequenceNumber - 1
+					if (last - seqno) & 0x8000 == 0 { // last >= seqno
 						last = seqno
 					}
 				}
@@ -266,8 +286,15 @@ func (s *SampleBuilder) Push(p *rtp.Packet, buf *[]byte) {
 	seqno := p.SequenceNumber
 	ts := p.Timestamp
 	newest := s.dec(s.head)
-	lastSeqno := s.packets[newest].packet.SequenceNumber
-	if seqno == lastSeqno+1 {
+	newestSeqno := s.packets[newest].packet.SequenceNumber
+	if seqno == newestSeqno {
+		// duplicate packet
+		if s.packetReleaseHandler != nil {
+			s.packetReleaseHandler(p, buf)
+		}
+		return
+	}
+	if seqno == newestSeqno + 1 {
 		// sequential
 		if s.tail == s.inc(s.head) { // full
 			dropped, droppedTs := s.drop()
@@ -275,6 +302,9 @@ func (s *SampleBuilder) Push(p *rtp.Packet, buf *[]byte) {
 			if dropped && droppedTs == ts {
 				if s.tail != s.head {
 					panic(fmt.Errorf("this is impossible"))
+				}
+				if s.packetReleaseHandler != nil {
+					s.packetReleaseHandler(p, buf)
 				}
 				return
 			}
@@ -303,46 +333,71 @@ func (s *SampleBuilder) Push(p *rtp.Packet, buf *[]byte) {
 		return
 	}
 
-	if ((seqno - lastSeqno) & 0x8000) == 0 { // seqno > lastSeqno
+	if ((seqno - newestSeqno) & 0x8000) == 0 { // seqno >= newestSeqno -> seqno - newestSeqno >= 2
 		// packet in the future
-		count := seqno - lastSeqno - 1
-		if count >= s.cap() {
+		offset := seqno - newestSeqno - 1
+		count := offset + 1
+		if count > s.cap() {
 			s.releaseAll()
 			s.Push(p, buf)
 			return
 		}
 		// make free space
-		for uint16(s.Len())+count+1 >= s.cap() {
+		for uint16(s.Len()) + count > s.cap() {
 			dropped, _ := s.drop()
 			if !dropped {
 				// this shouldn't happen
+				if s.packetReleaseHandler != nil {
+					s.packetReleaseHandler(p, buf)
+				}
 				return
 			}
 		}
-		index := (s.head + count) % uint16(len(s.packets))
-		start := s.isStart(p)
-		s.packets[index] = packet{
-			start:  start,
-			end:    s.isEnd(p),
-			packet: p,
-			buff:   buf,
+		// x o x o x x x o
+		//   h t          
+		// o x o o x x x o
+		//   t           h
+		if s.tail == s.head {
+			s.packets[0] = packet{
+				start:  s.isStart(p),
+				end:    s.isEnd(p),
+				packet: p,
+				buff:   buf,
+			}
+			s.tail = 0
+			s.head = 1
+		} else {
+			index := (s.head + offset) % uint16(len(s.packets))
+			start := s.isStart(p)
+			s.packets[index] = packet{
+				start:  start,
+				end:    s.isEnd(p),
+				packet: p,
+				buff:   buf,
+			}
+			s.head = s.inc(index)
 		}
-		s.head = s.inc(index)
 		return
 	}
 
 	// packet is in the past
-	count := lastSeqno - seqno + 1
-	if count >= s.cap() {
+	offset := newestSeqno - seqno + 1
+	if offset >= s.cap() {
 		// too old
+		if s.packetReleaseHandler != nil {
+			s.packetReleaseHandler(p, buf)
+		}
 		return
 	}
-
+	// o x o o x x x o x o o
+	//     h   t         
+	// o o x x o x x o x o o
+	//     t             h
 	var index uint16
-	if s.head >= count {
-		index = s.head - count
+	if s.head >= offset {
+		index = s.head - offset
 	} else {
-		index = s.head + uint16(len(s.packets)) - count
+		index = s.head + uint16(len(s.packets)) - offset
 	}
 
 	// extend if necessary
@@ -368,6 +423,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet, buf *[]byte) {
 
 	// compute start and end flags, both for us and our neighbours
 	start := s.isStart(p)
+	// if index == s.tail, then s.tail is reset because of p is older than last tail
 	if index != s.tail {
 		prev := s.dec(index)
 		if s.packets[prev].packet != nil {
@@ -411,7 +467,7 @@ again:
 
 	if !s.packets[s.tail].start {
 		diff := s.packets[s.dec(s.head)].packet.SequenceNumber -
-			s.packets[s.tail].packet.SequenceNumber
+			s.oldestPacket().SequenceNumber
 		if force || diff > s.maxLate {
 			s.drop()
 			goto again
@@ -419,13 +475,13 @@ again:
 		return nil
 	}
 
-	seqno := s.packets[s.tail].packet.SequenceNumber
+	seqno := s.oldestPacket().SequenceNumber
 	if !force && s.lastSeqnoValid && s.lastSeqno+1 != seqno {
 		// packet loss before tail, so wait the loss packet
 		return nil
 	}
 
-	ts := s.packets[s.tail].packet.Timestamp
+	ts := s.oldestPacket().Timestamp
 	last := s.tail
 	// find end
 	for last != s.head && !s.packets[last].end {
@@ -488,4 +544,8 @@ func (s *SampleBuilder) Pop() *media.Sample {
 // guaranteed to be empty.
 func (s *SampleBuilder) ForcePop() *media.Sample {
 	return s.pop(true)
+}
+
+func (s *SampleBuilder) Close() {
+	s.releaseAll()
 }

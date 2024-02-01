@@ -10,7 +10,6 @@ import (
 	"github.com/vipcxj/conference.go/pkg/segmenter"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -65,76 +64,20 @@ func createMongoAuth(opt *options.ClientOptions) {
 	}
 }
 
-func prepareDB(conf *config.ConferenceConfigure, ctx context.Context) (*mongo.Collection, error) {
-	if !conf.Record.Enable {
-		return nil, ErrRecordNotEnabled
-	}
-	cfg := conf.Record.DBIndex
-	if !cfg.Enable {
-		return nil, ErrRecordDBIndexNotEnabled
-	}
-	url := cfg.MongoUrl
-	if url == "" {
-		return nil, ErrRecordDBIndexMongoUrlRequired
-	}
-
-	if cfg.Database == "" {
-		return nil, ErrRecordDBIndexDatabaseRequired
-	}
-	col := cfg.Collection
-	if col == "" {
-		col = "record"
-	}
-
-	opt := options.Client().ApplyURI(url)
-	if cfg.Auth.User != "" {
-		createMongoAuth(opt)
-		opt.Auth.Username = cfg.Auth.User
-	}
-	if cfg.Auth.Pass != "" {
-		createMongoAuth(opt)
-		opt.Auth.Password = cfg.Auth.Pass
-	}
-	client, err := mongo.Connect(ctx, opt)
-	if err != nil {
-		return nil, err
-	}
-
-	db := client.Database(cfg.Database)
-	collection := db.Collection(col)
-	_, err = collection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.M{
-			"key": 1,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	_, err = collection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.M{
-			"start": -1,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return collection, nil
-}
-
 type Recorder struct {
-	conf       *config.ConferenceConfigure
-	id         primitive.ObjectID
-	ctx        context.Context
-	collection *mongo.Collection
-	key        string
-	err        error
-	mux        sync.Mutex
+	conf  *config.ConferenceConfigure
+	id    primitive.ObjectID
+	mongo *Mongo
+	key   string
+	err   error
+	mux   sync.Mutex
 }
 
-func NewRecorder(conf *config.ConferenceConfigure, key string) *Recorder {
+func NewRecorder(conf *config.ConferenceConfigure, key string, mongo *Mongo) *Recorder {
 	return &Recorder{
 		conf: conf,
-		key: key,
+		key:  key,
+		mongo: mongo,
 	}
 }
 
@@ -198,19 +141,9 @@ func (r *Recorder) Record(segCtx *segmenter.SegmentContext) (bool, error) {
 	if r.err != nil {
 		return false, r.err
 	}
-	var err error
 	if segCtx.First {
-		if r.collection != nil {
-			panic(ErrRecordThisIsImpossible)
-		}
-		r.ctx = context.Background()
-		r.collection, err = prepareDB(r.conf, r.ctx)
-		if err != nil {
-			r.err = err
-			return false, err
-		}
 		record := RecordFromSegCtx(segCtx, r.key)
-		res, err := r.collection.InsertOne(r.ctx, record)
+		res, err := r.mongo.RecordCollection().InsertOne(context.Background(), record)
 		if err != nil {
 			r.err = err
 			return false, err
@@ -218,17 +151,14 @@ func (r *Recorder) Record(segCtx *segmenter.SegmentContext) (bool, error) {
 		r.id = res.InsertedID.(primitive.ObjectID)
 		return true, nil
 	} else {
-		if r.collection == nil || r.ctx == nil || r.id == primitive.NilObjectID {
+		if r.id == primitive.NilObjectID {
 			panic(ErrRecordThisIsImpossible)
 		}
 		record := RecordFromSegCtx(segCtx, r.key)
-		res, err := r.collection.ReplaceOne(r.ctx, bson.M{"_id": r.id}, record)
+		res, err := r.mongo.RecordCollection().ReplaceOne(context.Background(), bson.M{"_id": r.id}, record)
 		if err != nil {
 			r.err = err
 			return false, err
-		}
-		if segCtx.Last {
-			r.collection.Database().Client().Disconnect(r.ctx)
 		}
 		return res.MatchedCount != 0, nil
 	}

@@ -369,6 +369,16 @@ func (c *ConferenceConfigure) Validate() error {
 			return err
 		}
 	}
+	if c.Record.Enable && c.Record.DBIndex.Enable {
+		err = requiredString("record.dbIndex.mongoUrl", c.Record.DBIndex.MongoUrl, " when record enabled and record.dbIndex enabled")
+		if err != nil {
+			return err
+		}
+		err = requiredString("record.dbIndex.database", c.Record.DBIndex.Database, " when record enabled and record.dbIndex enabled")
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

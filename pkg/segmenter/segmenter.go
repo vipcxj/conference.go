@@ -3,6 +3,7 @@ package segmenter
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -67,6 +68,10 @@ func (c TrackCodec) String() string {
 		return fmt.Sprintf("unknown(%d)", c)
 	}
 }
+
+var (
+	ErrBadDts = errors.New("bad dts")
+)
 
 func AnalyzeTrackCodec(labeledTrack common.LabeledTrack) (rtp.Depacketizer, codecs.Codec, TrackCodec) {
 	if labeledTrack == nil {
@@ -185,8 +190,6 @@ type Track struct {
 	beginNTP          time.Time
 	startNTP          time.Time
 	startDTS          time.Duration
-	lastDTSFilled     bool
-	lastDTS           time.Duration
 	endNTP            time.Time
 	nextVideoSample   *augmentedSample
 	currentPart       *fmp4.Part
@@ -418,16 +421,9 @@ func (t *Track) writeH26x(pts time.Duration, data []byte) error {
 	var err error
 	dts, err = t.videoDTSExtractor.Extract(au, pts)
 	if err != nil {
-		fmt.Printf("unable to extract DTS with pts %v: %v", pts, err)
-		if t.lastDTSFilled {
-			dts = min(t.lastDTS+time.Millisecond, pts)
-		} else {
-			dts = pts
-		}
-		fmt.Printf(" use dts: %v", dts)
+		fmt.Printf("unable to extract DTS with pts %v: %v\n", pts, err)
+		return ErrBadDts
 	}
-	t.lastDTSFilled = true
-	t.lastDTS = dts
 
 	ps, err := fmp4.NewPartSampleH26x(
 		int32(durationGoToMp4(pts-dts, sampleRate)),
@@ -604,12 +600,14 @@ func (t *Track) WriteData(pts time.Duration, data []byte) error {
 	if t.closed {
 		return fmt.Errorf("track closed")
 	}
+	var err error
 	switch t.codec {
 	case TrackCodecH264:
-		return t.writeH26x(pts, data)
+		err = t.writeH26x(pts, data)
 	default:
-		return fmt.Errorf("unsupport codec %v", t.codec)
+		err = fmt.Errorf("unsupport codec %v", t.codec)
 	}
+	return err
 }
 
 func (t *Track) Close() error {
@@ -627,6 +625,7 @@ func (t *Track) Close() error {
 	if t.storage != nil {
 		t.storage.Close()
 	}
+	t.sb.Close()
 	return nil
 }
 

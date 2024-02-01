@@ -13,8 +13,12 @@ func main() {
 	log.Init()
 	err := config.Init()
 	if err != nil {
-		log.Sugar().Fatalln(err)
+		log.Sugar().Fatal(err)
 		return
+	}
+	err = config.Conf().Validate()
+	if err != nil {
+		log.Sugar().Fatal(err)
 	}
 	// init depend on inited confg
 	log.Init()
