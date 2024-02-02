@@ -206,10 +206,17 @@ func NewKafkaClient(global *Global, copts... KafkaOpt) (*KafkaClient, error) {
 		kgo.OnPartitionsLost(client.lost),
 		kgo.AutoCommitMarks(),
 		kgo.BlockRebalanceOnPoll(),
+		kgo.AllowAutoTopicCreation(),
 	)
 	
 	for _, copt := range copts {
 		copt(client)
+	}
+	if client.group != "" {
+		opts = append(opts, kgo.ConsumerGroup(client.group))
+	}
+	if len(client.topics) > 0 {
+		opts = append(opts, kgo.ConsumeTopics(client.topics...))
 	}
 	cl, err := kgo.NewClient(opts...)
 	if err != nil {

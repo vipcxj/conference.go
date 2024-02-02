@@ -16,6 +16,8 @@ function App() {
   const [mode] = useQueryParam('mode', ModParam);
   let [row] = useQueryParam('row', RowParam);
   let [col] = useQueryParam('col', ColParam);
+  let [ub] = useQueryParam("ub", withDefault(NumberParam, 0));
+  let [cluster] = useQueryParam("cluster", withDefault(NumberParam, 0))
   const props: Array<VideoProps> = [];
   const stream = useCreateOnce(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -38,6 +40,11 @@ function App() {
   }
   const colSize = 12 / col;
   for (let i = 0; i < row * col; ++i) {
+    let signalPort = 8080;
+    if (cluster > 1) {
+      const offset = (i % col) % cluster;
+      signalPort += offset;
+    }
     props[i] = {
       name: `client${i}`,
       stream: stream,
@@ -49,24 +56,24 @@ function App() {
         }]
       },
       auth: {
-        uid: `${i}`,
-        uname: `user${i}`,
+        uid: `${i + ub}`,
+        uname: `user${i + ub}`,
         role: 'student',
-        room: `room${i % row}`,
+        room: `room${i % row + ub}`,
       },
       publish: {
         labels: {
-          uid: `${i}`,
+          uid: `${i + ub}`,
         },
       },
       subscribe: {
         labels: {
-          uid: `${(i + row) % (row * col)}`,
+          uid: `${ub + ((i + row) % (row * col))}`,
         },
       },
       // signalHost: 'http://localhost:8080',
       // authHost: 'http://localhost:3100',
-      signalHost: 'http://192.168.1.233:8080',
+      signalHost: `http://192.168.1.233:${signalPort}`,
       authHost: 'http://192.168.1.233:3100',
     }
   }

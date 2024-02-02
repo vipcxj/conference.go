@@ -43,7 +43,7 @@ type KafkaPrometheusConfigure struct {
 
 type KafkaConfigure struct {
 	Addrs       string `mapstructure:"addrs" json:"addrs" default:"${CONF_CLUSTER_KAFKA_ADDRS}"`
-	TopicPrefix string `mapstructure:"topicPrefix" json:"topicPrefix" default:"${CONF_CLUSTER_KAFKA_TOPIC_PREFIX | cfgo:}"`
+	TopicPrefix string `mapstructure:"topicPrefix" json:"topicPrefix" default:"${CONF_CLUSTER_KAFKA_TOPIC_PREFIX | cfgo_}"`
 	Sasl        struct {
 		Enable bool   `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_KAFKA_SASL_ENABLE | false}"`
 		Method string `mapstructure:"method" json:"method" default:"${CONF_CLUSTER_KAFKA_SASL_METHOD}"`
@@ -67,15 +67,25 @@ type KafkaConfigure struct {
 	Compression          string                   `mapstructure:"compression" json:"compression" default:"${CONF_CLUSTER_KAFKA_COMPRESSION | none}"`
 }
 
+func (c *KafkaConfigure) Validate() error {
+	err := requiredString("cluster.addrs", c.Addrs, " in cluster mode")
+	return err
+}
+
 func (c *KafkaConfigure) GetProm() *KafkaPrometheusConfigure {
 	return &c.Prometheus
 }
 
 type ClusterConfigure struct {
-	Enable   bool           `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_ENABLE | true}"`
+	Enable   bool           `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_ENABLE | false}"`
 	Kafka    KafkaConfigure `mapstructure:"kafka" json:"kafka" default:""`
 	Redis    RedisConfigure `mapstructure:"redis" json:"redis" default:""`
 	NodeName string         `mapstructure:"nodeName" json:"nodeName" default:"${CONF_CLUSTER_NODE_NAME}"`
+	Debug    struct {
+		Enable bool `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_DEBUG_ENABLE | false}"`
+		Replicas int `mapstructure:"replicas" json:"replicas" default:"${CONF_CLUSTER_DEBUG_REPLICAS | 0}"`
+		PortOffset int `mapstructure:"portOffset" json:"portOffset" default:"${CONF_CLUSTER_DEBUG_PORT_OFFSET | 0}"`
+	} `mapstructure:"debug" json:"debug" default:""`
 }
 
 func (c *ClusterConfigure) GetKafka() *KafkaConfigure {
@@ -336,6 +346,10 @@ func (c *ConferenceConfigure) SignalExternalAddress() string {
 	}
 }
 
+func (c *ConferenceConfigure) ClusterEnable() bool {
+	return c.Cluster.Enable || c.Cluster.Debug.Enable
+}
+
 func (c *ConferenceConfigure) ClusterNodeName() string {
 	return c.Cluster.GetNodeName()
 }
@@ -359,12 +373,18 @@ func (c *ConferenceConfigure) Validate() error {
 	if err != nil {
 		return err
 	}
-	if c.Cluster.Enable {
+	if c.ClusterEnable() {
 		err = requiredInt("router.port", c.RouterPort(), " in cluster mode")
 		if err != nil {
 			return err
 		}
-		err = requiredString("cluster.nodeName", c.ClusterNodeName(), " in cluster mode")
+		if c.Cluster.Enable {
+			err = requiredString("cluster.nodeName", c.ClusterNodeName(), " in cluster mode")
+			if err != nil {
+				return err
+			}
+		}
+		err = c.Cluster.Kafka.Validate()
 		if err != nil {
 			return err
 		}
@@ -380,6 +400,36 @@ func (c *ConferenceConfigure) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (c *ConferenceConfigure) Split() []*ConferenceConfigure {
+	if !c.Cluster.Debug.Enable {
+		cfg := *c
+		return []*ConferenceConfigure{&cfg}
+	} else {
+		replicas := c.Cluster.Debug.Replicas
+		if replicas == 0 {
+			replicas = 2
+		}
+		offsetMult := c.Cluster.Debug.PortOffset
+		if offsetMult == 0 {
+			offsetMult = 1
+		}
+		cfgs := make([]*ConferenceConfigure, replicas)
+		for i := 0; i < replicas; i++ {
+			cfg := *c
+			cfg.Cluster.Enable = true
+			if cfg.Cluster.NodeName == "" {
+				cfg.Cluster.NodeName = fmt.Sprintf("node%d", i)
+			} else {
+				cfg.Cluster.NodeName = fmt.Sprintf("%s-%d", cfg.Cluster.NodeName, i)
+			}
+			cfg.Router.Port = cfg.RouterPort() + offsetMult * i
+			cfg.Signal.Port = cfg.SignalPort() + offsetMult * i
+			cfgs[i] = &cfg
+		}
+		return cfgs
+	}
 }
 
 var KEYS = []string{
@@ -466,4 +516,7 @@ var KEYS = []string{
 	"cluster.redis.passes:string",
 	"cluster.redis.keyPrefix:string",
 	"cluster.redis.masterName:string",
+	"cluster.debug.enable:bool",
+	"cluster.debug.replicas:int",
+	"cluster.debug.portOffset:int",
 }

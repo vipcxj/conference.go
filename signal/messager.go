@@ -55,6 +55,12 @@ type GinLike interface {
 	Use(middleware ...gin.HandlerFunc) gin.IRoutes
 }
 
+const (
+	TOPIC_STATE  = "cluster_state"
+	TOPIC_WANT   = "cluster_want"
+	TOPIC_SELECT = "cluster_select"
+)
+
 func NewMessager(global *Global) (*Messager, error) {
 	clusterConfig := &global.Conf().Cluster
 	logger := log.Logger().With(zap.String("tag", "messager"))
@@ -68,9 +74,9 @@ func NewMessager(global *Global) (*Messager, error) {
 	}
 	if clusterConfig.Enable {
 		messager.nodeName = clusterConfig.GetNodeName()
-		topicState := MakeKafkaTopic(global.Conf(), "cluster:state")
-		topicWant := MakeKafkaTopic(global.Conf(), "cluster:want")
-		topicSelect := MakeKafkaTopic(global.Conf(), "cluster:select")
+		topicState := MakeKafkaTopic(global.Conf(), TOPIC_STATE)
+		topicWant := MakeKafkaTopic(global.Conf(), TOPIC_WANT)
+		topicSelect := MakeKafkaTopic(global.Conf(), TOPIC_SELECT)
 		workers := map[string]func(*kgo.Record){
 			topicState:  messager.onTopicState,
 			topicWant:   messager.onTopicWant,
@@ -370,14 +376,19 @@ func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
 	} else if target.NodeFrom == "" {
 		target.NodeFrom = m.nodeName
 	}
+	var topic string
+	key := msg.GetRouter().Room
 	switch typedMsg := msg.(type) {
 	case *StateMessage:
+		topic = MakeKafkaTopic(m.Conf(), TOPIC_STATE)
 		m.logEmitMsg(msg, "state")
 		m.consumeState(typedMsg)
 	case *WantMessage:
+		topic = MakeKafkaTopic(m.Conf(), TOPIC_WANT)
 		m.logEmitMsg(msg, "want")
 		m.consumeWant(typedMsg)
 	case *SelectMessage:
+		topic = MakeKafkaTopic(m.Conf(), TOPIC_SELECT)
 		m.logEmitMsg(msg, "select")
 		m.consumeSelect(typedMsg)
 	default:
@@ -388,6 +399,8 @@ func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
 		return errors.InvalidMessage("unable to marshal room message, %v", err)
 	}
 	return m.kafka.Produce(ctx, &kgo.Record{
+		Key:   []byte(key),
+		Topic: topic,
 		Value: data,
 	})
 }

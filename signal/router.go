@@ -352,6 +352,7 @@ func (r *Router) Conf() *config.ConferenceConfigure {
 }
 
 func (r *Router) Addr() string {
+	r.makeSureServer()
 	return r.Conf().RouterExternalAddress()
 }
 

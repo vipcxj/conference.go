@@ -24,9 +24,13 @@ func main() {
 	log.Init()
 
 	ch := make(chan error)
+	n := 1
 	go authserver.Run(ch)
-	go signalserver.Run(config.Conf(), ch)
-	n := 2
+	cfgs := config.Conf().Split()
+	for _, cfg := range cfgs {
+		n ++
+		go signalserver.Run(cfg, ch)
+	}
 	for {
 		err = <-ch
 		if !errors.IsOk(err) {

@@ -155,7 +155,10 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 				Tracks:      matcheds,
 				TransportId: router.id.String(),
 			}
-			s.ctx.Messager().Emit(context.TODO(), selMsg)
+			err = s.ctx.Messager().Emit(context.TODO(), selMsg)
+			if err != nil {
+				s.ctx.Sugar().Error("select msg emit failed, %v", err)
+			}
 		}
 		// s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
 		// s.ctx.Socket.Emit("select", selMsg)
@@ -314,7 +317,7 @@ func (me *Publication) createRecordKey(tracks []common.LabeledTrack) string {
 	return key
 }
 
-func (me *Publication) makeSegmenter(tracks []common.LabeledTrack) (*sgt.Segmenter, error) {
+func (me *Publication) makeSegmenter(tracks []common.LabeledTrack, sgtBox *segmenterBox) error {
 	var recorder *Recorder
 	if me.Conf().Record.DBIndex.Enable {
 		recordKey := me.createRecordKey(tracks)
@@ -351,9 +354,24 @@ func (me *Publication) makeSegmenter(tracks []common.LabeledTrack) (*sgt.Segment
 		}),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	} else {
-		return segmenter, nil
+		sgtBox.segmenter = segmenter
+		return nil
+	}
+}
+
+type segmenterBox struct {
+	segmenter *sgt.Segmenter
+}
+
+func NewSegmenterBox() *segmenterBox {
+	return &segmenterBox{}
+}
+
+func (me *segmenterBox) Close() {
+	if me != nil && me.segmenter != nil {
+		me.segmenter.Close()
 	}
 }
 
@@ -373,7 +391,8 @@ func (me *Publication) startRecord() {
 		return v, false
 	})
 
-	segmenter, err := me.makeSegmenter(tracks)
+	sgtBox := NewSegmenterBox()
+	err := me.makeSegmenter(tracks, sgtBox)
 	if err != nil {
 		panic(err)
 	}
@@ -412,7 +431,7 @@ func (me *Publication) startRecord() {
 		track.(*PublishedTrack).OnRTPPacket(&onRTP)
 	}
 	go func() {
-		defer segmenter.Close()
+		defer sgtBox.Close()
 		trackNum := len(tracks)
 		closedTrackNum := 0
 		var ready bool
@@ -423,7 +442,7 @@ func (me *Publication) startRecord() {
 				return
 			case pkg = <-pktCh:
 				if pkg.buff == nil {
-					segmenter.CloseTrack(pkg.pkg.SSRC)
+					sgtBox.segmenter.CloseTrack(pkg.pkg.SSRC)
 					closedTrackNum++
 					continue
 				}
@@ -431,18 +450,18 @@ func (me *Publication) startRecord() {
 			if closedTrackNum == trackNum {
 				return
 			}
-			ready, err = segmenter.TryReady()
+			ready, err = sgtBox.segmenter.TryReady()
 			if err != nil {
 				panic(err)
 			}
 			if !ready {
 				continue
 			}
-			err := segmenter.WriteRtp(pkg.pkg, pkg.buff)
+			err := sgtBox.segmenter.WriteRtp(pkg.pkg, pkg.buff)
 			if err != nil {
 				if err == sgt.ErrBadDts {
-					segmenter.Close()
-					segmenter, err = me.makeSegmenter(tracks)
+					sgtBox.segmenter.Close()
+					err = me.makeSegmenter(tracks, sgtBox)
 					if err != nil {
 						panic(err)
 					}
@@ -482,7 +501,10 @@ func (me *Publication) Bind() bool {
 				Addr:   r.Addr(),
 			}
 			// to all in room include self
-			me.ctx.Messager().Emit(context.TODO(), msg)
+			err := me.ctx.Messager().Emit(context.TODO(), msg)
+			if err != nil {
+				me.ctx.Sugar().Error("state msg emit failed, %v", err)
+			}
 		}
 		// me.ctx.Socket.To(me.ctx.Rooms()...).Emit("state", msg)
 		// me.ctx.Socket.Emit("state", msg)
@@ -732,6 +754,10 @@ type SignalContext struct {
 	cand_mux          sync.Mutex
 	peer_mux          sync.Mutex
 	neg_mux           sync.Mutex
+	inited            bool
+	inited_mux        sync.Mutex
+	closed            bool
+	closed_mux        sync.Mutex
 	close_cb_disabled bool
 	close_cb_mux      sync.Mutex
 	close_cb          *ConferenceCallback
@@ -807,6 +833,16 @@ func (ctx *SignalContext) disableCloseCallback() {
 }
 
 func (ctx *SignalContext) Close(disableCloseCallback bool) {
+	if ctx.closed {
+		return
+	}
+	ctx.closed_mux.Lock()
+	if ctx.closed {
+		ctx.closed_mux.Unlock()
+		return
+	}
+	ctx.closed = true
+	defer ctx.closed_mux.Unlock()
 	if disableCloseCallback {
 		ctx.disableCloseCallback()
 	}
@@ -914,7 +950,10 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 			Pattern:     message.Pattern,
 			TransportId: r.id.String(),
 		}
-		ctx.Messager().Emit(context.TODO(), want)
+		err = ctx.Messager().Emit(context.TODO(), want)
+		if err != nil {
+			ctx.Sugar().Error("want msg emit failed, %v", err)
+		}
 		// broadcast above include self, the pub in self may satify the sub too. so should check self.
 	}
 	return
@@ -1032,7 +1071,10 @@ func (ctx *SignalContext) StateWant(message *WantMessage) {
 					Addr:   r.Addr(),
 				}
 				// to all in room include self
-				ctx.Messager().Emit(context.TODO(), msg)
+				err := ctx.Messager().Emit(context.TODO(), msg)
+				if err != nil {
+					ctx.Sugar().Error("state msg emit failed, %v", err)
+				}
 			}
 		}
 		return true
@@ -1296,7 +1338,7 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 			lastState = pcs
 			if pcs == webrtc.PeerConnectionStateConnected {
 				ctx.Metrics().OnWebrtcConnectStart(ctx)
-			} else if pcs == webrtc.PeerConnectionStateClosed {
+			} else if pcs == webrtc.PeerConnectionStateClosed || pcs == webrtc.PeerConnectionStateFailed {
 				ctx.Metrics().OnWebrtcConnectClose(ctx)
 				ctx.Close(false)
 			}

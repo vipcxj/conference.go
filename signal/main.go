@@ -21,6 +21,17 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	if ctx == nil {
 		return ctx, errors.FatalError("unable to find the signal context")
 	}
+	if ctx.inited {
+		return ctx, nil
+	}
+	ctx.inited_mux.Lock()
+	if ctx.inited {
+		ctx.inited_mux.Unlock()
+		return ctx, nil
+	}
+	ctx.inited = true
+	ctx.Sugar().Debugf("initializing the signal context")
+	defer ctx.inited_mux.Unlock()
 	auth := ctx.AuthInfo
 	if auth == nil {
 		return ctx, errors.ThisIsImpossible().GenCallStacks(0)
