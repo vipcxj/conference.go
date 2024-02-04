@@ -1019,39 +1019,46 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 	if err != nil {
 		return
 	}
-	if message.Op != PUB_OP_ADD {
-		err = errors.ThisIsImpossible().GenCallStacks(0)
-		return
+	switch message.Op {
+	case PUB_OP_ADD:
+		var loaded bool = true
+		for loaded {
+			pubId = uuid.NewString()
+			_, loaded = ctx.publications.GetOrCompute(pubId, func() *Publication {
+				pub := &Publication{
+					id:      pubId,
+					ctx:     ctx,
+					tracks:  make(map[string]*PublishedTrack),
+					closeCh: make(chan struct{}),
+				}
+				for _, t := range message.Tracks {
+					tid := uuid.NewString()
+					pub.tracks[tid] = &PublishedTrack{
+						pub: pub,
+						track: &Track{
+							Type:     t.Type,
+							PubId:    pubId,
+							GlobalId: tid,
+							BindId:   t.BindId,
+							Rid:      t.Rid,
+							StreamId: t.Sid,
+							Labels:   t.Labels,
+						},
+					}
+				}
+				return pub
+			})
+		}
+	case PUB_OP_REMOVE:
+		pub, ok := ctx.publications.Get(message.Id)
+		if ok {
+			pub.Close()
+			pubId = message.Id
+		}
+	default:
+		panic(errors.ThisIsImpossible().GenCallStacks(0))
 	}
 	// var pub *Publication
-	var loaded bool = true
-	for loaded {
-		pubId = uuid.NewString()
-		_, loaded = ctx.publications.GetOrCompute(pubId, func() *Publication {
-			pub := &Publication{
-				id:      pubId,
-				ctx:     ctx,
-				tracks:  make(map[string]*PublishedTrack),
-				closeCh: make(chan struct{}),
-			}
-			for _, t := range message.Tracks {
-				tid := uuid.NewString()
-				pub.tracks[tid] = &PublishedTrack{
-					pub: pub,
-					track: &Track{
-						Type:     t.Type,
-						PubId:    pubId,
-						GlobalId: tid,
-						BindId:   t.BindId,
-						Rid:      t.Rid,
-						StreamId: t.Sid,
-						Labels:   t.Labels,
-					},
-				}
-			}
-			return pub
-		})
-	}
 	// pub.Bind()
 	return
 }

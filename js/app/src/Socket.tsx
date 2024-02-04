@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react"
-import { ConferenceClient, PT } from "conference.go/lib"
+import { ConferenceClient, PT, TimeOutError } from "conference.go/lib"
 import type { Labels } from 'conference.go/lib/pattern'
 
 export function useOnce(effect: () => void | Promise<void>, readyFunc: () => boolean = () => true) {
@@ -77,29 +77,33 @@ export const Video = (pros: VideoProps) => {
             rtcConfig,
         });
         setClient(client);
-        try {
-            await withTimeout(client.publish({
-                stream: stream!,
-                labels: publish.labels,
-            }), 30000);
-        } catch (e) {
-            if (e === TIME_OUT) {
-                console.error(`[${client.id()}] publish timeout.`);
-                return
+        while (true) {
+            try {
+                await client.publish({
+                    stream: stream!,
+                    labels: publish.labels,
+                }, 30000);
+                break;
+            } catch (e) {
+                if (!(e instanceof TimeOutError)) {
+                    throw e;
+                }
             }
         }
-        try {
-            const ss = await withTimeout(client.subscribe(PT.All(
-                PT.TrackTypeIn('video'),
-                PT.LabelsAllMatch(subscribe.labels),
-            )), 30000);
-            if (videoRef.current) {
-                videoRef.current.srcObject = ss;
-            }
-        } catch (e) {
-            if (e === TIME_OUT) {
-                console.error(`[${client.id()}] subscribe timeout.`);
-                return
+        while (true) {
+            try {
+                const { stream: ss } = await client.subscribe(PT.All(
+                    PT.TrackTypeIn('video'),
+                    PT.LabelsAllMatch(subscribe.labels),
+                ), undefined, 30000);
+                if (videoRef.current) {
+                    videoRef.current.srcObject = ss;
+                }
+                break;
+            } catch (e) {
+                if (!(e instanceof TimeOutError)) {
+                    throw e;
+                }
             }
         }
     }, () => !!stream);

@@ -101,6 +101,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		}
 		ctx.Sugar().Infof("accept %s sdp msg with id %d", msg.Type, msg.Mid)
 		go func() {
+			defer FinallyResponse(ctx.Socket, ark, nil, "sdp")
 			locked := ctx.neg_mux.TryLock()
 			if locked {
 				ctx.Sugar().Debug("neg mux locked")

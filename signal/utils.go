@@ -25,7 +25,7 @@ func FatalErrorAndClose(s *socket.Socket, msg string, cause string) {
 	})
 }
 
-func ErrToMsg(err any) string {
+func ErrToString(err any) string {
 	var msg string
 	switch e := err.(type) {
 	case error:
@@ -34,6 +34,25 @@ func ErrToMsg(err any) string {
 		msg = fmt.Sprint(e)
 	}
 	return fmt.Sprintf("%s\n%s\n", msg, string(debug.Stack()))
+}
+
+func ErrToMsg(err any) *ErrorMessage {
+	switch typedErr := err.(type) {
+	case *errors.ConferenceError:
+		return &ErrorMessage{
+			Msg: typedErr.Msg,
+			Fatal: typedErr.Code == errors.ERR_FATAL,
+			CallFrames: typedErr.CallFrames,
+		}
+	case error:
+		return &ErrorMessage{
+			Msg: typedErr.Error(),
+		}
+	default:
+		return &ErrorMessage{
+			Msg: ErrToString(err),
+		}
+	}
 }
 
 func FinallyResponse(s *socket.Socket, ark func([]any, error), arkArgs []any, cause string) {
@@ -48,7 +67,7 @@ func FinallyResponse(s *socket.Socket, ark func([]any, error), arkArgs []any, ca
 				ark(nil, e)
 			}
 		} else {
-			FatalErrorAndClose(s, ErrToMsg(rawErr), cause)
+			FatalErrorAndClose(s, ErrToString(rawErr), cause)
 		}
 	} else {
 		if ark != nil {
@@ -96,8 +115,8 @@ type PatternNode[T any] interface {
 
 type PatternTree[T any] struct {
 	children map[string]*PatternTree[T]
-	hasData bool
-	data T
+	hasData  bool
+	data     T
 }
 
 func (me *PatternTree[T]) IsEmpty() bool {
@@ -133,7 +152,7 @@ func (me *PatternTree[T]) removePatternData(pList []string) {
 	}
 }
 
-func (me *PatternTree[T]) collect(mList []string, doubleStar bool,  results []T) []T {
+func (me *PatternTree[T]) collect(mList []string, doubleStar bool, results []T) []T {
 	if len(mList) == 0 {
 		if me.hasData {
 			results = append(results, me.data)
@@ -174,7 +193,7 @@ func (me *PatternTree[T]) collect(mList []string, doubleStar bool,  results []T)
 type PatternMap[T any] struct {
 	// should always nonull
 	inner map[string]*PatternTree[T]
-	mu sync.Mutex
+	mu    sync.Mutex
 }
 
 func NewPatternMap[T any]() *PatternMap[T] {
@@ -224,7 +243,7 @@ func (pm *PatternMap[T]) UpdatePatternData(pattern string, mapper func(old T, fo
 			hasData = pt.hasData
 			old = pt.data
 		}
-		if i + 1 == len(pList) {
+		if i+1 == len(pList) {
 			var new T
 			var remove bool
 			new, remove = mapper(old, hasData)
@@ -237,7 +256,7 @@ func (pm *PatternMap[T]) UpdatePatternData(pattern string, mapper func(old T, fo
 				} else {
 					pt = &PatternTree[T]{
 						hasData: true,
-						data: new,
+						data:    new,
 					}
 					inner[p] = pt
 				}
@@ -281,7 +300,6 @@ func (pm *PatternMap[T]) Collect(toMatch string) []T {
 	}
 	return results
 }
-
 
 func CheckPattern(pattern string) {
 	if pattern == "" {

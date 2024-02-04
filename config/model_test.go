@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 type Test struct {
@@ -28,7 +29,7 @@ func (t *TestBox) Close() {
 	t.test.Close()
 }
 
-func TestDefer(t *testing.T) {
+func TestDefer1(t *testing.T) {
 	test := &TestBox{
 		test: NewTest("1"),
 	}
@@ -40,6 +41,23 @@ func TestDefer(t *testing.T) {
 		wg.Done()
 	}()
 	wg.Wait()
+}
+
+func TestDefer2(t *testing.T) {
+	defer func ()  {
+		fmt.Println("defer")
+	} ()
+	go func() {
+		fmt.Println("before sleep")
+		time.Sleep(1 * time.Second)
+		fmt.Println("after sleep")
+	}()
+	fmt.Println("end")
+}
+
+func TestDefer3(t *testing.T) {
+	TestDefer2(t)
+	time.Sleep(2 * time.Second)
 }
 
 type Test3 struct {
@@ -75,4 +93,25 @@ func TestCopy(t *testing.T) {
 	test.C.A = "a2"
 	fmt.Printf("test: %v\n", test)
 	fmt.Printf("testCpy: %v\n", testCpy)
+}
+
+func testPanic(t *testing.T) {
+	defer func ()  {
+		err := recover()
+		if err != nil {
+			fmt.Printf("recover from error: %v", err)
+		}
+	}()
+	go func ()  {
+		time.Sleep(1 * time.Second)
+		panic("this is an error")
+	}()
+	time.Sleep(2 * time.Second)
+	fmt.Println("here1")
+}
+
+func TestPanic(t *testing.T) {
+	testPanic(t)
+	time.Sleep(1 * time.Second)
+	fmt.Println("here2")
 }

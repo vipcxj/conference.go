@@ -90,7 +90,7 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 		}
 		if err != nil {
 			suger.Errorf("socket connect failed, %v", err)
-			signal.FatalErrorAndClose(socket, signal.ErrToMsg(err), "init signal")
+			signal.FatalErrorAndClose(socket, signal.ErrToString(err), "init signal")
 		} else {
 			suger.Info("socket connected")
 		}

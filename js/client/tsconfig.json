@@ -5,7 +5,8 @@
         "lib": ["DOM", "ESNext"],
         "target": "ES5",
         "outDir": "./lib",
-        "sourceMap": true
+        "sourceMap": true,
+        "downlevelIteration": true
     },
     "include": [
         "src/**/*"

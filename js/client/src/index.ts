@@ -7,14 +7,29 @@ import { v4 as uuidv4 } from 'uuid';
 import PATTERN, { Labels, Pattern } from './pattern';
 import { ERR_PEER_CLOSED, ERR_PEER_FAILED, ERR_PEER_DISCONNECTED } from './errors';
 import { getLogger } from './log';
+import { combineAsyncIterable } from "./async";
+import { error } from "console";
 
 export const PT = PATTERN;
 
-class TimeOutError {
+export class TimeOutError extends Error {
     cleaned: boolean
 
     constructor() {
+        super();
+        Object.setPrototypeOf(this, TimeOutError.prototype);
         this.cleaned = false;
+    }
+}
+
+export class ServerError extends Error {
+
+    data: ErrorMessage
+
+    constructor(msg: ErrorMessage) {
+        super(msg.msg);
+        Object.setPrototypeOf(this, ServerError.prototype);
+        this.data = msg;
     }
 }
 
@@ -192,8 +207,8 @@ interface ListenEventMap {
 interface EmitEventMap {
     join: (msg: JoinMessage, ark: (res: any) => void) => void
     leave: (msg: LeaveMessage, ark: (res: any) => void) => void
-    subscribe: (msg: SubscribeAddMessage, ark: (res: SubscribeResultMessage) => void) => void;
-    publish: (msg: PublishAddMessage, ark: (res: PublishResultMessage) => void) => void;
+    subscribe: (msg: SubscribeAddMessage | SubscribeRemoveMessage, ark: (res: SubscribeResultMessage) => void) => void;
+    publish: (msg: PublishAddMessage | PublishRemoveMessage, ark: (res: PublishResultMessage) => void) => void;
     sdp: (msg: SdpMessage) => void;
     candidate: (msg: CandidateMessage) => void;
     want: (msg: any) => void;
@@ -206,14 +221,20 @@ interface SocketConnectState {
     reason?: string;
 }
 
+interface NamedEvent<K, T> {
+    name: K;
+    data: T;
+}
+
 interface EventData {
-    connect: SocketConnectState;
-    disconnect: SocketConnectState;
-    connectState: RTCPeerConnectionState;
-    track: [MediaStreamTrack, readonly MediaStream[], RTCRtpTransceiver];
-    subscribed: SubscribedMessage;
-    published: PublishedMessage;
-    sdp: SdpMessage;
+    connect: NamedEvent<'connect', SocketConnectState>;
+    disconnect: NamedEvent<'disconnect', SocketConnectState>;
+    connectState: NamedEvent<'connectState', RTCPeerConnectionState>;
+    track: NamedEvent<'track', [MediaStreamTrack, readonly MediaStream[], RTCRtpTransceiver]>;
+    subscribed: NamedEvent<'subscribed', SubscribedMessage>;
+    published: NamedEvent<'published', PublishedMessage>;
+    sdp: NamedEvent<'sdp', SdpMessage>;
+    error: NamedEvent<'error', ErrorMessage>;
 }
 
 export interface Configuration {
@@ -263,21 +284,37 @@ export class ConferenceClient {
             rememberUpgrade: true,
         });
         this.socket.on('connect', () => {
-            this.emitter.emit('connect', { connected: true });
+            this.emitter.emit('connect', {
+                name: 'connect',
+                data: { connected: true },
+            });
         });
         this.socket.on('disconnect', (reason) => {
-            this.emitter.emit('disconnect', { connected: false, reason });
+            this.emitter.emit('disconnect', {
+                name: 'disconnect',
+                data: { connected: false, reason },
+            });
             this.logger().warn(`socket disconnected because ${reason}`);
         })
         this.socket.on('error', (msg: ErrorMessage) => {
-            this.logger().error(`Received${msg.fatal ? " fatal " : " "}error ${msg.msg} because of ${msg.cause}`)
+            this.emitter.emit('error', {
+                name: 'error',
+                data: msg,
+            });
+            this.logger().error(`Received${msg.fatal ? " fatal " : " "}error ${msg.msg} because of ${msg.cause}`);
         });
         this.socket.on('subscribed', (msg: SubscribedMessage) => {
-            this.emitter.emit('subscribed', msg);
+            this.emitter.emit('subscribed', {
+                name: 'subscribed',
+                data: msg,
+            });
         });
         this.socket.on('published', (msg: PublishedMessage) => {
             this.logger().debug(`received published msg for pub ${msg.track.pubId} and track ${msg.track.globalId}`);
-            this.emitter.emit('published', msg);
+            this.emitter.emit('published', {
+                name: 'published',
+                data: msg,
+            });
         });
         this.socket.on('want', (msg: any) => {
             this.socket.emit('want', msg);
@@ -289,7 +326,10 @@ export class ConferenceClient {
             this.socket.emit('select', msg);
         });
         this.socket.on("sdp", async (msg: SdpMessage, ark?: Ark) => {
-            this.emitter.emit('sdp', msg);
+            this.emitter.emit('sdp', {
+                name: 'sdp',
+                data: msg,
+            });
             this.ark(ark);
             // const offerCollision = msg.type === "offer" 
             // && (this.makingOffer || peer.signalingState !== "stable");
@@ -429,7 +469,10 @@ export class ConferenceClient {
         }
         peer.onconnectionstatechange = () => {
             this.logger().log(`connection state changed to ${peer.connectionState}`);
-            this.emitter.emit('connectState', this.peer.connectionState);
+            this.emitter.emit('connectState', {
+                name: 'connectState',
+                data: this.peer.connectionState,
+            });
         }
         peer.oniceconnectionstatechange = () => {
             this.logger().log(`ice connection state changed to ${peer.iceConnectionState}`);
@@ -450,7 +493,10 @@ export class ConferenceClient {
             evt.track.onended = (evt0) => {
                 this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is ended`);
             }
-            this.emitter.emit("track", [evt.track, evt.streams, evt.transceiver]);
+            this.emitter.emit("track", {
+                name: 'track',
+                data: [evt.track, evt.streams, evt.transceiver],
+            });
             this.logger().log(`Received track ${evt.track.id} with stream id ${evt.streams[0].id}`)
         }
         return peer;
@@ -461,11 +507,11 @@ export class ConferenceClient {
             return
         }
         this.socket.connect();
-        const cs = await this.emitter.once(['connect', 'disconnect']);
-        if (!cs.connected) {
-            this.logger().error(`Unable to make sure the socket connection, because ${cs.reason}`);
+        const { data } = await this.emitter.once(['connect', 'disconnect']);
+        if (!data.connected) {
+            this.logger().error(`Unable to make sure the socket connection, because ${data.reason}`);
             this.socket.disconnect();
-            throw new Error(cs.reason);
+            throw new Error(data.reason);
         }
     }
 
@@ -549,7 +595,7 @@ export class ConferenceClient {
     private waitForNotConnecting = async () => {
         return await this.waitForEvt(
             'connectState',
-            (evt) => evt !== 'connecting',
+            (evt) => evt.data !== 'connecting',
             () => this.peer.connectionState !== 'connecting',
         );
     }
@@ -557,12 +603,12 @@ export class ConferenceClient {
     private waitForStableConnectionState = async () => {
         return await this.waitForEvt(
             'connectState',
-            (evt) => evt === 'failed' || evt === 'closed' || evt === 'connected',
+            (evt) => evt.data === 'failed' || evt.data === 'closed' || evt.data === 'connected',
             () => this.peer.connectionState === 'failed' || this.peer.connectionState  === 'closed' || this.peer.connectionState === 'connected',
         );
     }
 
-    private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<SdpMessage> | null = null) => {
+    private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<NamedEvent<'sdp', SdpMessage>> | null = null) => {
         const peer = this.peer;
         await this.waitForNotConnecting();
         if (peer.connectionState == 'closed') {
@@ -585,13 +631,13 @@ export class ConferenceClient {
             while (true) {
                 let sdpMsg: SdpMessage;
                 for await (const evt of sdpEvts) {
-                    if (evt.mid == sdpId) {
-                        if (evt.type == 'answer' || evt.type == 'pranswer') {
-                            this.logger().debug(`receive remote ${evt.type} sdp`);
-                            sdpMsg = evt;
+                    if (evt.data.mid == sdpId) {
+                        if (evt.data.type == 'answer' || evt.data.type == 'pranswer') {
+                            this.logger().debug(`receive remote ${evt.data.type} sdp`);
+                            sdpMsg = evt.data;
                             break;
                         } else {
-                            throw new Error(`Expect an answer or pranswer, but got ${evt.type}. The sdp:\n${evt.sdp}`);
+                            throw new Error(`Expect an answer or pranswer, but got ${evt.data.type}. The sdp:\n${evt.data.sdp}`);
                         }
                     }
                 }
@@ -617,14 +663,14 @@ export class ConferenceClient {
             }
             let sdpMsg: SdpMessage;
             for await (const evt of sdpEvts) {
-                if (evt.mid == sdpId) {
-                    if (evt.type === 'offer') {
-                        this.logger().debug(`receive remote ${evt.type} sdp`);
-                        sdpMsg = evt;
+                if (evt.data.mid == sdpId) {
+                    if (evt.data.type === 'offer') {
+                        this.logger().debug(`receive remote ${evt.data.type} sdp`);
+                        sdpMsg = evt.data;
                         await sdpEvts.return()
                         break;
                     } else {
-                        throw new Error(`Expect an offer, but got ${evt.type}. The sdp:\n${evt.sdp}`);
+                        throw new Error(`Expect an offer, but got ${evt.data.type}. The sdp:\n${evt.data.sdp}`);
                     }
                 }
             }
@@ -658,12 +704,18 @@ export class ConferenceClient {
         // }
     }
 
-    publish = async (stream: LocalStream) => {
-        return this.negMux.runExclusive(async () => {
+    publish = async (stream: LocalStream, timeout: number = 0) => {
+        const cleaner = {
+            stop: false,
+            stopEmitter: new Emittery<{ stop: NamedEvent<'stop', undefined> }>(),
+        };
+        const timeoutHandler = {} as { handler: any };
+        const task = this.negMux.runExclusive(async () => {
             await this.makeSureSocket();
             const peer = this.peer;
             this.logger().debug('start publish');
             const tracks: TrackToPublish[] = [];
+            const senders: RTCRtpSender[] = [];
             for (const track of stream.stream.getTracks()) {
                 const transceiver = peer.addTransceiver(track, {
                     direction: 'sendrecv',
@@ -676,10 +728,25 @@ export class ConferenceClient {
                     labels: stream.labels,
                 };
                 tracks.push(t);
+                senders.push(transceiver.sender);
                 this.logger().debug(`add track ${JSON.stringify(t)}`);
             }
             if (tracks.length == 0) {
-                return
+                return "";
+            }
+            const cleanTracks = () => {
+                if (timeoutHandler.handler) {
+                    clearTimeout(timeoutHandler.handler);
+                }
+                for (const sender of senders) {
+                    if (sender) {
+                        peer.removeTrack(sender);
+                    }
+                }
+            };
+            if (cleaner.stop) {
+                cleanTracks();
+                return "";
             }
             this.logger().debug('send publish msg');
             // publish must happen before negotiate, because in server, bind only happen in onTrack, which must ensure publication exists
@@ -687,30 +754,54 @@ export class ConferenceClient {
                 op: PUB_OP_ADD,
                 tracks,
             });
+            const cleanAll = async () => {
+                cleanTracks();
+                await this._unpublish(pubId);
+            }
+            if (cleaner.stop) {
+                await cleanAll();
+                return "";  
+            }
             this.logger().debug(`accept publish id ${pubId}`);
             const sdpId = this.nextSdpMsgId();
             this.logger().debug(`gen sdp id ${sdpId}`);
-            const evts = this.emitter.events(['published', 'connectState'])
+            const evts = combineAsyncIterable([this.emitter.events(['published', 'connectState', 'error']), cleaner.stopEmitter.events('stop')])
             await this.negotiate(sdpId, true, null);
             let pubNum = 0;
             for await (const evt of evts) {
-                if (typeof evt === 'string') {
-                    if (evt === 'closed') {
+                if (evt.name === 'connectState') {
+                    if (evt.data === 'closed') {
                         this.logger().debug('peer is closed');
+                        await evts.return();
+                        await cleanAll();
                         throw ERR_PEER_CLOSED;
-                    } else if (evt === 'failed') {
+                    } else if (evt.data === 'failed') {
                         this.logger().debug('peer is failed');
+                        await evts.return();
+                        await cleanAll();
                         throw ERR_PEER_FAILED;
                     }
+                } else if (evt.name === 'stop') {
+                    await evts.return();
+                    await cleanAll();
+                    return ""
+                } else if (evt.name === 'error') {
+                    await evts.return();
+                    await cleanAll();
+                    throw new ServerError(evt.data);
                 } else {
-                    if (evt.track.pubId == pubId) {
-                        const t = this.findTransceiverByBindId(evt.track.bindId);
+                    if (evt.data.track.pubId == pubId) {
+                        const t = this.findTransceiverByBindId(evt.data.track.bindId);
                         if (t == null) {
                             this.logger().error('receive a unknown published track');
+                            await evts.return();
+                            await cleanAll();
                             throw Error('receive a unknown published track');
                         }
                         if (!t.sender.track) {
                             this.logger().error('receive a invalid published track');
+                            await evts.return();
+                            await cleanAll();
                             throw Error('receive a invalid published track');
                         }
                         this.logger().debug(`track ${t.sender.track.id} is published`);
@@ -724,7 +815,58 @@ export class ConferenceClient {
                     }
                 }
             }
+            if (cleaner.stop) {
+                await cleanAll();
+                return "";
+            }
             this.logger().debug(`publish ${pubId} completed`);
+            return pubId;
+        });
+        if (timeout > 0) {
+            const resHandler = {
+                pubId: '',
+            };
+            try {
+                return Promise.race([
+                    task.then(id => {
+                        resHandler.pubId = id;
+                        return id;
+                    }),
+                    new Promise<string>((_, reject) => {
+                        timeoutHandler.handler = setTimeout(() => {
+                            reject(new TimeOutError());
+                        }, timeout);
+                    })
+                ])
+            } catch (e) {
+                if (e instanceof TimeOutError) {
+                    cleaner.stop = true;
+                    cleaner.stopEmitter.emit("stop", {
+                        name: 'stop',
+                        data: undefined,
+                    });
+                    if (resHandler.pubId) {
+                        await this._unpublish(resHandler.pubId);
+                    }
+                }
+                throw e;
+            }
+        } else {
+            return task;
+        }
+    };
+
+    private _unpublish = async (pubId: string) => {
+        const res = await this.socket.emitWithAck('publish', {
+            op: PUB_OP_REMOVE,
+            id: pubId,
+        });
+        return res.id !== "";
+    };
+
+    unpublish = async (pubId: string) => {
+        return this.negMux.runExclusive(() => {
+            return this._unpublish(pubId);
         });
     }
 
@@ -742,13 +884,24 @@ export class ConferenceClient {
         }
     }
 
-    subscribe = async (pattern: Pattern, reqTypes: string[] = []) => {
-        return this.negMux.runExclusive(async () => {
+    subscribe = async (pattern: Pattern, reqTypes: string[] = [], timeout: number = 0) => {
+        const cleaner = {
+            stop: false,
+            stopEmitter: new Emittery<{ stop: NamedEvent<'stop', undefined> }>(),
+        };
+        const timeoutHandler = {} as { handler: any };
+        const task = this.negMux.runExclusive(async () => {
             await this.makeSureSocket();
+            if (cleaner.stop) {
+                return {
+                    subId: "",
+                    stream: undefined as MediaStream,
+                };
+            }
             this.logger().debug('start subscribe');
             const sdpEvts = this.emitter.events('sdp');
-            const subEvts = this.emitter.events('subscribed');
-            const trackOrStateEvts = this.emitter.events(['track', 'connectState']);
+            const subEvts = combineAsyncIterable([this.emitter.events(['subscribed', 'error']), cleaner.stopEmitter.events('stop')]);
+            const trackOrStateEvts = combineAsyncIterable([this.emitter.events(['track', 'connectState', 'error']), cleaner.stopEmitter.events('stop')]);
             this.logger().debug('send sub msg');
             const { id: subId } = await this.socket.emitWithAck('subscribe', {
                 op: SUB_OP_ADD,
@@ -756,28 +909,59 @@ export class ConferenceClient {
                 pattern,
             });
             this.logger().debug(`accept sub msg ark with sub id ${subId}`)
+            const clean = async () => {
+                if (timeoutHandler.handler) {
+                    clearTimeout(timeoutHandler.handler);
+                }
+                await this._unsubscribe(subId);
+            }
+            if (cleaner.stop) {
+                await clean();
+                return {
+                    subId: "",
+                    stream: undefined as MediaStream,
+                };
+            }
             let subedMsg: SubscribedMessage;
             for await (const subEvt of subEvts) {
-                if (subEvt.subId == subId) {
-                    subedMsg = subEvt;
-                    await subEvts.return();
-                    break;
+                if (subEvt.name === 'subscribed') {
+                    if (subEvt.data.subId == subId) {
+                        subedMsg = subEvt.data;
+                        subEvts.return();
+                        break;
+                    }
+                } else if (subEvt.name === 'stop') {
+                    subEvts.return();
+                    await clean();
+                    return {
+                        subId: "",
+                        stream: undefined as MediaStream,
+                    };
+                } else {
+                    if (subEvt.data.fatal) {
+                        subEvts.return();
+                        await clean();
+                        throw new ServerError(subEvt.data);
+                    }
                 }
             }
             const { tracks, sdpId } = subedMsg;
             this.logger().debug(`accept subed msg with sub id ${subedMsg.subId}`)
+
             await this.negotiate(sdpId, false, sdpEvts);
             const resolved: Track[] = [];
             let stream: MediaStream;
             for await (const evt of trackOrStateEvts) {
-                if (typeof evt === 'string') {
-                    if (evt === 'closed') {
+                if (evt.name === 'connectState') {
+                    if (evt.data === 'closed') {
+                        trackOrStateEvts.return();
                         throw ERR_PEER_CLOSED;
-                    } else if (evt === 'failed') {
+                    } else if (evt.data === 'failed') {
+                        trackOrStateEvts.return();
                         throw ERR_PEER_FAILED;
                     }
-                } else {
-                    const [_, streams, transceiver] = evt;
+                } else if (evt.name === 'track') {
+                    const [_, streams, transceiver] = evt.data;
                     for (const t of tracks) {
                         if (this.checkTrack(t, transceiver)) {
                             stream = streams[0]
@@ -785,13 +969,82 @@ export class ConferenceClient {
                             break
                         }
                     }
+                } else if (evt.name === 'stop') {
+                    trackOrStateEvts.return();
+                    await clean();
+                    return {
+                        subId: "",
+                        stream: undefined as MediaStream,
+                    };
+                } else {
+                    if (evt.data.fatal) {
+                        trackOrStateEvts.return();
+                        throw new ServerError(evt.data);
+                    }
                 }
                 if (resolved.length == tracks.length) {
+                    trackOrStateEvts.return();
                     break
                 }
             }
+            if (cleaner.stop) {
+                await clean();
+                return {
+                    subId: "",
+                    stream: undefined as MediaStream,
+                };
+            }
             this.logger().debug(`subscribe completed`)
-            return stream;
+            return {
+                subId: subId,
+                stream,
+            };
+        });
+        if (timeout > 0) {
+            const resHandler = {
+                subId: '',
+            };
+            try {
+                return Promise.race([
+                    task.then(res => {
+                        resHandler.subId = res.subId;
+                        return res;
+                    }),
+                    new Promise<{ subId: string, stream: MediaStream }>((_, reject) => {
+                        timeoutHandler.handler = setTimeout(() => {
+                            reject(new TimeOutError());
+                        }, timeout);
+                    })
+                ])
+            } catch (e) {
+                if (e instanceof TimeOutError) {
+                    cleaner.stop = true;
+                    cleaner.stopEmitter.emit("stop", {
+                        name: 'stop',
+                        data: undefined,
+                    });
+                    if (resHandler.subId) {
+                        await this._unsubscribe(resHandler.subId);
+                    }
+                }
+                throw e;
+            }
+        } else {
+            return task;
+        }
+    }
+
+    private _unsubscribe = async (subId: string) => {
+        const res = await this.socket.emitWithAck('subscribe', {
+            op: SUB_OP_REMOVE,
+            id: subId,
+        });
+        return res.id !== "";
+    }
+
+    unsubscribe = async (subId: string) => {
+        return this.negMux.runExclusive(() => {
+            return this._unsubscribe(subId);
         });
     }
 
