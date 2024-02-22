@@ -82,9 +82,9 @@ type ClusterConfigure struct {
 	Redis    RedisConfigure `mapstructure:"redis" json:"redis" default:""`
 	NodeName string         `mapstructure:"nodeName" json:"nodeName" default:"${CONF_CLUSTER_NODE_NAME}"`
 	Debug    struct {
-		Enable bool `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_DEBUG_ENABLE | false}"`
-		Replicas int `mapstructure:"replicas" json:"replicas" default:"${CONF_CLUSTER_DEBUG_REPLICAS | 0}"`
-		PortOffset int `mapstructure:"portOffset" json:"portOffset" default:"${CONF_CLUSTER_DEBUG_PORT_OFFSET | 0}"`
+		Enable     bool `mapstructure:"enable" json:"enable" default:"${CONF_CLUSTER_DEBUG_ENABLE | false}"`
+		Replicas   int  `mapstructure:"replicas" json:"replicas" default:"${CONF_CLUSTER_DEBUG_REPLICAS | 0}"`
+		PortOffset int  `mapstructure:"portOffset" json:"portOffset" default:"${CONF_CLUSTER_DEBUG_PORT_OFFSET | 0}"`
 	} `mapstructure:"debug" json:"debug" default:""`
 }
 
@@ -167,7 +167,9 @@ type ConferenceConfigure struct {
 			Cert   string `mapstructure:"cert" json:"cert" default:"${CONF_SIGNAL_TLS_CERT}"`
 			Key    string `mapstructure:"key" json:"key" default:"${CONF_SIGNAL_TLS_KEY}"`
 		} `mapstructure:"tls" json:"tls" default:""`
-		Gin struct {
+		MsgTimeoutMs      int `mapstructure:"msgTimeoutMs" json:"msgTimeoutMs" default:"${CONF_SIGNAL_MSG_TIMEOUT_MS | 6000}"`
+		MsgTimeoutRetries int `mapstructure:"msgTimeoutRetries" json:"msgTimeoutRetries" default:"${CONF_SIGNAL_MSG_TIMEOUT_RETRIES | 10}"`
+		Gin               struct {
 			Debug        bool `mapstructure:"debug" json:"debug" default:"${CONF_SIGNAL_GIN_DEBUG | false}"`
 			NoRequestLog bool `mapstructure:"noRequestLog" json:"noRequestLog" default:"${CONF_SIGNAL_GIN_NO_REQUEST_LOG | false}"`
 		} `mapstructure:"gin" json:"gin" default:""`
@@ -424,8 +426,8 @@ func (c *ConferenceConfigure) Split() []*ConferenceConfigure {
 			} else {
 				cfg.Cluster.NodeName = fmt.Sprintf("%s-%d", cfg.Cluster.NodeName, i)
 			}
-			cfg.Router.Port = cfg.RouterPort() + offsetMult * i
-			cfg.Signal.Port = cfg.SignalPort() + offsetMult * i
+			cfg.Router.Port = cfg.RouterPort() + offsetMult*i
+			cfg.Signal.Port = cfg.SignalPort() + offsetMult*i
 			cfgs[i] = &cfg
 		}
 		return cfgs
@@ -445,6 +447,8 @@ var KEYS = []string{
 	"signal.tls.cert:string",
 	"signal.tls.key:string",
 	"signal.cors:string",
+	"signal.msgTimeoutMs:int",
+	"signal.msgTimeoutRetries:int",
 	"signal.gin.debug:bool",
 	"signal.gin.noRequestLog:bool",
 	"signal.healthy.enable:bool",

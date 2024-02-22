@@ -20,6 +20,8 @@ const (
 	INVALID_CONFIG      = 14000
 	INVALID_MESSAGE     = 15000
 
+	MSG_TIMEOUT         = 16000
+
 	INVALID_STATE = 10000000
 )
 
@@ -137,6 +139,10 @@ func InvalidConfig(msg string, args ...any) *ConferenceError {
 
 func InvalidMessage(msg string, args ...any) *ConferenceError {
 	return NewError(INVALID_MESSAGE, msg, args...)
+}
+
+func MsgTimeout(msg string, args ...any) *ConferenceError {
+	return NewError(MSG_TIMEOUT, msg, args...)
 }
 
 func ThisIsImpossible() *ConferenceError {

@@ -15,12 +15,10 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
-func FatalErrorAndClose(s *socket.Socket, msg string, cause string) {
-	s.Timeout(time.Second*1).EmitWithAck("error", &ErrorMessage{
-		Msg:   msg,
-		Fatal: true,
-		Cause: cause,
-	})(func(a []any, err error) {
+func FatalErrorAndClose(s *socket.Socket, err any, cause string) {
+	err_msg := ErrToMsg(err, cause)
+	err_msg.Fatal = true
+	s.Timeout(time.Second*1).EmitWithAck("error", err_msg)(func(a []any, err error) {
 		s.Disconnect(true)
 	})
 }
@@ -36,21 +34,24 @@ func ErrToString(err any) string {
 	return fmt.Sprintf("%s\n%s\n", msg, string(debug.Stack()))
 }
 
-func ErrToMsg(err any) *ErrorMessage {
+func ErrToMsg(err any, cause string) *ErrorMessage {
 	switch typedErr := err.(type) {
 	case *errors.ConferenceError:
 		return &ErrorMessage{
 			Msg: typedErr.Msg,
 			Fatal: typedErr.Code == errors.ERR_FATAL,
 			CallFrames: typedErr.CallFrames,
+			Cause: cause,
 		}
 	case error:
 		return &ErrorMessage{
 			Msg: typedErr.Error(),
+			Cause: cause,
 		}
 	default:
 		return &ErrorMessage{
 			Msg: ErrToString(err),
+			Cause: cause,
 		}
 	}
 }

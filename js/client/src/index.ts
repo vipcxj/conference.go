@@ -5,10 +5,9 @@ import Emittery from 'emittery';
 import { v4 as uuidv4 } from 'uuid';
 
 import PATTERN, { Labels, Pattern } from './pattern';
-import { ERR_PEER_CLOSED, ERR_PEER_FAILED, ERR_PEER_DISCONNECTED } from './errors';
+import { ERR_PEER_CLOSED, ERR_PEER_FAILED } from './errors';
 import { getLogger } from './log';
 import { combineAsyncIterable } from "./async";
-import { error } from "console";
 
 export const PT = PATTERN;
 
@@ -108,11 +107,6 @@ interface Track {
     labels?: Labels;
 }
 
-interface TrackMessage extends SignalMessage {
-    op: "add" | "remove";
-    tracks: Track[];
-}
-
 interface JoinMessage extends SignalMessage {
     rooms?: string[]
 }
@@ -183,7 +177,7 @@ interface SubscribedMessage extends SignalMessage {
     tracks: Track[];
 }
 
-type Ark = (...args: any[]) => any;
+type Ack = (...args: any[]) => any;
 
 interface TrackEvent {
     tracks: Track[];
@@ -303,34 +297,27 @@ export class ConferenceClient {
             });
             this.logger().error(`Received${msg.fatal ? " fatal " : " "}error ${msg.msg} because of ${msg.cause}`);
         });
-        this.socket.on('subscribed', (msg: SubscribedMessage) => {
+        this.socket.on('subscribed', (msg: SubscribedMessage, ack?: Ack) => {
+            this.ack(ack);
             this.emitter.emit('subscribed', {
                 name: 'subscribed',
                 data: msg,
             });
         });
-        this.socket.on('published', (msg: PublishedMessage) => {
+        this.socket.on('published', (msg: PublishedMessage, ack?: Ack) => {
+            this.ack(ack);
             this.logger().debug(`received published msg for pub ${msg.track.pubId} and track ${msg.track.globalId}`);
             this.emitter.emit('published', {
                 name: 'published',
                 data: msg,
             });
         });
-        this.socket.on('want', (msg: any) => {
-            this.socket.emit('want', msg);
-        });
-        this.socket.on('state', (msg: any) => {
-            this.socket.emit('state', msg);
-        });
-        this.socket.on('select', (msg: any) => {
-            this.socket.emit('select', msg);
-        });
-        this.socket.on("sdp", async (msg: SdpMessage, ark?: Ark) => {
+        this.socket.on("sdp", (msg: SdpMessage, ark?: Ack) => {
+            this.ack(ark);
             this.emitter.emit('sdp', {
                 name: 'sdp',
                 data: msg,
             });
-            this.ark(ark);
             // const offerCollision = msg.type === "offer" 
             // && (this.makingOffer || peer.signalingState !== "stable");
             // const { polite = true } = this.config;
@@ -357,8 +344,8 @@ export class ConferenceClient {
             //     this.socket.emit("sdp", send_msg);
             // }
         });
-        this.socket.on("candidate", async (msg: CandidateMessage, ark?: Ark) => {
-            this.ark(ark);
+        this.socket.on("candidate", async (msg: CandidateMessage, ark?: Ack) => {
+            this.ack(ark);
             if (!this.peer.remoteDescription) {
                 this.pendingCandidates.push(msg);
                 return
@@ -423,9 +410,9 @@ export class ConferenceClient {
         return this.sdpMsgId;
     }
 
-    private ark = (func?: Ark) => {
+    private ack = (func?: Ack) => {
         if (func) {
-            func();
+            func("ack");
         }
     }
 

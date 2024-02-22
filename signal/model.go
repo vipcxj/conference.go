@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/alphadose/haxmap"
 	"github.com/google/uuid"
@@ -168,8 +169,11 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 			SdpId:  sdpId,
 			Tracks: subTracks,
 		}
-		s.ctx.Socket.Emit("subscribed", respMsg)
 		go func() {
+			err := s.ctx.MustEmitWithAck("subscribed", "send subscribed msg", respMsg)
+			if err != nil {
+				return
+			}
 			s.ctx.StartNegotiate(peer, sdpId)
 		}()
 	}
@@ -677,9 +681,13 @@ func (pt *PublishedTrack) Bind() bool {
 		ctx.Sugar().Debugf("track with mid %s/%s bind successfully", pt.BindId(), t.Mid())
 		pt.remote = rt
 		pt.track.LocalId = rt.ID()
-		ctx.Socket.Emit("published", &PublishedMessage{
-			Track: pt.Track(),
-		})
+		ctx.MustEmitWithAckCb(
+			"published",
+			"send published msg",
+			&PublishedMessage{
+				Track: pt.Track(),
+			},
+		)
 		return true
 	}
 	return false
@@ -818,6 +826,132 @@ func (ctx *SignalContext) NextSdpMsgId() int {
 
 func (ctx *SignalContext) CurrentSdpMsgId() int {
 	return int(ctx.sdpMsgId.Load())
+}
+
+type resWithError struct {
+	res []any
+	err error
+}
+
+type timeoutError string
+
+func (te timeoutError) Error() string {
+	return string(te)
+}
+
+func (ctx *SignalContext) emit(retries int, resCh chan *resWithError, cb func(re *resWithError), timeout time.Duration, ev string, args ...any) error {
+	socket := ctx.Socket
+	if timeout > 0 {
+		socket = socket.Timeout(timeout)
+	}
+	o_args := args
+	args = append(args, func(res []any, err error) {
+		if err != nil {
+			if retries > 0 {
+				emit_err := ctx.emit(retries-1, resCh, cb, timeout, ev, o_args...)
+				if emit_err != nil {
+					re := &resWithError{
+						err: emit_err,
+					}
+					if resCh != nil {
+						resCh <- re
+					}
+					if cb != nil {
+						cb(re)
+					}
+				}
+			} else {
+				re := &resWithError{
+					err: timeoutError("timeout"),
+				}
+				if resCh != nil {
+					resCh <- re
+				}
+				if cb != nil {
+					cb(re)
+				}
+			}
+		} else {
+			re := &resWithError{
+				res: res,
+			}
+			if resCh != nil {
+				resCh <- re
+			}
+			if cb != nil {
+				cb(re)
+			}
+		}
+	})
+	return socket.Emit(ev, args...)
+}
+
+func (ctx *SignalContext) Emit(ev string, args ...any) error {
+	return ctx.emit(0, nil, nil, 0, ev, args...)
+}
+
+func (ctx *SignalContext) EmitWithAck(ev string, args ...any) ([]any, error) {
+	signalConf := &ctx.Global.Conf().Signal
+	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 6 * time.Millisecond
+	}
+	resCh := make(chan *resWithError)
+	err := ctx.emit(signalConf.MsgTimeoutRetries, resCh, nil, timeout, ev, args...)
+	if err != nil {
+		return nil, err
+	}
+	res := <-resCh
+	if res.err == nil {
+		return res.res, nil
+	} else {
+		if res.err.Error() == "timeout" {
+			return nil, errors.MsgTimeout("msg %s not received ack msg after %d retries with timeout %d ms", ev, signalConf.MsgTimeoutRetries, signalConf.MsgTimeoutMs)
+		} else {
+			return nil, res.err
+		}
+	}
+}
+
+func (ctx *SignalContext) MustEmitWithAck(ev string, cause string, args ...any) error {
+	_, err := ctx.EmitWithAck(ev, args...)
+	if err != nil {
+		ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
+		FatalErrorAndClose(ctx.Socket, err, cause)
+	}
+	return err
+}
+
+func (ctx *SignalContext) EmitWithAckCb(ev string, cb func(res []any, err error), args ...any) error {
+	signalConf := &ctx.Global.Conf().Signal
+	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 6 * time.Millisecond
+	}
+	return ctx.emit(
+		signalConf.MsgTimeoutRetries, nil,
+		func(re *resWithError) {
+			if re.err != nil && re.err.Error() == "timeout" {
+				cb(nil, errors.MsgTimeout("msg %s not received ack msg after %d retries with timeout %d ms", ev, signalConf.MsgTimeoutRetries, signalConf.MsgTimeoutMs))
+			} else {
+				cb(re.res, re.err)
+			}
+		},
+		timeout, ev, args...,
+	)
+}
+
+func (ctx *SignalContext) MustEmitWithAckCb(ev string, cause string, args ...any) {
+	err := ctx.EmitWithAckCb(ev, func(_ []any, err error) {
+		if err != nil {
+			ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
+			FatalErrorAndClose(ctx.Socket, err, cause)
+		}
+	}, args...)
+	if err != nil {
+		ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
+		FatalErrorAndClose(ctx.Socket, err, cause)
+	}
 }
 
 func (ctx *SignalContext) SetCloseCallback(cb *ConferenceCallback) {
@@ -1123,12 +1257,11 @@ func (ctx *SignalContext) StartNegotiate(peer *webrtc.PeerConnection, msgId int)
 		return
 	}
 	desc := peer.LocalDescription()
-	err = ctx.Socket.Emit("sdp", SdpMessage{
+	return ctx.MustEmitWithAck("sdp", "send sdp msg", SdpMessage{
 		Type: desc.Type.String(),
 		Sdp:  desc.SDP,
 		Mid:  msgId,
 	})
-	return
 }
 
 func MakeRTPCodecCapability(mimeType string, clockRate uint32, channels uint16, sdpFmtpLine string, feedback []webrtc.RTCPFeedback) webrtc.RTPCodecCapability {
@@ -1311,21 +1444,17 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 			return
 		}
 		peer.OnICECandidate(func(i *webrtc.ICECandidate) {
-			var err error
 			if i == nil {
 				ctx.Sugar().Debug("can not find candidate any more")
-				err = ctx.Socket.Emit("candidate", CandidateMessage{
+				ctx.MustEmitWithAck("candidate", "send candidate msg", CandidateMessage{
 					Op: "end",
 				})
 			} else {
 				ctx.Sugar().Debugf("find candidate %v", i)
-				err = ctx.Socket.Emit("candidate", &CandidateMessage{
+				ctx.MustEmitWithAck("candidate", "send candidate msg", &CandidateMessage{
 					Op:        "add",
 					Candidate: i.ToJSON(),
 				})
-			}
-			if err != nil {
-				ctx.Sugar().Error(err)
 			}
 		})
 		peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
