@@ -15,6 +15,7 @@ namespace cfgo {
     public:
         using handler_type = asio::async_result<std::decay<decltype(asio::use_awaitable)>::type, void(std::exception_ptr)>::handler_type;
         using Ptr = std::shared_ptr<CoEvent>;
+        using WeakPtr = std::weak_ptr<CoEvent>;
         using TimerPtr = std::unique_ptr<asio::steady_timer>;
     private:
         int m_times;

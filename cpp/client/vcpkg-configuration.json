@@ -1,9 +1,4 @@
 {
-  "default-registry": {
-    "kind": "git",
-    "baseline": "ed4a4c80ac69fc0e42efd804049284d28e6b39d9",
-    "repository": "https://github.com/vipcxj/vcpkg"
-  },
   "registries": [
     {
       "kind": "artifact",

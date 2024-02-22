@@ -13,6 +13,12 @@ namespace cfgo {
         std::unique_ptr<sio::client> m_client;
         const std::string m_id;
     public:
+        enum connect_state {
+            unknown = 0,
+            disconnected = 1,
+            connecting = 2,
+            connected = 4
+        };
         using Ptr = std::shared_ptr<Client>;
         using CtxPtr = std::shared_ptr<asio::io_context>;
         Client() = delete;
@@ -26,15 +32,16 @@ namespace cfgo {
         CtxPtr m_io_context;
         const bool m_thread_safe;
         std::mutex m_mutex;
-        bool m_inited;
+        connect_state m_connected;
+        CoEvent::Ptr m_connect_state_evt;
 
         Client(const Configuration& config, const CtxPtr& io_ctx, bool thread_safe);
         void lock();
-        void unlock();
+        void unlock() noexcept;
 
-        asio::awaitable<void> makesure_connect_();
+        asio::awaitable<bool> makesure_connect_(std::chrono::nanoseconds timeout);
         void bind_evt();
-    
+        void switch_connect_state(connect_state to, connect_state from = connect_state::unknown);
     public:
         struct Guard {
             Client* const m_client;
@@ -45,10 +52,6 @@ namespace cfgo {
                 m_client->unlock();
             }
         };
-
-        inline auto make_guard() {
-            return Guard(this);
-        }
     };
     
     class ClientReady {

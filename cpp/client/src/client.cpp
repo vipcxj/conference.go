@@ -1,5 +1,7 @@
+#include <assert.h>
 #include "cfgo/client.hpp"
 #include "cfgo/cothread.hpp"
+#include "cfgo/coevent.hpp"
 #include "boost/lexical_cast.hpp"
 #include "boost/uuid/uuid_io.hpp"
 #include "boost/uuid/uuid_generators.hpp"
@@ -22,8 +24,11 @@ namespace cfgo {
     m_io_context(io_ctx),
     m_thread_safe(thread_safe),
     m_mutex(),
-    m_inited(false)
-    {}
+    m_connected(connect_state::disconnected),
+    m_connect_state_evt(nullptr)
+    {
+        bind_evt();
+    }
 
     Client::~Client()
     {
@@ -37,41 +42,103 @@ namespace cfgo {
         }
     }
 
-    void Client::unlock() {
+    void Client::unlock() noexcept {
         if (!m_thread_safe)
         {
             m_mutex.unlock();
         }
     }
 
-    asio::awaitable<void> Client::makesure_connect_() {
-        if (auto self = weak_from_this().lock())
+    void Client::switch_connect_state(connect_state to, connect_state from) {
+        Client::Guard(this);
+        if (from != connect_state::unknown)
         {
-            bool should_connect = false;
+            assert(m_connected == from);
+        }
+        m_connected = to;
+        if (m_connect_state_evt)
+        {
+            m_connect_state_evt->trigger();
+            m_connect_state_evt = nullptr;
+        }
+    }
+
+    asio::awaitable<bool> Client::makesure_connect_(std::chrono::nanoseconds timeout) {
+        bool success = false;
+        CoEvent::Ptr connect_state_evt = nullptr;
+        {
+            Client::Guard(this);
+            if (m_connected == connect_state::connected)
             {
-                self->make_guard();
-                if (!self->m_inited)
-                {
-                    self->m_inited = true;
-                    should_connect = true;
-                }
+                success = true;
             }
-            if (should_connect)
+            else if (m_connected == connect_state::connecting)
             {
-                co_await make_void_awaitable([self]() {
-                    auto auth_msg = sio::object_message::create();
-                    auth_msg->get_map()["token"] = sio::string_message::create(self->m_config.m_token);
-                    auth_msg->get_map()["id"] = sio::string_message::create(self->m_id);
-
-                    self->m_client->set_open_listener([]() {
-
-                    });
-
-                    self->m_client->connect(self->m_config.m_signal_url, auth_msg);
-
-                }, asio::use_awaitable);
+                if (!m_connect_state_evt)
+                {
+                    m_connect_state_evt = CoEvent::create();
+                }
+                connect_state_evt = m_connect_state_evt;
+            } else {
+                m_connected = connect_state::connecting;
             }
         }
-        co_return;
+        if (success)
+        {
+            co_return true;
+        }
+        if (connect_state_evt)
+        {
+            co_await connect_state_evt->await(timeout);
+            co_return m_connected == connect_state::connected;
+        }
+        
+        auto res_evt = cfgo::CoEvent::create();
+        cfgo::CoEvent::WeakPtr weak_res_evt = res_evt;
+        auto weak_self = weak_from_this();
+        co_await make_void_awaitable([&success, weak_self, weak_res_evt]() {
+            if (auto self = weak_self.lock())
+            {
+                auto auth_msg = sio::object_message::create();
+                auth_msg->get_map()["token"] = sio::string_message::create(self->m_config.m_token);
+                auth_msg->get_map()["id"] = sio::string_message::create(self->m_id);
+
+                self->m_client->set_socket_open_listener([&success, weak_self, weak_res_evt](std::string const& nsp) mutable {
+                    if (auto self = weak_self.lock())
+                    {
+                        self->switch_connect_state(connect_state::connected, connect_state::connecting);
+                    }
+                    if (auto res_evt = weak_res_evt.lock())
+                    {
+                        success = true;
+                        res_evt->trigger();
+                    }
+                });
+                self->m_client->set_fail_listener([weak_self, weak_res_evt]() {
+                    if (auto self = weak_self.lock())
+                    {
+                        self->switch_connect_state(connect_state::disconnected, connect_state::connecting);
+                    }
+                    if (auto res_evt = weak_res_evt.lock())
+                    {
+                        res_evt->trigger();
+                    }
+                });
+                self->m_client->connect(self->m_config.m_signal_url, auth_msg);
+            }
+        }, asio::use_awaitable);
+        co_await res_evt->await(timeout);
+        co_return success;
+    }
+
+    void Client::bind_evt() {
+        auto weak_self = weak_from_this();
+        m_client->set_socket_close_listener([weak_self](std::string const& nsp) {
+            if (auto self = weak_self.lock())
+            {
+                self->switch_connect_state(connect_state::disconnected, connect_state::unknown);
+            }
+        });
+        m_client->socket()->on("subscribed", )
     }
 }
