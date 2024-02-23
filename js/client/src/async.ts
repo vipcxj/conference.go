@@ -1,7 +1,7 @@
 
 type ExtractAsyncIterableT<T extends AsyncIterableIterator<any>> = T extends AsyncIterableIterator<infer X> ? X : never;
 
-export async function* combineAsyncIterable<T extends AsyncIterableIterator<any>[]>(iterables: readonly [...T]): AsyncIterableIterator<ExtractAsyncIterableT<T[number]>> {
+export async function* combineAsyncIterable<T extends Array<AsyncIterableIterator<any> | null | undefined>>(iterables: readonly [...T]): AsyncIterableIterator<ExtractAsyncIterableT<NonNullable<T[number]>>> {
     const asyncIterators = Array.from(iterables, o => o[Symbol.asyncIterator]());
     const results: T[number][] = [];
     let count = asyncIterators.length;

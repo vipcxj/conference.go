@@ -56,7 +56,7 @@ func ErrToMsg(err any, cause string) *ErrorMessage {
 	}
 }
 
-func FinallyResponse(s *socket.Socket, ark func([]any, error), arkArgs []any, cause string) {
+func FinallyResponse(s *socket.Socket, ark func([]any, error), arkArgs []any, cause string, onlyErr bool) {
 	rawErr := recover()
 	if rawErr != nil {
 		if ark != nil {
@@ -70,7 +70,7 @@ func FinallyResponse(s *socket.Socket, ark func([]any, error), arkArgs []any, ca
 		} else {
 			FatalErrorAndClose(s, ErrToString(rawErr), cause)
 		}
-	} else {
+	} else if !onlyErr {
 		if ark != nil {
 			ark(arkArgs, nil)
 		}

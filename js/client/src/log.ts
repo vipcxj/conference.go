@@ -9,7 +9,7 @@ function applyPrefix(logger: Logger): Logger {
     logger.methodFactory = function(methodName: LogLevelNames, level: LogLevelNumbers, loggerName: string | symbol): LoggingMethod {
         const method = ofactory(methodName, level, loggerName);
         return (message: string) => {
-            return method(`[${String(loggerName)}] ${message}`);
+            return method(`[${String(loggerName)}][${(new Date()).toISOString()}] ${message}`);
         }
     };
     (logger.methodFactory as any).tag = tag;

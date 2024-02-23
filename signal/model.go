@@ -967,12 +967,15 @@ func (ctx *SignalContext) disableCloseCallback() {
 }
 
 func (ctx *SignalContext) Close(disableCloseCallback bool) {
+	ctx.Sugar().Debugf("closing the signal context");
 	if ctx.closed {
+		ctx.Sugar().Debugf("the signal context already closed, return directly");
 		return
 	}
 	ctx.closed_mux.Lock()
 	if ctx.closed {
 		ctx.closed_mux.Unlock()
+		ctx.Sugar().Debugf("the signal context already closed, return directly");
 		return
 	}
 	ctx.closed = true
@@ -1001,6 +1004,7 @@ func (ctx *SignalContext) Close(disableCloseCallback bool) {
 		ctx.close_cb = nil
 		go cb.Call(ctx)
 	}
+	ctx.Sugar().Debugf("the signal context closed");
 }
 
 func (ctx *SignalContext) AcceptTrack(msg *StateMessage) {

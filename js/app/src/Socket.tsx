@@ -87,6 +87,8 @@ export const Video = (pros: VideoProps) => {
             } catch (e) {
                 if (!(e instanceof TimeOutError)) {
                     throw e;
+                } else {
+                    client.logger().warn("publish timeout, republish.");
                 }
             }
         }
@@ -103,6 +105,8 @@ export const Video = (pros: VideoProps) => {
             } catch (e) {
                 if (!(e instanceof TimeOutError)) {
                     throw e;
+                } else {
+                    client.logger().warn("subscribe timeout, resubscribe.");
                 }
             }
         }

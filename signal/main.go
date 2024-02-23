@@ -21,16 +21,18 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	if ctx == nil {
 		return ctx, errors.FatalError("unable to find the signal context")
 	}
+	ctx.Sugar().Debugf("initializing the signal context")
 	if ctx.inited {
+		ctx.Sugar().Debugf("the signal context already initialized, return directly")
 		return ctx, nil
 	}
 	ctx.inited_mux.Lock()
 	if ctx.inited {
 		ctx.inited_mux.Unlock()
+		ctx.Sugar().Debugf("the signal context already initialized, return directly")
 		return ctx, nil
 	}
 	ctx.inited = true
-	ctx.Sugar().Debugf("initializing the signal context")
 	defer ctx.inited_mux.Unlock()
 	auth := ctx.AuthInfo
 	if auth == nil {
@@ -70,7 +72,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	s.On("join", func(args ...any) {
 		msg := JoinMessage{}
 		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "join")
+		defer FinallyResponse(ctx.Socket, ark, nil, "join", false)
 		if err != nil {
 			panic(err)
 		}
@@ -82,7 +84,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	s.On("leave", func(args ...any) {
 		msg := LeaveMessage{}
 		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "leave")
+		defer FinallyResponse(ctx.Socket, ark, nil, "leave", false)
 		if err != nil {
 			panic(err)
 		}
@@ -91,7 +93,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	s.On("sdp", func(args ...any) {
 		msg := SdpMessage{}
 		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "sdp")
+		defer FinallyResponse(ctx.Socket, ark, nil, "sdp", true)
 		if err != nil {
 			panic(err)
 		}
@@ -101,7 +103,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		}
 		ctx.Sugar().Infof("accept %s sdp msg with id %d", msg.Type, msg.Mid)
 		go func() {
-			defer FinallyResponse(ctx.Socket, ark, nil, "sdp")
+			defer FinallyResponse(ctx.Socket, ark, nil, "sdp", false)
 			locked := ctx.neg_mux.TryLock()
 			if locked {
 				ctx.Sugar().Debug("neg mux locked")
@@ -148,7 +150,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	s.On("candidate", func(args ...any) {
 		msg := CandidateMessage{}
 		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "candidate")
+		defer FinallyResponse(ctx.Socket, ark, nil, "candidate", false)
 		if err != nil {
 			panic(err)
 		}
@@ -176,7 +178,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		msg := PublishMessage{}
 		ark, err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx.Socket, ark, arkArgs, "publish")
+		defer FinallyResponse(ctx.Socket, ark, arkArgs, "publish", false)
 		if err != nil {
 			panic(err)
 		}
@@ -192,7 +194,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		msg := SubscribeMessage{}
 		ark, err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx.Socket, ark, arkArgs, "subscribe")
+		defer FinallyResponse(ctx.Socket, ark, arkArgs, "subscribe", false)
 		if err != nil {
 			panic(err)
 		}
@@ -207,6 +209,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	ctx.Messager().OnState(ctx.Id, ctx.AcceptTrack, ctx.RoomPaterns()...)
 	ctx.Messager().OnWant(ctx.Id, ctx.StateWant, ctx.RoomPaterns()...)
 	ctx.Messager().OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
+	ctx.Sugar().Debugf("the signal context initialized")
 	return ctx, nil
 }
 

@@ -199,8 +199,8 @@ interface ListenEventMap {
 }
 
 interface EmitEventMap {
-    join: (msg: JoinMessage, ark: (res: any) => void) => void
-    leave: (msg: LeaveMessage, ark: (res: any) => void) => void
+    join: (msg: JoinMessage, ark: (res: any) => void) => void;
+    leave: (msg: LeaveMessage, ark: (res: any) => void) => void;
     subscribe: (msg: SubscribeAddMessage | SubscribeRemoveMessage, ark: (res: SubscribeResultMessage) => void) => void;
     publish: (msg: PublishAddMessage | PublishRemoveMessage, ark: (res: PublishResultMessage) => void) => void;
     sdp: (msg: SdpMessage) => void;
@@ -208,6 +208,10 @@ interface EmitEventMap {
     want: (msg: any) => void;
     state: (msg: any) => void;
     select: (msg: any) => void;
+}
+
+interface StopEmitEventMap {
+    stop: NamedEvent<'stop', undefined>;
 }
 
 interface SocketConnectState {
@@ -489,16 +493,26 @@ export class ConferenceClient {
         return peer;
     }
 
-    private makeSureSocket = async () => {
+    private makeSureSocket = async (stopEmitter?: Emittery<StopEmitEventMap>) => {
         if (this.socket.connected) {
+            this.logger().debug('already connected.');
             return
         }
+        this.logger().info("start connect socket...");
         this.socket.connect();
-        const { data } = await this.emitter.once(['connect', 'disconnect']);
+        const { data } = await Promise.race([
+            this.emitter.once(['connect', 'disconnect']),
+            stopEmitter ? stopEmitter.events('stop').next().then(() => {
+                this.logger().debug('Received stop msg, it means timeout.');
+                throw new TimeOutError();
+            }) : new Promise<NamedEvent<'', SocketConnectState>>(() => {}),
+        ]);
         if (!data.connected) {
             this.logger().error(`Unable to make sure the socket connection, because ${data.reason}`);
             this.socket.disconnect();
             throw new Error(data.reason);
+        } else {
+            this.logger().info("socket connected.");
         }
     }
 
@@ -595,7 +609,7 @@ export class ConferenceClient {
         );
     }
 
-    private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<NamedEvent<'sdp', SdpMessage>> | null = null) => {
+    private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<NamedEvent<'sdp', SdpMessage>> | null = null, stopEvts: AsyncIterableIterator<NamedEvent<'stop', undefined>> | null = null) => {
         const peer = this.peer;
         await this.waitForNotConnecting();
         if (peer.connectionState == 'closed') {
@@ -609,23 +623,29 @@ export class ConferenceClient {
             await peer.setLocalDescription(offer);
             const desc = peer.localDescription;
             this.logger().debug(`create offer and set local desc`);
-            sdpEvts = this.emitter.events('sdp')
-            await this.socket.emit('sdp', {
+            sdpEvts = this.emitter.events('sdp');
+            const evts = combineAsyncIterable([sdpEvts, stopEvts]);
+            this.socket.emit('sdp', {
                 type: desc.type,
                 sdp: desc.sdp,
                 mid: sdpId,
             });
             while (true) {
                 let sdpMsg: SdpMessage;
-                for await (const evt of sdpEvts) {
-                    if (evt.data.mid == sdpId) {
-                        if (evt.data.type == 'answer' || evt.data.type == 'pranswer') {
-                            this.logger().debug(`receive remote ${evt.data.type} sdp`);
-                            sdpMsg = evt.data;
-                            break;
-                        } else {
-                            throw new Error(`Expect an answer or pranswer, but got ${evt.data.type}. The sdp:\n${evt.data.sdp}`);
+                for await (const evt of evts) {
+                    if (evt.name === 'sdp') {
+                        if (evt.data.mid == sdpId) {
+                            if (evt.data.type == 'answer' || evt.data.type == 'pranswer') {
+                                this.logger().debug(`receive remote ${evt.data.type} sdp`);
+                                sdpMsg = evt.data;
+                                break;
+                            } else {
+                                throw new Error(`Expect an answer or pranswer, but got ${evt.data.type}. The sdp:\n${evt.data.sdp}`);
+                            }
                         }
+                    } else if (evt.name === 'stop') {
+                        evts.return();
+                        throw new TimeOutError();
                     }
                 }
                 this.logger().debug('set remote desc');
@@ -639,8 +659,8 @@ export class ConferenceClient {
                 }
                 this.pendingCandidates = [];
                 if (sdpMsg.type == 'answer') {
+                    await evts.return();
                     this.logger().debug('the remote desc is answer, so break out');
-                    await sdpEvts.return();
                     break;
                 }
             }
@@ -648,17 +668,23 @@ export class ConferenceClient {
             if (sdpEvts === null) {
                 throw new Error(`sdpEvts should not be null when active is false.`);
             }
+            const evts = combineAsyncIterable([sdpEvts, stopEvts]);
             let sdpMsg: SdpMessage;
-            for await (const evt of sdpEvts) {
-                if (evt.data.mid == sdpId) {
-                    if (evt.data.type === 'offer') {
-                        this.logger().debug(`receive remote ${evt.data.type} sdp`);
-                        sdpMsg = evt.data;
-                        await sdpEvts.return()
-                        break;
-                    } else {
-                        throw new Error(`Expect an offer, but got ${evt.data.type}. The sdp:\n${evt.data.sdp}`);
+            for await (const evt of evts) {
+                if (evt.name === 'sdp') {
+                    if (evt.data.mid == sdpId) {
+                        if (evt.data.type === 'offer') {
+                            this.logger().debug(`receive remote ${evt.data.type} sdp`);
+                            sdpMsg = evt.data;
+                            await evts.return();
+                            break;
+                        } else {
+                            throw new Error(`Expect an offer, but got ${evt.data.type}. The sdp:\n${evt.data.sdp}`);
+                        }
                     }
+                } else if (evt.name === 'stop') {
+                    await evts.return();
+                    throw new TimeOutError();
                 }
             }
             this.logger().debug('set remote desc');
@@ -674,7 +700,7 @@ export class ConferenceClient {
             this.logger().debug('create answer');
             const answer = await peer.createAnswer();
             this.logger().debug('send answer');
-            await this.socket.emit('sdp', {
+            this.socket.emit('sdp', {
                 type: 'answer',
                 sdp: answer.sdp,
                 mid: sdpId,
@@ -694,11 +720,14 @@ export class ConferenceClient {
     publish = async (stream: LocalStream, timeout: number = 0) => {
         const cleaner = {
             stop: false,
-            stopEmitter: new Emittery<{ stop: NamedEvent<'stop', undefined> }>(),
+            stopEmitter: new Emittery<StopEmitEventMap>(),
         };
         const timeoutHandler = {} as { handler: any };
+        if (this.negMux.isLocked()) {
+            this.logger().debug('There is another publish or subscribe task running, wait it finished.');
+        }
         const task = this.negMux.runExclusive(async () => {
-            await this.makeSureSocket();
+            await this.makeSureSocket(cleaner.stopEmitter);
             const peer = this.peer;
             this.logger().debug('start publish');
             const tracks: TrackToPublish[] = [];
@@ -737,23 +766,40 @@ export class ConferenceClient {
             }
             this.logger().debug('send publish msg');
             // publish must happen before negotiate, because in server, bind only happen in onTrack, which must ensure publication exists
-            const { id: pubId } = await this.socket.emitWithAck('publish', {
-                op: PUB_OP_ADD,
-                tracks,
-            });
+            let pubId: string = '';
+            try {
+                const { id } = await this.socket.timeout(timeout).emitWithAck('publish', {
+                    op: PUB_OP_ADD,
+                    tracks,
+                });
+                pubId = id;
+            } catch (e) {
+                throw new TimeOutError();
+            }
             const cleanAll = async () => {
                 cleanTracks();
                 await this._unpublish(pubId);
             }
+            this.logger().debug(`accept publish id ${pubId}`);
+            const sdpId = this.nextSdpMsgId();
+            this.logger().debug(`gen sdp id ${sdpId}`);
+            let stopEvt = cleaner.stopEmitter.events('stop');
             if (cleaner.stop) {
                 await cleanAll();
                 return "";  
             }
-            this.logger().debug(`accept publish id ${pubId}`);
-            const sdpId = this.nextSdpMsgId();
-            this.logger().debug(`gen sdp id ${sdpId}`);
-            const evts = combineAsyncIterable([this.emitter.events(['published', 'connectState', 'error']), cleaner.stopEmitter.events('stop')])
-            await this.negotiate(sdpId, true, null);
+            const evts = combineAsyncIterable([this.emitter.events(['published', 'connectState', 'error']), stopEvt]);
+            try {
+                stopEvt = cleaner.stopEmitter.events('stop');
+                if (cleaner.stop) {
+                    await cleanAll();
+                    return "";  
+                }
+                await this.negotiate(sdpId, true, null, stopEvt);
+            } catch (e) {
+                await cleanAll();
+                throw e;
+            }
             let pubNum = 0;
             for await (const evt of evts) {
                 if (evt.name === 'connectState') {
@@ -771,6 +817,7 @@ export class ConferenceClient {
                 } else if (evt.name === 'stop') {
                     await evts.return();
                     await cleanAll();
+                    this.logger().debug('receive timeout msg, so return.');
                     return ""
                 } else if (evt.name === 'error') {
                     await evts.return();
@@ -807,6 +854,9 @@ export class ConferenceClient {
                 return "";
             }
             this.logger().debug(`publish ${pubId} completed`);
+            if (timeoutHandler.handler) {
+                clearTimeout(timeoutHandler.handler);
+            }
             return pubId;
         });
         if (timeout > 0) {
@@ -814,17 +864,19 @@ export class ConferenceClient {
                 pubId: '',
             };
             try {
-                return Promise.race([
+                const res = await Promise.race([
                     task.then(id => {
                         resHandler.pubId = id;
                         return id;
                     }),
                     new Promise<string>((_, reject) => {
                         timeoutHandler.handler = setTimeout(() => {
+                            this.logger().warn('publish timeout.');
                             reject(new TimeOutError());
                         }, timeout);
-                    })
+                    }),
                 ])
+                return res;
             } catch (e) {
                 if (e instanceof TimeOutError) {
                     cleaner.stop = true;
@@ -832,6 +884,7 @@ export class ConferenceClient {
                         name: 'stop',
                         data: undefined,
                     });
+                    this.logger().debug('send stop msg.');
                     if (resHandler.pubId) {
                         await this._unpublish(resHandler.pubId);
                     }
@@ -874,11 +927,14 @@ export class ConferenceClient {
     subscribe = async (pattern: Pattern, reqTypes: string[] = [], timeout: number = 0) => {
         const cleaner = {
             stop: false,
-            stopEmitter: new Emittery<{ stop: NamedEvent<'stop', undefined> }>(),
+            stopEmitter: new Emittery<StopEmitEventMap>(),
         };
         const timeoutHandler = {} as { handler: any };
+        if (this.negMux.isLocked()) {
+            this.logger().debug('There is another publish or subscribe task running, wait it finished.');
+        }
         const task = this.negMux.runExclusive(async () => {
-            await this.makeSureSocket();
+            await this.makeSureSocket(cleaner.stopEmitter);
             if (cleaner.stop) {
                 return {
                     subId: "",
@@ -887,14 +943,22 @@ export class ConferenceClient {
             }
             this.logger().debug('start subscribe');
             const sdpEvts = this.emitter.events('sdp');
-            const subEvts = combineAsyncIterable([this.emitter.events(['subscribed', 'error']), cleaner.stopEmitter.events('stop')]);
-            const trackOrStateEvts = combineAsyncIterable([this.emitter.events(['track', 'connectState', 'error']), cleaner.stopEmitter.events('stop')]);
+            let stopEvt = cleaner.stopEmitter.events('stop');
+            const subEvts = combineAsyncIterable([this.emitter.events(['subscribed', 'error']), stopEvt]);
+            stopEvt = cleaner.stopEmitter.events('stop');
+            const trackOrStateEvts = combineAsyncIterable([this.emitter.events(['track', 'connectState', 'error']), stopEvt]);
             this.logger().debug('send sub msg');
-            const { id: subId } = await this.socket.emitWithAck('subscribe', {
-                op: SUB_OP_ADD,
-                reqTypes,
-                pattern,
-            });
+            let subId: string = '';
+            try {
+                const { id } = await this.socket.timeout(timeout).emitWithAck('subscribe', {
+                    op: SUB_OP_ADD,
+                    reqTypes,
+                    pattern,
+                });
+                subId = id;
+            } catch (e) {
+                throw new TimeOutError();
+            }
             this.logger().debug(`accept sub msg ark with sub id ${subId}`)
             const clean = async () => {
                 if (timeoutHandler.handler) {
@@ -918,6 +982,7 @@ export class ConferenceClient {
                         break;
                     }
                 } else if (subEvt.name === 'stop') {
+                    this.logger().debug('receive timeout msg, so return.');
                     subEvts.return();
                     await clean();
                     return {
@@ -934,8 +999,20 @@ export class ConferenceClient {
             }
             const { tracks, sdpId } = subedMsg;
             this.logger().debug(`accept subed msg with sub id ${subedMsg.subId}`)
-
-            await this.negotiate(sdpId, false, sdpEvts);
+            try {
+                stopEvt = cleaner.stopEmitter.events('stop');
+                if (cleaner.stop) {
+                    await clean();
+                    return {
+                        subId: "",
+                        stream: undefined as MediaStream,
+                    };
+                }
+                await this.negotiate(sdpId, false, sdpEvts, stopEvt);
+            } catch (e) {
+                await clean();
+                throw e;
+            }
             const resolved: Track[] = [];
             let stream: MediaStream;
             for await (const evt of trackOrStateEvts) {
@@ -982,6 +1059,9 @@ export class ConferenceClient {
                 };
             }
             this.logger().debug(`subscribe completed`)
+            if (timeoutHandler.handler) {
+                clearTimeout(timeoutHandler.handler);
+            }
             return {
                 subId: subId,
                 stream,
@@ -992,17 +1072,19 @@ export class ConferenceClient {
                 subId: '',
             };
             try {
-                return Promise.race([
+                const res = await Promise.race([
                     task.then(res => {
                         resHandler.subId = res.subId;
                         return res;
                     }),
                     new Promise<{ subId: string, stream: MediaStream }>((_, reject) => {
                         timeoutHandler.handler = setTimeout(() => {
+                            this.logger().warn('subscribe timeout.');
                             reject(new TimeOutError());
                         }, timeout);
                     })
-                ])
+                ]);
+                return res;
             } catch (e) {
                 if (e instanceof TimeOutError) {
                     cleaner.stop = true;
@@ -1010,6 +1092,7 @@ export class ConferenceClient {
                         name: 'stop',
                         data: undefined,
                     });
+                    this.logger().debug('send stop msg.');
                     if (resHandler.subId) {
                         await this._unsubscribe(resHandler.subId);
                     }

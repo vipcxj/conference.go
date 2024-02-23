@@ -17,6 +17,7 @@ import (
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/utils"
+	"go.uber.org/zap"
 )
 
 type tp struct {
@@ -226,6 +227,10 @@ func NewKafkaClient(global *Global, copts... KafkaOpt) (*KafkaClient, error) {
 	return client, nil
 }
 
+func (s *KafkaClient) sugar() *zap.SugaredLogger {
+	return log.Sugar()
+}
+
 func (s *KafkaClient) assigned(ctx context.Context, cl *kgo.Client, assigned map[string][]int32) {
 	if s.workers == nil {
 		log.Sugar().Warnf("did you forget to set workers to kafka client")
@@ -313,15 +318,13 @@ func (s *KafkaClient) Poll(ctx context.Context) {
 		if fetches.Err() == context.Canceled {
 			return
 		}
-		fetches.EachError(func(_ string, _ int32, err error) {
-			// Note: you can delete this block, which will result
-			// in these errors being sent to the partition
-			// consumers, and then you can handle the errors there.
-			panic(err)
-		})
 		fetches.EachPartition(func(p kgo.FetchTopicPartition) {
-			tp := tp{p.Topic, p.Partition}
+			if p.Err != nil {
+				s.sugar().Errorf("err happened in topic %s of partition %d: %v", p.Topic, p.Partition, p.Err)
+				return
+			}
 
+			tp := tp{p.Topic, p.Partition}
 			// Since we are using BlockRebalanceOnPoll, we can be
 			// sure this partition consumer exists:
 			//
