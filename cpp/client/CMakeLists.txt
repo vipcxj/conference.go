@@ -5,11 +5,16 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(SRC_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(H_IMPL "${SRC_PATH}/impl")
 set(H_PUBLIC "${SRC_PATH}/public")
 set(H_PUBLIC_PATH "${H_PUBLIC}/cfgo")
 set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/configuration.hpp"
     "${H_PUBLIC_PATH}/client.hpp"
+    "${H_PUBLIC_PATH}/subscribation.hpp"
+    "${H_PUBLIC_PATH}/track.hpp"
+    "${H_PUBLIC_PATH}/alias.hpp"
+    "${H_PUBLIC_PATH}/pattern.hpp"
     "${H_PUBLIC_PATH}/error.hpp"
 )
 set(H_PRIVATE "${SRC_PATH}/private")
@@ -20,26 +25,38 @@ set(MY_PRIVATE_HEADERS
     "${H_PRIVATE_PATH}/coevent.hpp"
     "${H_PRIVATE_PATH}/move_only_function.hpp"
     "${H_PRIVATE_PATH}/utils.hpp"
+    "${H_PRIVATE_PATH}/defer.hpp"
+    "${H_IMPL}/client.hpp"
+    "${H_IMPL}/track.hpp"
+    "${H_IMPL}/subscribation.hpp"
 )
 set(MY_SOURCES
     "${SRC_PATH}/configuration.cpp"
     "${SRC_PATH}/client.cpp"
+    "${SRC_PATH}/track.cpp"
+    "${SRC_PATH}/subscribation.cpp"
     "${SRC_PATH}/error.cpp"
     "${SRC_PATH}/coevent.cpp"
     "${SRC_PATH}/utils.cpp"
+    "${H_IMPL}/client.cpp"
+    "${H_IMPL}/track.cpp"
+    "${H_IMPL}/subscribation.cpp"
 )
 set(MY_TEST_PATH "${SRC_PATH}/test")
 
 add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
 target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
-target_include_directories(cfgoclient PRIVATE ${H_PRIVATE})
+target_include_directories(cfgoclient PRIVATE ${H_PRIVATE} ${SRC_PATH})
 
 find_package(Boost REQUIRED)
 
 find_package(sioclient CONFIG REQUIRED)
 target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
 
-find_package(unofficial-usrsctp CONFIG REQUIRED) # must add it when linux
+find_package(nlohmann_json CONFIG REQUIRED)
+target_link_libraries(cfgoclient PRIVATE nlohmann_json::nlohmann_json)
+
+# find_package(unofficial-usrsctp CONFIG REQUIRED) # must add it when linux
 find_package(LibDataChannel CONFIG REQUIRED)
 if(WIN32)
     target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannel)

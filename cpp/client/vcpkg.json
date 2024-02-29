@@ -12,12 +12,10 @@
     "asiochan",
     "boost-uuid",
     {
-      "name": "libdatachannel",
-      "features": [
-        "srtp"
-      ]
+      "name": "libdatachannel"
     },
     "socket-io-client",
+    "nlohmann-json",
     "boost-lexical-cast",
     "gtest"
   ]

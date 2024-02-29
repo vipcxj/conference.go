@@ -9,7 +9,7 @@ namespace cfgo {
     {
         const std::string m_signal_url;
         const std::string m_token;
-        const rtc::Configuration m_rtc_config;
+        const ::rtc::Configuration m_rtc_config;
         const bool m_thread_safe;
 
         Configuration(
@@ -21,7 +21,7 @@ namespace cfgo {
         Configuration(
             const std::string& signal_url,
             const std::string& token,
-            const rtc::Configuration& rtc_config,
+            const ::rtc::Configuration& rtc_config,
             const bool thread_safe = false
         );
     };
