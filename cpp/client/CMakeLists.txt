@@ -53,10 +53,6 @@ find_package(Boost REQUIRED)
 find_package(sioclient CONFIG REQUIRED)
 target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
 
-find_package(nlohmann_json CONFIG REQUIRED)
-target_link_libraries(cfgoclient PRIVATE nlohmann_json::nlohmann_json)
-
-# find_package(unofficial-usrsctp CONFIG REQUIRED) # must add it when linux
 find_package(LibDataChannel CONFIG REQUIRED)
 if(WIN32)
     target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannel)
