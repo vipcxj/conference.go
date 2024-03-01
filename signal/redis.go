@@ -25,7 +25,7 @@ func parseRedisOpts(config config.RedisConfigure) (map[string]*redis.Options, *r
 	if config.Addrs == "" {
 		return nil, nil, errors.InvalidConfig("addrs is required for redis config")
 	}
-	var addrsMap map[string]*redis.Options
+	var addrsMap map[string]*redis.Options = make(map[string]*redis.Options)
 	var clusterOpts *redis.ClusterOptions
 	clusterOpts, err := redis.ParseClusterURL(config.Addrs)
 	if err == nil {
