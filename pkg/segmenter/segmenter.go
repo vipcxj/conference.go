@@ -168,6 +168,11 @@ type TrackContext struct {
 	Audio        bool
 }
 
+func toTimePointer(v time.Time) *time.Time {
+	var v_copy time.Time = v
+	return &v_copy
+}
+
 type Track struct {
 	id                int
 	segmenter         *Segmenter
@@ -494,7 +499,7 @@ func (t *Track) flushSegment(dts time.Duration, forceUpdateInit bool) error {
 	t.playlist.Segments = append(t.playlist.Segments, &playlist.MediaSegment{
 		Duration:        dts - t.startDTS,
 		URI:             t.segUri,
-		DateTime:        &t.startNTP,
+		DateTime:        toTimePointer(t.startNTP),
 		ByteRangeStart:  &offset,
 		ByteRangeLength: &size,
 	})
