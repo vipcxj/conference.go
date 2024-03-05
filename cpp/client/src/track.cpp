@@ -3,7 +3,7 @@
 
 namespace cfgo
 {
-    Track::Track(const msg_ptr & msg): ImplBy<impl::Track>(msg) {}
+    Track::Track(const msg_ptr & msg, int cache_capicity): ImplBy<impl::Track>(msg, cache_capicity) {}
 
     const std::string& Track::type() const noexcept {
         return impl()->type;
@@ -35,4 +35,8 @@ namespace cfgo
     const std::shared_ptr<rtc::Track> & Track::track() const noexcept {
         return impl()->track;
     }
+    Track::MsgPtr Track::receive_msg() const {
+        return impl()->receive_msg();
+    }
+
 } // namespace cfgo

@@ -4,7 +4,7 @@ namespace cfgo
 {
     namespace impl
     {
-        Track::Track(const msg_ptr & msg)
+        Track::Track(const msg_ptr & msg, int cache_capicity): m_msg_cache(cache_capicity)
         {
             auto &&map = msg->get_map();
             if (auto &&mp = map["type"])
@@ -38,6 +38,10 @@ namespace cfgo
                     labels[key] = value->get_string();
                 }
             }
+        }
+
+        cfgo::Track::MsgPtr Track::receive_msg() const {
+
         }
     } // namespace impl
     

@@ -11,6 +11,7 @@
     },
     "asiochan",
     "boost-uuid",
+    "boost-circular-buffer",
     {
       "name": "libdatachannel",
       "features": ["srtp"]
