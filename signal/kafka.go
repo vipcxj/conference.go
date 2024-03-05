@@ -26,10 +26,10 @@ type tp struct {
 }
 
 type pconsumer struct {
-	cl * kgo.Client
-	topic string
+	cl        *kgo.Client
+	topic     string
 	partition int32
-	worker func(record *kgo.Record)
+	worker    func(record *kgo.Record)
 
 	quit chan struct{}
 	done chan struct{}
@@ -45,9 +45,9 @@ func (pc *pconsumer) consume(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <- pc.quit:
+		case <-pc.quit:
 			return
-		case p := <- pc.recs:
+		case p := <-pc.recs:
 			p.EachRecord(pc.worker)
 			pc.cl.MarkCommitRecords(p.Records...)
 		}
@@ -55,11 +55,11 @@ func (pc *pconsumer) consume(ctx context.Context) {
 }
 
 type KafkaClient struct {
-	cl *kgo.Client
+	cl        *kgo.Client
 	consumers map[tp]*pconsumer
-	workers map[string]func(record *kgo.Record)
-	group string
-	topics []string
+	workers   map[string]func(record *kgo.Record)
+	group     string
+	topics    []string
 }
 
 func parseKafkaAddrs(addrs string) []string {
@@ -91,7 +91,7 @@ func KafkaOptGroup(group string) KafkaOpt {
 	}
 }
 
-func KafkaOptTopics(topics... string) KafkaOpt {
+func KafkaOptTopics(topics ...string) KafkaOpt {
 	return func(client *KafkaClient) {
 		client.topics = topics
 	}
@@ -103,7 +103,7 @@ func KafkaOptWorkers(workers map[string]func(*kgo.Record)) KafkaOpt {
 	}
 }
 
-func NewKafkaClient(global *Global, copts... KafkaOpt) (*KafkaClient, error) {
+func NewKafkaClient(global *Global, copts ...KafkaOpt) (*KafkaClient, error) {
 	conf := &global.Conf().Cluster.Kafka
 	var opts []kgo.Opt
 
@@ -133,7 +133,7 @@ func NewKafkaClient(global *Global, copts... KafkaOpt) (*KafkaClient, error) {
 		opts = append(opts, kgo.WithHooks(metrics))
 	}
 	if conf.LingerMs > 0 {
-		opts = append(opts, kgo.ProducerLinger(time.Duration(conf.LingerMs * 1000 * 1000)))
+		opts = append(opts, kgo.ProducerLinger(time.Duration(conf.LingerMs*1000*1000)))
 	}
 	switch strings.TrimSpace(strings.ToLower(conf.Compression)) {
 	case "", "none":
@@ -165,8 +165,8 @@ func NewKafkaClient(global *Global, copts... KafkaOpt) (*KafkaClient, error) {
 	}
 	if conf.Sasl.Enable {
 		method := utils.NormStringOpt(conf.Sasl.Method)
-		user := utils.NormStringOpt(conf.Sasl.User)
-		pass := utils.NormStringOpt(conf.Sasl.Pass)
+		user := conf.Sasl.User
+		pass := conf.Sasl.Pass
 		if method == "" || user == "" || pass == "" {
 			return nil, errors.InvalidConfig("invalid kafka config, method, user and pass are all required for sasl config")
 		}
@@ -197,7 +197,7 @@ func NewKafkaClient(global *Global, copts... KafkaOpt) (*KafkaClient, error) {
 			return nil, errors.InvalidConfig("invalid kafka config, unrecognized sasl method %s", method)
 		}
 	}
-	client := &KafkaClient {
+	client := &KafkaClient{
 		consumers: make(map[tp]*pconsumer),
 	}
 	opts = append(
@@ -209,7 +209,7 @@ func NewKafkaClient(global *Global, copts... KafkaOpt) (*KafkaClient, error) {
 		kgo.BlockRebalanceOnPoll(),
 		kgo.AllowAutoTopicCreation(),
 	)
-	
+
 	for _, copt := range copts {
 		copt(client)
 	}
@@ -241,11 +241,11 @@ func (s *KafkaClient) assigned(ctx context.Context, cl *kgo.Client, assigned map
 		if exist {
 			for _, partition := range partitions {
 				pc := &pconsumer{
-					cl: cl,
-					topic: topic,
+					cl:        cl,
+					topic:     topic,
 					partition: partition,
-					worker: worker,
-	
+					worker:    worker,
+
 					quit: make(chan struct{}),
 					done: make(chan struct{}),
 					recs: make(chan kgo.FetchTopicPartition, 5),
@@ -281,7 +281,7 @@ func (s *KafkaClient) killConsumers(lost map[string][]int32) {
 			close(pc.quit)
 			wg.Add(1)
 			go func() {
-				<- pc.done
+				<-pc.done
 				wg.Done()
 			}()
 		}
