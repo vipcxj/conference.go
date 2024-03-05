@@ -33,5 +33,5 @@ __debug_bin*
 /refresh.sh
 *.run.out
 *.run.err
-build
+build/
 vcpkg-configuration.json
