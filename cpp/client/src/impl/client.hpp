@@ -2,6 +2,7 @@
 #define _CFGO_CLIENT_IMPL_HPP_
 
 #include "cfgo/alias.hpp"
+#include "cfgo/async.hpp"
 #include "cfgo/configuration.hpp"
 #include "cfgo/pattern.hpp"
 #include "cfgo/utils.hpp"
@@ -58,6 +59,7 @@ namespace cfgo {
             Client(const Client&) = delete;
             Client& operator = (Client&) = delete;
             [[nodiscard]] asio::awaitable<SubPtr> subscribe(const Pattern& pattern, const std::vector<std::string>& req_types, close_chan& close_chan);
+            [[nodiscard]] asio::awaitable<cancelable<void>> unsubscribe(const std::string& sub_id, close_chan& close_chan);
         private:
             bool m_busy;
             using busy_chan = asiochan::channel<void>;
@@ -75,9 +77,8 @@ namespace cfgo {
                 asio::co_spawn(*m_io_context, ch.write(), asio::detached);
             };
             void emit(const std::string& evt, msg_ptr msg);
-            [[nodiscard]] asio::awaitable<std::optional<msg_ptr>> emit_with_ack(const std::string& evt, msg_ptr msg, close_chan& close_chan) const;
-            [[nodiscard]] asio::awaitable<std::optional<msg_ptr>> wait_for_msg(const std::string& evt, MsgChanner& msg_channer, close_chan& close_chan, std::function<bool(msg_ptr)> cond);
-            [[nodiscard]] asio::awaitable<std::optional<bool>> _unsubscribe(const std::string& sub_id, close_chan& close_chan);
+            [[nodiscard]] asio::awaitable<cancelable<msg_ptr>> emit_with_ack(const std::string& evt, msg_ptr msg, close_chan& close_chan) const;
+            [[nodiscard]] asio::awaitable<cancelable<msg_ptr>> wait_for_msg(const std::string& evt, MsgChanner& msg_channer, close_chan& close_chan, std::function<bool(msg_ptr)> cond);
             void add_candidate(const msg_ptr& msg);
 
             CtxPtr m_io_context;

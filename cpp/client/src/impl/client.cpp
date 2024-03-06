@@ -3,6 +3,7 @@
 #include "cfgo/track.hpp"
 #include "cfgo/subscribation.hpp"
 #include "cfgo/defer.hpp"
+#include "cfgo/async.hpp"
 #include "impl/client.hpp"
 #include "rtc/rtc.hpp"
 #include "boost/lexical_cast.hpp"
@@ -132,9 +133,8 @@ namespace cfgo
                 {
                     co_return true;
                 }
-                auto &&result = co_await asiochan::select(
-                    asiochan::ops::read(ch, close_chan));
-                if (result.received_from(close_chan))
+                auto &&result = co_await chan_read<void>(ch, close_chan);
+                if (result.is_canceled())
                 {
                     co_return false;
                 }
@@ -256,7 +256,7 @@ namespace cfgo
             m_client->socket()->emit(evt, std::move(msg));
         }
 
-        auto Client::emit_with_ack(const std::string &evt, msg_ptr msg, close_chan &close_chan) const -> asio::awaitable<std::optional<msg_ptr>>
+        auto Client::emit_with_ack(const std::string &evt, msg_ptr msg, close_chan &close_chan) const -> asio::awaitable<cancelable<msg_ptr>>
         {
             auto ack_ch = std::make_shared<msg_chan>();
             msg_chan_weak_ptr weak_ack_ch = ack_ch;
@@ -274,34 +274,30 @@ namespace cfgo
                     }
                 }
             } });
-            auto result = co_await asiochan::select(
-                asiochan::ops::read(*ack_ch),
-                asiochan::ops::read(close_chan));
-            if (result.received<msg_ptr>())
+            auto result = co_await chan_read<msg_ptr>(*ack_ch, close_chan);
+            if (result.is_canceled())
             {
-                co_return result.get_received<msg_ptr>();
+                co_return make_canceled<msg_ptr>();
             }
             else
             {
-                co_return std::nullopt;
+                co_return result.value();
             }
         }
 
-        auto Client::wait_for_msg(const std::string &evt, MsgChanner &msg_channer, close_chan &close_chan, std::function<bool(msg_ptr)> cond) -> asio::awaitable<std::optional<msg_ptr>>
+        auto Client::wait_for_msg(const std::string &evt, MsgChanner &msg_channer, close_chan &close_chan, std::function<bool(msg_ptr)> cond) -> asio::awaitable<cancelable<msg_ptr>>
         {
             auto &&ch = msg_channer.chan(evt);
             msg_ptr msg = nullptr;
             while (true)
             {
-                auto result = co_await asiochan::select(
-                    asiochan::ops::read(ch),
-                    asiochan::ops::read(close_chan));
-                if (result.received<void>())
+                auto result = co_await chan_read<msg_ptr>(ch, close_chan);
+                if (!result)
                 {
                     msg_channer.release(evt);
-                    co_return std::nullopt;
+                    co_return result;
                 }
-                msg = result.get_received<msg_ptr>();
+                msg = result.value();
                 if (cond(msg))
                 {
                     msg_channer.release(evt);
@@ -442,22 +438,19 @@ namespace cfgo
                         add_candidate(m);
                     }
                 }
-                auto &&state_res = co_await asiochan::select(
-                    asiochan::ops::read(peer_state_chan),
-                    asiochan::ops::read(close_chan));
-                if (state_res.matches(close_chan))
+                auto &&state_res = co_await chan_read<rtc::PeerConnection::State>(peer_state_chan, close_chan);
+                if (!state_res)
                 {
                     co_return nullptr;
                 }
-                auto state = state_res.get_received<::rtc::PeerConnection::State>();
+                auto state = state_res.value();
                 if (state != ::rtc::PeerConnection::State::Connected)
                 {
                     co_return nullptr;
                 }
 
-                auto &&res = co_await asiochan::select(
-                    asiochan::ops::read(tracks_ch, close_chan));
-                if (res.matches(close_chan))
+                auto &&res = co_await chan_read<void>(tracks_ch, close_chan);
+                if (!res)
                 {
                     co_return nullptr;
                 }
@@ -473,15 +466,24 @@ namespace cfgo
             }
         }
 
-        auto Client::_unsubscribe(const std::string &sub_id, close_chan &close_chan) -> asio::awaitable<std::optional<bool>>
+        auto Client::unsubscribe(const std::string &sub_id, close_chan &close_chan) -> asio::awaitable<cancelable<void>>
         {
-            MsgChanner msg_channer(this);
-            auto res = co_await emit_with_ack("subscribe", create_unsubscribe_message(sub_id), close_chan);
-            if (!res)
+            if (co_await accquire(close_chan))
             {
-                co_return std::nullopt;
+                DEFER({
+                    release();
+                });
+                auto res = co_await emit_with_ack("subscribe", create_unsubscribe_message(sub_id), close_chan);
+                if (!res)
+                {
+                    co_return res;
+                }
+                co_return get_msg_base_field<std::string>(res.value(), "id") == sub_id;
             }
-            co_return get_msg_base_field<std::string>(res.value(), "id") == sub_id;
+            else
+            {
+                co_return make_canceled();
+            }
         }
 
         void Client::add_candidate(const msg_ptr &msg)

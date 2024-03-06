@@ -14,6 +14,7 @@ set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/subscribation.hpp"
     "${H_PUBLIC_PATH}/track.hpp"
     "${H_PUBLIC_PATH}/alias.hpp"
+    "${H_PUBLIC_PATH}/async.hpp"
     "${H_PUBLIC_PATH}/pattern.hpp"
     "${H_PUBLIC_PATH}/error.hpp"
 )
@@ -35,6 +36,7 @@ set(MY_SOURCES
     "${SRC_PATH}/client.cpp"
     "${SRC_PATH}/track.cpp"
     "${SRC_PATH}/subscribation.cpp"
+    "${SRC_PATH}/async.cpp"
     "${SRC_PATH}/error.cpp"
     "${SRC_PATH}/coevent.cpp"
     "${SRC_PATH}/utils.cpp"
@@ -49,6 +51,9 @@ target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
 target_include_directories(cfgoclient PRIVATE ${H_PRIVATE} ${SRC_PATH})
 
 find_package(Boost REQUIRED)
+
+find_package(cpptrace CONFIG REQUIRED)
+target_link_libraries(cfgoclient PRIVATE cpptrace::cpptrace)
 
 find_package(sioclient CONFIG REQUIRED)
 target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
@@ -77,7 +82,7 @@ else()
     target_link_libraries(test1 PRIVATE LibDataChannel::LibDataChannelStatic)
 endif(WIN32)
 
-enable_testing()
+include(CTest)
 
 find_package(GTest CONFIG REQUIRED)
 
@@ -87,6 +92,14 @@ find_package(asio CONFIG REQUIRED)
 target_link_libraries(test-coevent PRIVATE asio::asio)
 target_link_libraries(test-coevent PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
 add_test(NAME test-coevent COMMAND test-coevent)
+
+add_executable(test-async "${MY_TEST_PATH}/async.cpp")
+target_include_directories(test-async PUBLIC ${H_PUBLIC})
+target_include_directories(test-async PRIVATE ${H_PRIVATE})
+target_compile_definitions(test-async PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
+target_link_libraries(test-async PRIVATE asio::asio cfgoclient)
+target_link_libraries(test-async PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
+add_test(NAME test-async COMMAND test-async)
 
 add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")
 target_include_directories(test-gstreamer PUBLIC ${H_PUBLIC})

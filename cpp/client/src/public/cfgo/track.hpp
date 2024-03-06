@@ -6,6 +6,7 @@
 #include "cfgo/alias.hpp"
 #include "cfgo/utils.hpp"
 #include "rtc/track.hpp"
+#include "asio/awaitable.hpp"
 
 namespace rtc
 {

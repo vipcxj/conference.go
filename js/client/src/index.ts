@@ -416,7 +416,10 @@ export class ConferenceClient {
 
     private ack = (func?: Ack) => {
         if (func) {
+            this.logger().debug("ack");
             func("ack");
+        } else {
+            this.logger().debug("no ack");
         }
     }
 

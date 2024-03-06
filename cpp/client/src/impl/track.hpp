@@ -5,6 +5,7 @@
 #include <memory>
 #include <map>
 #include <deque>
+#include <mutex>
 #include "cfgo/track.hpp"
 #include "boost/circular_buffer.hpp"
 
@@ -29,11 +30,15 @@ namespace cfgo
             std::map<std::string, std::string> labels;
             std::shared_ptr<rtc::Track> track;
 
+            bool m_inited;
+            std::mutex m_lock;
             boost::circular_buffer<cfgo::Track::MsgPtr> m_msg_cache;
 
             Track(const msg_ptr& msg, int cache_capicity);
 
-            cfgo::Track::MsgPtr receive_msg() const;
+            void prepare_track();
+            void on_track_msg(rtc::message_variant data);
+            cfgo::Track::MsgPtr receive_msg();
         };
     } // namespace impl
     

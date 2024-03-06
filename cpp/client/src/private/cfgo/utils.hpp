@@ -4,6 +4,7 @@
 #include <string>
 #include <exception>
 #include <memory>
+#include "cfgo/alias.hpp"
 
 namespace cfgo
 {

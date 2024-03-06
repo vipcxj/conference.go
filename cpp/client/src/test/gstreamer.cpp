@@ -1,7 +1,6 @@
-extern "C" {
 #include "gst/gst.h"
 #include "gst/app/gstappsrc.h"
-}
+
 
 #include "cfgo/client.hpp"
 #include "cfgo/track.hpp"
@@ -15,6 +14,12 @@ if(!var_name) { \
     m_valid = false; \
     return; \
 }
+
+struct App;
+
+static void start_feed(GstElement *pipeline, guint size, App *app);
+static void stop_feed(GstElement *pipeline, App *app);
+static gboolean on_bus_message(GstBus *bus, GstMessage *message, App *app);
 
 struct App
 {
@@ -109,7 +114,8 @@ static void stop_feed(GstElement *pipeline, App *app)
     
 }
 
-static gboolean on_bus_message(GstBus *bus, GstMessage *message, App *app) {
+static gboolean on_bus_message(GstBus *bus, GstMessage *message, App *app) 
+{
     return TRUE;
 }
 
