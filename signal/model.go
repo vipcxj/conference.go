@@ -1462,7 +1462,7 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 			}
 		})
 		peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
-			ctx.Sugar().Debugf("accept track with mid %s", r.RTPTransceiver().Mid())
+			ctx.Sugar().Debugf("accept track with mid %s, mime type: %v, playload type: %v", r.RTPTransceiver().Mid(), r.Track().Codec().MimeType, r.Track().Codec().PayloadType)
 			ctx.publications.ForEach(func(pid string, pub *Publication) bool {
 				if pub.Bind() {
 					return false

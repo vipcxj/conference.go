@@ -20,11 +20,11 @@ namespace rtc
 
 namespace cfgo {
     namespace impl {
-        class Client : std::enable_shared_from_this<Client>
+        class Client : public std::enable_shared_from_this<Client>
         {
         public:
             using Ptr = std::shared_ptr<Client>;
-            using CtxPtr = std::shared_ptr<asio::io_context>;
+            using CtxPtr = std::shared_ptr<asio::execution_context>;
             struct Guard {
                 Client* const m_client;
                 Guard(Client* const client): m_client(client) {
@@ -60,6 +60,9 @@ namespace cfgo {
             Client& operator = (Client&) = delete;
             [[nodiscard]] asio::awaitable<SubPtr> subscribe(const Pattern& pattern, const std::vector<std::string>& req_types, close_chan& close_chan);
             [[nodiscard]] asio::awaitable<cancelable<void>> unsubscribe(const std::string& sub_id, close_chan& close_chan);
+            void set_sio_logs_default();
+            void set_sio_logs_verbose();
+            void set_sio_logs_quiet();
         private:
             bool m_busy;
             using busy_chan = asiochan::channel<void>;
@@ -70,11 +73,11 @@ namespace cfgo {
             [[nodiscard]] msg_ptr create_auth_message() const;
 
             template<typename T>
-            void write_ch(asiochan::channel<T>& ch, const T& v) {
-                asio::co_spawn(*m_io_context, ch.write(v), asio::detached);
+            void write_ch(asiochan::writable_channel_type<T> auto ch, const T& v) const {
+                asio::co_spawn(asio::get_associated_executor(m_io_context), ch.write(v), asio::detached);
             };
             void write_ch(asiochan::channel<void>& ch) {
-                asio::co_spawn(*m_io_context, ch.write(), asio::detached);
+                asio::co_spawn(asio::get_associated_executor(m_io_context), ch.write(), asio::detached);
             };
             void emit(const std::string& evt, msg_ptr msg);
             [[nodiscard]] asio::awaitable<cancelable<msg_ptr>> emit_with_ack(const std::string& evt, msg_ptr msg, close_chan& close_chan) const;

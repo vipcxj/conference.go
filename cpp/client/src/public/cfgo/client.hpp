@@ -17,12 +17,14 @@ namespace cfgo {
     {
     public:
         using Ptr = std::shared_ptr<Client>;
-        using CtxPtr = std::shared_ptr<asio::io_context>;
+        using CtxPtr = std::shared_ptr<asio::execution_context>;
 
     public:
         Client(const Configuration& config);
         Client(const Configuration& config, const CtxPtr& io_ctx);
-        ~Client();
+        void set_sio_logs_default();
+        void set_sio_logs_verbose();
+        void set_sio_logs_quiet();
         [[nodiscard]] asio::awaitable<SubPtr> subscribe(const Pattern& pattern, const std::vector<std::string>& req_types, close_chan& close_chan);
     };
 }

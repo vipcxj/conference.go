@@ -16,6 +16,7 @@ set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/alias.hpp"
     "${H_PUBLIC_PATH}/async.hpp"
     "${H_PUBLIC_PATH}/pattern.hpp"
+    "${H_PUBLIC_PATH}/spd_helper.hpp"
     "${H_PUBLIC_PATH}/error.hpp"
 )
 set(H_PRIVATE "${SRC_PATH}/private")
@@ -24,6 +25,8 @@ set(MY_PRIVATE_HEADERS
     "${H_PRIVATE_PATH}/cofuture.hpp"
     "${H_PRIVATE_PATH}/cothread.hpp"
     "${H_PRIVATE_PATH}/coevent.hpp"
+    "${H_PRIVATE_PATH}/sio_helper.hpp"
+    "${H_PRIVATE_PATH}/rtc_helper.hpp"
     "${H_PRIVATE_PATH}/move_only_function.hpp"
     "${H_PRIVATE_PATH}/utils.hpp"
     "${H_PRIVATE_PATH}/defer.hpp"
@@ -38,6 +41,8 @@ set(MY_SOURCES
     "${SRC_PATH}/subscribation.cpp"
     "${SRC_PATH}/async.cpp"
     "${SRC_PATH}/error.cpp"
+    "${SRC_PATH}/sio_helper.cpp"
+    "${SRC_PATH}/rtc_helper.cpp"
     "${SRC_PATH}/coevent.cpp"
     "${SRC_PATH}/utils.cpp"
     "${H_IMPL}/client.cpp"
@@ -55,15 +60,18 @@ find_package(Boost REQUIRED)
 find_package(cpptrace CONFIG REQUIRED)
 target_link_libraries(cfgoclient PRIVATE cpptrace::cpptrace)
 
+find_package(spdlog CONFIG REQUIRED)
+target_link_libraries(cfgoclient PRIVATE spdlog::spdlog)
+
 find_package(sioclient CONFIG REQUIRED)
 target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
 
 find_package(LibDataChannel CONFIG REQUIRED)
-if(WIN32)
+if(TARGET LibDataChannel::LibDataChannel)
     target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannel)
 else()
     target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannelStatic)
-endif(WIN32)
+endif()
 
 find_path(ASIOCHAN_INCLUDE_DIRS "asiochan/asiochan.hpp")
 target_compile_definitions(cfgoclient PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
@@ -76,11 +84,11 @@ set_target_properties(test1 PROPERTIES DEBUG_POSTFIX "${CMAKE_DEBUG_POSTFIX}")
 
 target_include_directories(test1 PUBLIC ${H_PUBLIC})
 target_include_directories(test1 PRIVATE ${H_PRIVATE})
-if(WIN32)
+if(TARGET LibDataChannel::LibDataChannel)
     target_link_libraries(test1 PRIVATE LibDataChannel::LibDataChannel)
 else()
     target_link_libraries(test1 PRIVATE LibDataChannel::LibDataChannelStatic)
-endif(WIN32)
+endif()
 
 include(CTest)
 
@@ -104,7 +112,11 @@ add_test(NAME test-async COMMAND test-async)
 add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")
 target_include_directories(test-gstreamer PUBLIC ${H_PUBLIC})
 target_include_directories(test-gstreamer PRIVATE ${H_PRIVATE})
-target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient)
+target_compile_definitions(test-gstreamer PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
 find_package(PkgConfig)
 pkg_search_module(gstreamer-full REQUIRED IMPORTED_TARGET gstreamer-full-1.0)
+message(${gstreamer-full_LIBRARIES})
 target_link_libraries(test-gstreamer PRIVATE PkgConfig::gstreamer-full)
+find_package(Poco REQUIRED COMPONENTS Net Foundation)
+target_link_libraries(test-gstreamer PRIVATE Poco::Foundation Poco::Net)
+target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient)

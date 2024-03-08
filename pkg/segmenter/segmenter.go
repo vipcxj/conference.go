@@ -371,7 +371,7 @@ func (t *Track) writeH26x(pts time.Duration, data []byte) error {
 					if f != 0 {
 						t.frameRate = f
 					}
-					fmt.Printf("got sps, width: %d, height: %d, frameRate: %v\n", t.width, t.height, t.frameRate)
+					fmt.Printf("got sps, width: %d, height: %d, frameRate: %v, profileIdc: %v, levelIdc: %v, id: %v\n", t.width, t.height, t.frameRate, sps.ProfileIdc, sps.LevelIdc, sps.ID)
 				}
 
 			case h264.NALUTypePPS:

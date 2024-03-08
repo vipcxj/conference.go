@@ -3,11 +3,13 @@ import { io, Socket } from 'socket.io-client';
 import { Mutex } from 'async-mutex'
 import Emittery from 'emittery';
 import { v4 as uuidv4 } from 'uuid';
+import * as sdpTransform from 'sdp-transform';
 
 import PATTERN, { Labels, Pattern } from './pattern';
 import { ERR_PEER_CLOSED, ERR_PEER_FAILED } from './errors';
 import { getLogger } from './log';
 import { combineAsyncIterable } from "./async";
+import { off } from "process";
 
 export const PT = PATTERN;
 
@@ -64,9 +66,17 @@ function splitUrl(url: string) {
     }
 }
 
+interface StreamConstraint {
+    type?: string;
+    codec?: {
+        profileLevelId?: string;
+    };
+}
+
 interface LocalStream {
     stream: MediaStream;
     labels?: Labels;
+    constraints?: StreamConstraint[];
 }
 
 interface SignalMessage {
@@ -322,31 +332,6 @@ export class ConferenceClient {
                 name: 'sdp',
                 data: msg,
             });
-            // const offerCollision = msg.type === "offer" 
-            // && (this.makingOffer || peer.signalingState !== "stable");
-            // const { polite = true } = this.config;
-            // this.ignoreOffer = !polite && offerCollision;
-            // if (this.ignoreOffer) {
-            //     return;
-            // }
-            // await peer.setRemoteDescription({
-            //     type: msg.type,
-            //     sdp: msg.sdp,
-            // });
-            // console.log(`[${this.config.name}]:`)
-            // console.log(peer.remoteDescription.sdp)
-            // for (const pending of this.pendingCandidates) {
-            //     await this.addCandidate(peer, pending);
-            // }
-            // if (msg.type === 'offer') {
-            //     await peer.setLocalDescription();
-            //     const desc = peer.localDescription
-            //     const send_msg: SdpMessage = {
-            //         type: desc.type,
-            //         sdp: desc.sdp,
-            //     };
-            //     this.socket.emit("sdp", send_msg);
-            // }
         });
         this.socket.on("candidate", async (msg: CandidateMessage, ark?: Ack) => {
             this.ack(ark);
@@ -355,37 +340,7 @@ export class ConferenceClient {
                 return
             }
             await this.addCandidate(this.peer, msg);
-        })
-        // this.socket.on('stream', (msg: TrackMessage, ark?: Ark) => {
-        //     if (msg.op == "add") {
-        //         for (const track of msg.tracks) {
-        //             console.log(`Add stream with id ${track.id} and stream id ${track.streamId}`);
-        //         }
-        //         this.tracks.push(...msg.tracks);
-        //     } else {
-        //         for (const track of msg.tracks) {
-        //             console.log(`Remove stream with id ${track.id} and stream id ${track.streamId}`);
-        //         }
-        //         this.tracks = this.tracks.filter(tr => {
-        //             for (const _tr of msg.tracks) {
-        //                 if (tr.globalId == _tr.globalId && tr.id == _tr.id && tr.streamId == _tr.streamId) {
-        //                     return false
-        //                 }
-        //             }
-        //             return true
-        //         });
-        //     }
-        //     for (const cb of this.onTrasksCallbacks) {
-        //         cb({
-        //             tracks: this.tracks,
-        //             add: msg.op == 'add' ? msg.tracks : [],
-        //             remove: msg.op == 'remove' ? msg.tracks : []
-        //         });
-        //     }
-        //     if (ark) {
-        //         ark()
-        //     }
-        // });
+        });
     }
 
     id = () => {
@@ -425,23 +380,6 @@ export class ConferenceClient {
 
     private createPeer = () => {
         const peer = new RTCPeerConnection(this.config.rtcConfig);
-        // peer.onnegotiationneeded = async () => {
-        //     try {
-        //         this.makingOffer = true;
-        //         await peer.setLocalDescription();
-        //         const desc = peer.localDescription;
-        //         const msg: SdpMessage = {
-        //             msgId: this.nextSdpMsgId(),
-        //             type: desc.type,
-        //             sdp: desc.sdp,
-        //         }
-        //         this.socket.emit("sdp", msg)
-        //     } catch (err) {
-        //         console.error(err);
-        //     } finally {
-        //         this.makingOffer = false;
-        //     }
-        // };
         peer.onicecandidate = (evt) => {
             let msg: CandidateMessage;
             if (evt.candidate) {
@@ -460,23 +398,23 @@ export class ConferenceClient {
                 this.logger().log(`find and send the completed candidate`);
             }
             this.socket.emit("candidate", msg);
-        }
+        };
         peer.onconnectionstatechange = () => {
             this.logger().log(`connection state changed to ${peer.connectionState}`);
             this.emitter.emit('connectState', {
                 name: 'connectState',
                 data: this.peer.connectionState,
             });
-        }
+        };
         peer.oniceconnectionstatechange = () => {
             this.logger().log(`ice connection state changed to ${peer.iceConnectionState}`);
-        }
+        };
         peer.onsignalingstatechange = () => {
             this.logger().log(`signaling state changed to ${peer.signalingState}`);
-        }
+        };
         peer.onicegatheringstatechange = () => {
             this.logger().log(`ice gathering state changed to ${peer.signalingState}`);
-        }
+        };
         peer.ontrack = async (evt) => {
             evt.track.onmute = (evt0) => {
                 this.logger().log(`The remote track ${evt.track.id}/${evt.transceiver.mid} is muted`);
@@ -492,14 +430,14 @@ export class ConferenceClient {
                 data: [evt.track, evt.streams, evt.transceiver],
             });
             this.logger().log(`Received track ${evt.track.id} with stream id ${evt.streams[0].id}`)
-        }
+        };
         return peer;
     }
 
     private makeSureSocket = async (stopEmitter?: Emittery<StopEmitEventMap>) => {
         if (this.socket.connected) {
             this.logger().debug('already connected.');
-            return
+            return;
         }
         this.logger().info("start connect socket...");
         this.socket.connect();
@@ -522,10 +460,10 @@ export class ConferenceClient {
     private addCandidate = async (peer: RTCPeerConnection, msg: CandidateMessage) => {
         try {
             if (msg.op == "end") {
-                this.logger().log(`Received candidate completed`)
+                this.logger().log(`Received candidate completed`);
                 await peer.addIceCandidate();
             } else {
-                this.logger().log(`Received candidate ${msg.candidate.candidate}`)
+                this.logger().log(`Received candidate ${msg.candidate.candidate}`);
                 await peer.addIceCandidate(msg.candidate);
             }
         } catch (err) {
@@ -602,7 +540,7 @@ export class ConferenceClient {
             (evt) => evt.data !== 'connecting',
             () => this.peer.connectionState !== 'connecting',
         );
-    }
+    };
 
     private waitForStableConnectionState = async () => {
         return await this.waitForEvt(
@@ -610,9 +548,54 @@ export class ConferenceClient {
             (evt) => evt.data === 'failed' || evt.data === 'closed' || evt.data === 'connected',
             () => this.peer.connectionState === 'failed' || this.peer.connectionState  === 'closed' || this.peer.connectionState === 'connected',
         );
-    }
+    };
 
-    private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<NamedEvent<'sdp', SdpMessage>> | null = null, stopEvts: AsyncIterableIterator<NamedEvent<'stop', undefined>> | null = null) => {
+    private applyStreamConstraint = (sdp: sdpTransform.SessionDescription, constraint: StreamConstraint) => {
+        if (constraint.codec?.profileLevelId) {
+            if (sdp.media) {
+                for (const m of sdp.media) {
+                    if (constraint.type && constraint.type !== m.type) {
+                        continue;
+                    }
+                    let pts: number[] = [];
+                    if (m.fmtp) {
+                        for (const fmtp of m.fmtp) {
+                            const config = sdpTransform.parseParams(fmtp.config);
+                            if (config && 'profile-level-id' in config 
+                                && typeof config['profile-level-id'] === 'string' 
+                                && config['profile-level-id'].toLowerCase() === constraint.codec?.profileLevelId?.toLowerCase()) {
+                                pts.push(fmtp.payload);
+                            }
+                            // if (config && 'level-asymmetry-allowed' in config
+                            //     && typeof config['level-asymmetry-allowed'] === 'number'
+                            //     && config['level-asymmetry-allowed'] === 1) {
+                            //     config['level-asymmetry-allowed'] = 0;
+                            //     fmtp.config = Object.keys(config).map(key => `${key}=${config[key]}`).join(';');
+                            // }
+                        }
+                        for (const fmtp of m.fmtp) {
+                            const config = sdpTransform.parseParams(fmtp.config);
+                            if (config && 'apt' in config) {
+                                const pt = config['apt'];
+                                if (typeof pt === 'number' && pts.indexOf(pt) >= 0) {
+                                    pts.push(fmtp.payload);
+                                }
+                            }
+                        }
+                        const oldPts = sdpTransform.parsePayloads(m.payloads);
+                        const otherPts = oldPts.filter(pt => pts.indexOf(pt) < 0);
+                        pts = pts.sort((a, b) => a - b);
+                        for (const pt of otherPts) {
+                            pts.push(pt);
+                        }
+                        m.payloads = pts.join(' ');
+                    }
+                }
+            }
+        }
+    };
+
+    private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<NamedEvent<'sdp', SdpMessage>> | null = null, stopEvts: AsyncIterableIterator<NamedEvent<'stop', undefined>> | null = null, localStreamConstraints: StreamConstraint[] = []) => {
         const peer = this.peer;
         await this.waitForNotConnecting();
         if (peer.connectionState == 'closed') {
@@ -622,10 +605,18 @@ export class ConferenceClient {
             if (sdpEvts !== null) {
                 throw new Error(`sdpEvts should be null when active is true.`);
             }
-            const offer = await peer.createOffer();
+            let offer = await peer.createOffer();
+            const offerObj = sdpTransform.parse(offer.sdp);
+            for (const constraints of localStreamConstraints) {
+                this.applyStreamConstraint(offerObj, constraints);
+            }
+            offer.sdp = sdpTransform.write(offerObj);
             await peer.setLocalDescription(offer);
             const desc = peer.localDescription;
             this.logger().debug(`create offer and set local desc`);
+            const localSdp = sdpTransform.parse(desc.sdp);
+            console.log(localSdp);
+
             sdpEvts = this.emitter.events('sdp');
             const evts = combineAsyncIterable([sdpEvts, stopEvts]);
             this.socket.emit('sdp', {
@@ -652,6 +643,8 @@ export class ConferenceClient {
                     }
                 }
                 this.logger().debug('set remote desc');
+                const remoteSdp = sdpTransform.parse(sdpMsg.sdp);
+                console.log(remoteSdp);
                 await peer.setRemoteDescription({
                     type: sdpMsg.type,
                     sdp: sdpMsg.sdp,
@@ -798,7 +791,7 @@ export class ConferenceClient {
                     await cleanAll();
                     return "";  
                 }
-                await this.negotiate(sdpId, true, null, stopEvt);
+                await this.negotiate(sdpId, true, null, stopEvt, stream.constraints);
             } catch (e) {
                 await cleanAll();
                 throw e;

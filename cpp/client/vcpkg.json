@@ -12,7 +12,9 @@
     "asiochan",
     "boost-uuid",
     "boost-circular-buffer",
+    "boost-format",
     "cpptrace",
+    "spdlog",
     {
       "name": "libdatachannel",
       "features": ["srtp"]
@@ -23,6 +25,7 @@
     },
     "socket-io-client",
     "boost-lexical-cast",
-    "gtest"
+    "gtest",
+    "poco"
   ]
 }

@@ -82,6 +82,12 @@ export const Video = (pros: VideoProps) => {
                 await client.publish({
                     stream: stream!,
                     labels: publish.labels,
+                    constraints: [{
+                        type: 'video',
+                        codec: {
+                            profileLevelId: '42e01f',
+                        },
+                    }],
                 }, 30000);
                 break;
             } catch (e) {
