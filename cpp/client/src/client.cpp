@@ -18,6 +18,16 @@ namespace cfgo
         impl()->set_sio_logs_quiet();
     }
 
+    std::optional<rtc::Description> Client::peer_local_desc() const
+    {
+        return impl()->peer_local_desc();
+    }
+
+    std::optional<rtc::Description> Client::peer_remote_desc() const
+    {
+        return impl()->peer_remote_desc();
+    }
+
     auto Client::subscribe(const Pattern &pattern, const std::vector<std::string> &req_types, close_chan &close_chan) -> asio::awaitable<SubPtr> {
         return impl()->subscribe(pattern, req_types, close_chan);
     }

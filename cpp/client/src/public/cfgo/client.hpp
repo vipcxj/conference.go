@@ -25,6 +25,8 @@ namespace cfgo {
         void set_sio_logs_default();
         void set_sio_logs_verbose();
         void set_sio_logs_quiet();
+        std::optional<rtc::Description> peer_local_desc() const;
+        std::optional<rtc::Description> peer_remote_desc() const;
         [[nodiscard]] asio::awaitable<SubPtr> subscribe(const Pattern& pattern, const std::vector<std::string>& req_types, close_chan& close_chan);
     };
 }

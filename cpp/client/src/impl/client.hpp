@@ -1,6 +1,7 @@
 #ifndef _CFGO_CLIENT_IMPL_HPP_
 #define _CFGO_CLIENT_IMPL_HPP_
 
+#include "cfgo/config/configuration.h"
 #include "cfgo/alias.hpp"
 #include "cfgo/async.hpp"
 #include "cfgo/configuration.hpp"
@@ -11,6 +12,9 @@
 #include "asiochan/asiochan.hpp"
 #include <mutex>
 #include <optional>
+#ifdef CFGO_SUPPORT_GSTREAMER
+#include "gst/sdp/sdp.h"
+#endif
 
 namespace rtc
 {
@@ -50,6 +54,10 @@ namespace cfgo {
             std::unique_ptr<sio::client> m_client;
             std::shared_ptr<rtc::PeerConnection> m_peer;
             const std::string m_id;
+            #ifdef CFGO_SUPPORT_GSTREAMER
+            friend class Track;
+            GstSDPMessage * m_gst_sdp;
+            #endif
         public:
             Client() = delete;
             Client(const Configuration& config);
@@ -63,12 +71,15 @@ namespace cfgo {
             void set_sio_logs_default();
             void set_sio_logs_verbose();
             void set_sio_logs_quiet();
+            std::optional<rtc::Description> peer_local_desc() const;
+            std::optional<rtc::Description> peer_remote_desc() const;
         private:
             bool m_busy;
             using busy_chan = asiochan::channel<void>;
             std::vector<busy_chan> m_busy_chans;
             [[nodiscard]] asio::awaitable<bool> accquire(close_chan& close_chan);
             void release();
+            void update_gst_sdp();
 
             [[nodiscard]] msg_ptr create_auth_message() const;
 

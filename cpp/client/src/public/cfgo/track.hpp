@@ -3,6 +3,7 @@
 
 #include <string>
 #include <memory>
+#include "cfgo/config/configuration.h"
 #include "cfgo/alias.hpp"
 #include "cfgo/utils.hpp"
 #include "rtc/track.hpp"
@@ -18,6 +19,7 @@ namespace cfgo
     namespace impl
     {
         struct Track;
+        struct Client;
     } // namespace impl
     
     constexpr int DEFAULT_TRACK_CACHE_CAPICITY = 16;
@@ -25,7 +27,13 @@ namespace cfgo
     struct Track : ImplBy<impl::Track>
     {
         using Ptr = std::shared_ptr<Track>;
-        using MsgPtr = std::shared_ptr<rtc::message_variant>;
+        using MsgPtr = std::unique_ptr<rtc::binary>;
+        enum MsgType
+        {
+            RTP,
+            RTCP,
+            ALL
+        };
 
         Track(const msg_ptr & msg, int cache_capicity = DEFAULT_TRACK_CACHE_CAPICITY);
 
@@ -39,7 +47,9 @@ namespace cfgo
         const std::map<std::string, std::string> & labels() const noexcept;
         std::shared_ptr<rtc::Track> & track() noexcept;
         const std::shared_ptr<rtc::Track> & track() const noexcept;
-        MsgPtr receive_msg() const;
+        void * get_gst_caps(int pt) const;
+        MsgPtr receive_msg(MsgType msg_type);
+        friend class impl::Client;
     };
     
 } // namespace name

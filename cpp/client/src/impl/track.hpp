@@ -6,8 +6,14 @@
 #include <map>
 #include <deque>
 #include <mutex>
+#include <cstdint>
+#include "cfgo/config/configuration.h"
 #include "cfgo/track.hpp"
+#include "impl/client.hpp"
 #include "boost/circular_buffer.hpp"
+#ifdef CFGO_SUPPORT_GSTREAMER
+#include "gst/sdp/sdp.h"
+#endif
 
 namespace rtc
 {
@@ -21,6 +27,7 @@ namespace cfgo
         struct Track
         {
             using Ptr = std::shared_ptr<Track>;
+            using MsgBuffer = boost::circular_buffer<std::pair<int, cfgo::Track::MsgPtr>>;
             std::string type;
             std::string pubId;
             std::string globalId;
@@ -32,13 +39,22 @@ namespace cfgo
 
             bool m_inited;
             std::mutex m_lock;
-            boost::circular_buffer<cfgo::Track::MsgPtr> m_msg_cache;
+            MsgBuffer m_rtp_cache;
+            MsgBuffer m_rtcp_cache;
+            uint32_t m_seq;
+            std::shared_ptr<Client> m_client;
+            #ifdef CFGO_SUPPORT_GSTREAMER
+            GstSDPMedia *m_gst_media;
+            #endif
 
             Track(const msg_ptr& msg, int cache_capicity);
+            ~Track();
 
             void prepare_track();
             void on_track_msg(rtc::message_variant data);
-            cfgo::Track::MsgPtr receive_msg();
+            cfgo::Track::MsgPtr receive_msg(cfgo::Track::MsgType msg_type);
+            void bind_client(std::shared_ptr<Client> client);
+            void * get_gst_caps(int pt) const;
         };
     } // namespace impl
     

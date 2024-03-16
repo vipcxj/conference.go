@@ -4,19 +4,35 @@ project(cfgoclient)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(GSTREAMER_SUPPORT "gstreamer support")
+option(USE_GSTREAMER_FULL_STATIC "use gstreamer full static" ON)
+if(GSTREAMER_SUPPORT)
+    set(SUPPORT_GSTREAMER 1)
+else()
+    set(SUPPORT_GSTREAMER 0)
+endif()
+
+
 set(SRC_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(H_IMPL "${SRC_PATH}/impl")
 set(H_PUBLIC "${SRC_PATH}/public")
 set(H_PUBLIC_PATH "${H_PUBLIC}/cfgo")
+
+configure_file("${H_PUBLIC_PATH}/config/configuration.h.in" "${H_PUBLIC_PATH}/config/configuration.h")
+
 set(MY_PUBLIC_HEADERS
+    "${H_PUBLIC_PATH}/config/configuration.h"
     "${H_PUBLIC_PATH}/configuration.hpp"
     "${H_PUBLIC_PATH}/client.hpp"
     "${H_PUBLIC_PATH}/subscribation.hpp"
     "${H_PUBLIC_PATH}/track.hpp"
     "${H_PUBLIC_PATH}/alias.hpp"
     "${H_PUBLIC_PATH}/async.hpp"
+    "${H_PUBLIC_PATH}/defer.hpp"
     "${H_PUBLIC_PATH}/pattern.hpp"
+    "${H_PUBLIC_PATH}/exports.h"
     "${H_PUBLIC_PATH}/spd_helper.hpp"
+    "${H_PUBLIC_PATH}/gst_helper.h"
     "${H_PUBLIC_PATH}/error.hpp"
 )
 set(H_PRIVATE "${SRC_PATH}/private")
@@ -29,7 +45,6 @@ set(MY_PRIVATE_HEADERS
     "${H_PRIVATE_PATH}/rtc_helper.hpp"
     "${H_PRIVATE_PATH}/move_only_function.hpp"
     "${H_PRIVATE_PATH}/utils.hpp"
-    "${H_PRIVATE_PATH}/defer.hpp"
     "${H_IMPL}/client.hpp"
     "${H_IMPL}/track.hpp"
     "${H_IMPL}/subscribation.hpp"
@@ -43,6 +58,7 @@ set(MY_SOURCES
     "${SRC_PATH}/error.cpp"
     "${SRC_PATH}/sio_helper.cpp"
     "${SRC_PATH}/rtc_helper.cpp"
+    "${SRC_PATH}/gst_helper.c"
     "${SRC_PATH}/coevent.cpp"
     "${SRC_PATH}/utils.cpp"
     "${H_IMPL}/client.cpp"
@@ -51,7 +67,30 @@ set(MY_SOURCES
 )
 set(MY_TEST_PATH "${SRC_PATH}/test")
 
+find_package(PkgConfig)
+if(USE_GSTREAMER_FULL_STATIC)
+    pkg_search_module(gstreamer-full REQUIRED IMPORTED_TARGET gstreamer-full-1.0)
+endif()
+#pkg_search_module(gstreamer-codecparsers REQUIRED IMPORTED_TARGET gstreamer-codecparsers-1.0)
+pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0)
+pkg_search_module(gstreamer-allocators REQUIRED IMPORTED_TARGET gstreamer-allocators-1.0)
+pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
+pkg_search_module(gstreamer-audio REQUIRED IMPORTED_TARGET gstreamer-audio-1.0)
+pkg_search_module(gstreamer-base REQUIRED IMPORTED_TARGET gstreamer-base-1.0)
+pkg_search_module(gstreamer-controller REQUIRED IMPORTED_TARGET gstreamer-controller-1.0)
+pkg_search_module(gstreamer-net REQUIRED IMPORTED_TARGET gstreamer-net-1.0)
+pkg_search_module(gstreamer-pbutils REQUIRED IMPORTED_TARGET gstreamer-pbutils-1.0)
+pkg_search_module(gstreamer-plugins-base REQUIRED IMPORTED_TARGET gstreamer-plugins-base-1.0)
+pkg_search_module(gstreamer-rtp REQUIRED IMPORTED_TARGET gstreamer-rtp-1.0)
+pkg_search_module(gstreamer-rtsp REQUIRED IMPORTED_TARGET gstreamer-rtsp-1.0)
+pkg_search_module(gstreamer-sdp REQUIRED IMPORTED_TARGET gstreamer-sdp-1.0)
+pkg_search_module(gstreamer-tag REQUIRED IMPORTED_TARGET gstreamer-tag-1.0)
+pkg_search_module(gstreamer-video REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
+
+#list(APPEND CMAKE_INSTALL_RPATH [=[$ORIGIN/../lib]=])
+
 add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
+target_compile_definitions(cfgoclient PRIVATE BUILDING_CFGO)
 target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
 target_include_directories(cfgoclient PRIVATE ${H_PRIVATE} ${SRC_PATH})
 
@@ -72,6 +111,30 @@ if(TARGET LibDataChannel::LibDataChannel)
 else()
     target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannelStatic)
 endif()
+
+if(GSTREAMER_SUPPORT)
+    if(USE_GSTREAMER_FULL_STATIC)
+        target_link_libraries(cfgoclient PRIVATE PkgConfig::gstreamer-full)
+    else()
+        target_link_libraries(cfgoclient PRIVATE 
+            PkgConfig::gstreamer
+            PkgConfig::gstreamer-allocators
+            PkgConfig::gstreamer-app
+            PkgConfig::gstreamer-audio
+            PkgConfig::gstreamer-base
+            PkgConfig::gstreamer-controller
+            PkgConfig::gstreamer-net
+            PkgConfig::gstreamer-pbutils
+            PkgConfig::gstreamer-plugins-base
+            PkgConfig::gstreamer-rtp
+            PkgConfig::gstreamer-rtsp
+            PkgConfig::gstreamer-sdp
+            PkgConfig::gstreamer-tag
+            PkgConfig::gstreamer-video
+        )
+    endif()
+endif()
+
 
 find_path(ASIOCHAN_INCLUDE_DIRS "asiochan/asiochan.hpp")
 target_compile_definitions(cfgoclient PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
@@ -113,10 +176,26 @@ add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")
 target_include_directories(test-gstreamer PUBLIC ${H_PUBLIC})
 target_include_directories(test-gstreamer PRIVATE ${H_PRIVATE})
 target_compile_definitions(test-gstreamer PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
-find_package(PkgConfig)
-pkg_search_module(gstreamer-full REQUIRED IMPORTED_TARGET gstreamer-full-1.0)
-message(${gstreamer-full_LIBRARIES})
-target_link_libraries(test-gstreamer PRIVATE PkgConfig::gstreamer-full)
+
+if(USE_GSTREAMER_FULL_STATIC)
+    target_link_libraries(test-gstreamer PRIVATE PkgConfig::gstreamer-full)
+else()
+    target_link_libraries(test-gstreamer PRIVATE 
+        PkgConfig::gstreamer
+        PkgConfig::gstreamer-allocators
+        PkgConfig::gstreamer-app
+        PkgConfig::gstreamer-audio
+        PkgConfig::gstreamer-base
+        PkgConfig::gstreamer-controller
+        PkgConfig::gstreamer-net
+        PkgConfig::gstreamer-pbutils
+        PkgConfig::gstreamer-plugins-base
+        PkgConfig::gstreamer-rtp
+        PkgConfig::gstreamer-rtsp
+        PkgConfig::gstreamer-tag
+        PkgConfig::gstreamer-video
+    )
+endif()
 find_package(Poco REQUIRED COMPONENTS Net Foundation)
 target_link_libraries(test-gstreamer PRIVATE Poco::Foundation Poco::Net)
 target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient)

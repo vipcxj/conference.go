@@ -35,8 +35,12 @@ namespace cfgo
     const std::shared_ptr<rtc::Track> & Track::track() const noexcept {
         return impl()->track;
     }
-    Track::MsgPtr Track::receive_msg() const {
-        return impl()->receive_msg();
+    Track::MsgPtr Track::receive_msg(MsgType msg_type) {
+        return impl()->receive_msg(msg_type);
+    }
+    void * Track::get_gst_caps(int pt) const
+    {
+        return impl()->get_gst_caps(pt);
     }
 
 } // namespace cfgo

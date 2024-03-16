@@ -7,12 +7,17 @@
 #include "cfgo/spd_helper.hpp"
 #include "cfgo/rtc_helper.hpp"
 #include "impl/client.hpp"
+#include "impl/track.hpp"
+#include "cpptrace/cpptrace.hpp"
 #include "rtc/rtc.hpp"
 #include "spdlog/spdlog.h"
 #include "boost/lexical_cast.hpp"
 #include "boost/uuid/uuid_io.hpp"
 #include "boost/uuid/uuid_generators.hpp"
 #include "asiochan/asiochan.hpp"
+#ifdef CFGO_SUPPORT_GSTREAMER
+#include "gst/sdp/sdp.h"
+#endif
 
 namespace cfgo
 {
@@ -27,18 +32,29 @@ namespace cfgo
         {
         }
 
-        Client::Client(const Configuration &config, const CtxPtr &io_ctx, bool thread_safe) : m_config(config),
-                                                                                              m_client(std::make_unique<sio::client>()),
-                                                                                              m_peer(std::make_shared<::rtc::PeerConnection>(config.m_rtc_config)),
-                                                                                              m_id(boost::lexical_cast<std::string>(boost::uuids::random_generator()())),
-                                                                                              m_io_context(io_ctx),
-                                                                                              m_thread_safe(thread_safe),
-                                                                                              m_mutex()
-        {
-        }
+        Client::Client(
+            const Configuration &config, const CtxPtr &io_ctx, bool thread_safe
+        ) : m_config(config),
+            m_client(std::make_unique<sio::client>()),
+            m_peer(std::make_shared<::rtc::PeerConnection>(config.m_rtc_config)),
+            m_id(boost::lexical_cast<std::string>(boost::uuids::random_generator()())),
+            m_io_context(io_ctx),
+            m_thread_safe(thread_safe),
+            m_mutex()
+            #ifdef CFGO_SUPPORT_GSTREAMER
+            , m_gst_sdp(nullptr)
+            #endif
+        {}
 
         Client::~Client()
         {
+            #ifdef CFGO_SUPPORT_GSTREAMER
+            if (m_gst_sdp)
+            {
+                gst_sdp_message_free(m_gst_sdp);
+            }
+            #endif
+            
             m_client->sync_close();
         }
 
@@ -164,6 +180,36 @@ namespace cfgo
             {
                 write_ch(ch);
             }
+        }
+
+        void Client::update_gst_sdp()
+        {
+            #ifdef CFGO_SUPPORT_GSTREAMER
+            if (m_gst_sdp)
+            {
+                gst_sdp_message_free(m_gst_sdp);
+                m_gst_sdp = nullptr;
+            }
+            auto &&desc = m_peer->localDescription();
+            if (desc)
+            {
+                auto res = gst_sdp_message_new_from_text(((std::string) *desc).c_str(), &m_gst_sdp);
+                if (res != GST_SDP_OK)
+                {
+                    throw cpptrace::runtime_error("unable to generate the gst sdp message from local desc.");
+                }
+            }
+            #endif
+        }
+
+        std::optional<rtc::Description> Client::peer_local_desc() const
+        {
+            return m_peer->localDescription();
+        }
+
+        std::optional<rtc::Description> Client::peer_remote_desc() const
+        {
+            return m_peer->remoteDescription();
         }
 
         template <class T>
@@ -499,7 +545,7 @@ namespace cfgo
                 m_peer->onTrack([&uncompleted_tracks, &tracks_ch, this](auto &&track) mutable
                 {
                     spdlog::debug("accept track with mid {}.", track->mid());
-                    auto&& iter = std::partition(uncompleted_tracks.begin(), uncompleted_tracks.end(), [track = std::move(track)](const TrackPtr& t) -> bool {
+                    auto&& iter = std::partition(uncompleted_tracks.begin(), uncompleted_tracks.end(), [&track](const TrackPtr& t) -> bool {
                         return t->bind_id() == track->mid();
                     });
                     if (iter != uncompleted_tracks.end())
@@ -527,6 +573,7 @@ namespace cfgo
                     co_return nullptr;
                 }  
                 m_peer->onLocalDescription([this, sdp_id = sdp_id.value()](const rtc::Description& desc) {
+                    update_gst_sdp();
                     spdlog::debug("send local desc to remote.");
                     m_client->socket()->emit("sdp", create_sdp_message(sdp_id, desc));
                 });
@@ -572,6 +619,11 @@ namespace cfgo
                 }
                 else
                 {
+                    for (auto &&track : sub_ptr->tracks())
+                    {
+                        track->impl()->bind_client(shared_from_this());
+                        track->impl()->prepare_track();
+                    }
                     defers.success();
                     co_return sub_ptr;
                 }

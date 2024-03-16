@@ -21,7 +21,7 @@
     },
     {
       "name": "gstreamer",
-      "features": ["plugins-good"]
+      "features": ["plugins-good", "nvcodec"]
     },
     "socket-io-client",
     "boost-lexical-cast",
