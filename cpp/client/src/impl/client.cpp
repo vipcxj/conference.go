@@ -425,7 +425,7 @@ namespace cfgo
             spdlog::debug("peer state changed to {}", peer_state_to_str(state));
         }
 
-        auto Client::subscribe(const Pattern &pattern, const std::vector<std::string> &req_types, close_chan &close_chan) -> asio::awaitable<cfgo::Subscribation::Ptr>
+        auto Client::subscribe(Pattern pattern, std::vector<std::string> req_types, close_chan close_chan) -> asio::awaitable<cfgo::Subscribation::Ptr>
         {
             if (co_await accquire(close_chan))
             {

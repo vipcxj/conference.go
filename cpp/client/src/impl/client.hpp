@@ -66,7 +66,7 @@ namespace cfgo {
             ~Client();
             Client(const Client&) = delete;
             Client& operator = (Client&) = delete;
-            [[nodiscard]] asio::awaitable<SubPtr> subscribe(const Pattern& pattern, const std::vector<std::string>& req_types, close_chan& close_chan);
+            [[nodiscard]] asio::awaitable<SubPtr> subscribe(Pattern pattern, std::vector<std::string> req_types, close_chan close_chan);
             [[nodiscard]] asio::awaitable<cancelable<void>> unsubscribe(const std::string& sub_id, close_chan& close_chan);
             void set_sio_logs_default();
             void set_sio_logs_verbose();

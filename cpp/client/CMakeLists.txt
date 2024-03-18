@@ -34,6 +34,11 @@ set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/spd_helper.hpp"
     "${H_PUBLIC_PATH}/gst_helper.h"
     "${H_PUBLIC_PATH}/error.hpp"
+    "${H_PUBLIC_PATH}/cbridge.hpp"
+    "${H_PUBLIC_PATH}/cinterface.h"
+)
+set(MY_GST_PLUGIN_PUBLIC_HEADERS
+    "${H_PUBLIC_PATH}/gst/gstcfgosrc.h"
 )
 set(H_PRIVATE "${SRC_PATH}/private")
 set(H_PRIVATE_PATH "${H_PRIVATE}/cfgo")
@@ -61,9 +66,13 @@ set(MY_SOURCES
     "${SRC_PATH}/gst_helper.c"
     "${SRC_PATH}/coevent.cpp"
     "${SRC_PATH}/utils.cpp"
+    "${SRC_PATH}/cinterface.cpp"
     "${H_IMPL}/client.cpp"
     "${H_IMPL}/track.cpp"
     "${H_IMPL}/subscribation.cpp"
+)
+set(MY_GST_PLUGIN_SOURCES
+    "${SRC_PATH}/gstcfgosrc.cpp"
 )
 set(MY_TEST_PATH "${SRC_PATH}/test")
 
@@ -87,31 +96,28 @@ pkg_search_module(gstreamer-sdp REQUIRED IMPORTED_TARGET gstreamer-sdp-1.0)
 pkg_search_module(gstreamer-tag REQUIRED IMPORTED_TARGET gstreamer-tag-1.0)
 pkg_search_module(gstreamer-video REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
 
+find_package(asio CONFIG REQUIRED)
+find_path(ASIOCHAN_INCLUDE_DIRS "asiochan/asiochan.hpp")
+find_package(LibDataChannel CONFIG REQUIRED)
+
 #list(APPEND CMAKE_INSTALL_RPATH [=[$ORIGIN/../lib]=])
 
 add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
 target_compile_definitions(cfgoclient PRIVATE BUILDING_CFGO)
 target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
 target_include_directories(cfgoclient PRIVATE ${H_PRIVATE} ${SRC_PATH})
-
 find_package(Boost REQUIRED)
-
 find_package(cpptrace CONFIG REQUIRED)
 target_link_libraries(cfgoclient PRIVATE cpptrace::cpptrace)
-
 find_package(spdlog CONFIG REQUIRED)
 target_link_libraries(cfgoclient PRIVATE spdlog::spdlog)
-
 find_package(sioclient CONFIG REQUIRED)
 target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
-
-find_package(LibDataChannel CONFIG REQUIRED)
 if(TARGET LibDataChannel::LibDataChannel)
     target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannel)
 else()
     target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannelStatic)
 endif()
-
 if(GSTREAMER_SUPPORT)
     if(USE_GSTREAMER_FULL_STATIC)
         target_link_libraries(cfgoclient PRIVATE PkgConfig::gstreamer-full)
@@ -134,11 +140,14 @@ if(GSTREAMER_SUPPORT)
         )
     endif()
 endif()
-
-
-find_path(ASIOCHAN_INCLUDE_DIRS "asiochan/asiochan.hpp")
 target_compile_definitions(cfgoclient PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
 target_include_directories(cfgoclient PRIVATE ${ASIOCHAN_INCLUDE_DIRS})
+
+if(GSTREAMER_SUPPORT)
+    add_library(cfgogst ${MY_GST_PLUGIN_SOURCES} ${MY_GST_PLUGIN_PUBLIC_HEADERS})
+    target_include_directories(cfgogst PUBLIC ${H_PUBLIC})
+    target_link_libraries(cfgogst PRIVATE cfgoclient)
+endif()
 
 add_executable(test1 "${SRC_PATH}/main.cpp" ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
 
