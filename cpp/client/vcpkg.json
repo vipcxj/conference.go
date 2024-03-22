@@ -13,8 +13,10 @@
     "boost-uuid",
     "boost-circular-buffer",
     "boost-format",
+    "boost-algorithm",
     "cpptrace",
     "spdlog",
+    "nlohmann-json",
     {
       "name": "libdatachannel",
       "features": ["srtp"]

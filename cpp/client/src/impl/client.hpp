@@ -73,12 +73,9 @@ namespace cfgo {
             void set_sio_logs_quiet();
             std::optional<rtc::Description> peer_local_desc() const;
             std::optional<rtc::Description> peer_remote_desc() const;
+            CtxPtr execution_context() const noexcept;
         private:
-            bool m_busy;
-            using busy_chan = asiochan::channel<void>;
-            std::vector<busy_chan> m_busy_chans;
-            [[nodiscard]] asio::awaitable<bool> accquire(close_chan& close_chan);
-            void release();
+            cfgo::AsyncMutex m_a_mutex;
             void update_gst_sdp();
 
             [[nodiscard]] msg_ptr create_auth_message() const;

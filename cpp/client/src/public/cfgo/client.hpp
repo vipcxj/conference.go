@@ -2,6 +2,7 @@
 #define _CFGO_CLIENT_HPP_
 
 #include "cfgo/alias.hpp"
+#include "cfgo/async.hpp"
 #include "cfgo/configuration.hpp"
 #include "cfgo/pattern.hpp"
 #include "cfgo/utils.hpp"
@@ -27,7 +28,8 @@ namespace cfgo {
         void set_sio_logs_quiet();
         std::optional<rtc::Description> peer_local_desc() const;
         std::optional<rtc::Description> peer_remote_desc() const;
-        [[nodiscard]] asio::awaitable<SubPtr> subscribe(const Pattern& pattern, const std::vector<std::string>& req_types, close_chan& close_chan);
+        CtxPtr execution_context() const noexcept;
+        [[nodiscard]] asio::awaitable<SubPtr> subscribe(const Pattern& pattern, const std::vector<std::string>& req_types, close_chan& close_chan = INVALID_CLOSE_CHAN);
     };
 }
 

@@ -36,7 +36,7 @@
 
 #include <gst/gst.h>
 #include <gst/base/gstbasesrc.h>
-#include "gstcfgosrc.h"
+#include "cfgo/gst/gstcfgosrc.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_cfgo_src_debug_category);
 #define GST_CAT_DEFAULT gst_cfgo_src_debug_category
@@ -79,8 +79,16 @@ static GstFlowReturn gst_cfgo_src_fill (GstBaseSrc * src, guint64 offset,
 
 enum
 {
-  PROP_0
+  PROP_0,
+  PROP_CLIENT,
+  PROP_PATTERN
 };
+
+struct _GstCfgoSrcPrivate
+{
+  GMutex lock;
+};
+
 
 /* pad templates */
 
@@ -88,15 +96,22 @@ static GstStaticPadTemplate gst_cfgo_src_src_template =
 GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("application/unknown")
+    GST_STATIC_CAPS ("application/x-rtp")
     );
 
+#define CFGO_SRC_LOCK(src)   g_mutex_lock (&(src)->priv->lock)
+#define CFGO_SRC_UNLOCK(src) g_mutex_unlock (&(src)->priv->lock)
 
 /* class initialization */
 
 G_DEFINE_TYPE_WITH_CODE (GstCfgoSrc, gst_cfgo_src, GST_TYPE_BASE_SRC,
-  GST_DEBUG_CATEGORY_INIT (gst_cfgo_src_debug_category, "cfgosrc", 0,
-  "debug category for cfgosrc element"));
+  GST_DEBUG_CATEGORY_INIT (
+    gst_cfgo_src_debug_category, 
+    "cfgosrc", 0,
+    "debug category for cfgosrc element"
+  );
+  G_ADD_PRIVATE (GstCfgoSrc)
+);
 
 static void
 gst_cfgo_src_class_init (GstCfgoSrcClass * klass)
@@ -127,32 +142,73 @@ gst_cfgo_src_class_init (GstCfgoSrcClass * klass)
   base_src_class->get_times = GST_DEBUG_FUNCPTR (gst_cfgo_src_get_times);
   base_src_class->get_size = GST_DEBUG_FUNCPTR (gst_cfgo_src_get_size);
   base_src_class->is_seekable = GST_DEBUG_FUNCPTR (gst_cfgo_src_is_seekable);
-  base_src_class->prepare_seek_segment = GST_DEBUG_FUNCPTR (gst_cfgo_src_prepare_seek_segment);
-  base_src_class->do_seek = GST_DEBUG_FUNCPTR (gst_cfgo_src_do_seek);
+  // base_src_class->prepare_seek_segment = GST_DEBUG_FUNCPTR (gst_cfgo_src_prepare_seek_segment);
+  // base_src_class->do_seek = GST_DEBUG_FUNCPTR (gst_cfgo_src_do_seek);
   base_src_class->unlock = GST_DEBUG_FUNCPTR (gst_cfgo_src_unlock);
   base_src_class->unlock_stop = GST_DEBUG_FUNCPTR (gst_cfgo_src_unlock_stop);
-  base_src_class->query = GST_DEBUG_FUNCPTR (gst_cfgo_src_query);
+  // base_src_class->query = GST_DEBUG_FUNCPTR (gst_cfgo_src_query);
   base_src_class->event = GST_DEBUG_FUNCPTR (gst_cfgo_src_event);
   base_src_class->create = GST_DEBUG_FUNCPTR (gst_cfgo_src_create);
   base_src_class->alloc = GST_DEBUG_FUNCPTR (gst_cfgo_src_alloc);
   base_src_class->fill = GST_DEBUG_FUNCPTR (gst_cfgo_src_fill);
 
+  g_object_class_install_property(
+    gobject_class, PROP_CLIENT,
+    g_param_spec_int(
+      "client", "client", "The cfgo client", 
+      0, G_MAXINT, 0, 
+      (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)
+    )
+  );
+  g_object_class_install_property(
+    gobject_class, PROP_PATTERN,
+    g_param_spec_string(
+      "pattern", "pattern", "The pattern for subscribing", 
+      NULL, 
+      (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)
+    )
+  );
 }
 
 static void
 gst_cfgo_src_init (GstCfgoSrc *cfgosrc)
 {
+  cfgosrc->priv = (GstCfgoSrcPrivate *) gst_cfgo_src_get_instance_private(cfgosrc);
+  g_mutex_init (&cfgosrc->priv->lock);
 }
 
 void
 gst_cfgo_src_set_property (GObject * object, guint property_id,
-    const GValue * value, GParamSpec * pspec)
+  const GValue * value, GParamSpec * pspec)
 {
   GstCfgoSrc *cfgosrc = GST_CFGO_SRC (object);
 
   GST_DEBUG_OBJECT (cfgosrc, "set_property");
 
   switch (property_id) {
+    case PROP_CLIENT:
+    {
+      int handle = g_value_get_int(value);
+      if (handle > 0)
+      {
+        if (cfgosrc->client_handle > 0)
+        {
+          cfgo_client_unref(cfgosrc->client_handle);
+        }
+        cfgo_client_ref(handle);
+        cfgosrc->client_handle = handle;
+        GST_DEBUG_OBJECT(cfgosrc, "Client argument was changed to %d\n", handle);
+      }
+      else
+      {
+        GST_WARNING_OBJECT(cfgosrc, "Accept an invalid client handle: %d.\n", handle);
+      }
+      break;
+    }
+    case PROP_PATTERN:
+      cfgosrc->pattern = g_value_get_string(value);
+      GST_DEBUG_OBJECT(cfgosrc, "Pattern argument was changed to %s\n", cfgosrc->pattern);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -168,6 +224,12 @@ gst_cfgo_src_get_property (GObject * object, guint property_id,
   GST_DEBUG_OBJECT (cfgosrc, "get_property");
 
   switch (property_id) {
+    case PROP_CLIENT:
+      g_value_set_int(value, cfgosrc->client_handle);
+      break;
+    case PROP_PATTERN:
+      g_value_set_string(value, cfgosrc->pattern);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -192,6 +254,13 @@ gst_cfgo_src_finalize (GObject * object)
   GstCfgoSrc *cfgosrc = GST_CFGO_SRC (object);
 
   GST_DEBUG_OBJECT (cfgosrc, "finalize");
+  if (cfgosrc->client_handle > 0)
+  {
+    cfgo_client_unref(cfgosrc->client_handle);
+    cfgosrc->client_handle = 0;
+  }
+  
+  g_mutex_clear(&cfgosrc->priv->lock);
 
   /* clean up object here */
 
@@ -294,7 +363,7 @@ gst_cfgo_src_get_size (GstBaseSrc * src, guint64 * size)
 
   GST_DEBUG_OBJECT (cfgosrc, "get_size");
 
-  return TRUE;
+  return FALSE;
 }
 
 /* check if the resource is seekable */
@@ -305,7 +374,7 @@ gst_cfgo_src_is_seekable (GstBaseSrc * src)
 
   GST_DEBUG_OBJECT (cfgosrc, "is_seekable");
 
-  return TRUE;
+  return FALSE;
 }
 
 /* Prepare the segment on which to perform do_seek(), converting to the

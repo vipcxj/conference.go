@@ -2,6 +2,8 @@
 #define _CFGO_ASYNC_HPP_
 
 #include <chrono>
+#include <mutex>
+#include <vector>
 #include "cfgo/alias.hpp"
 #include "asio/awaitable.hpp"
 #include "asio/steady_timer.hpp"
@@ -9,7 +11,46 @@
 
 namespace cfgo
 {
+    class CloseSignal;
+    using close_chan = CloseSignal;
+    using close_chan_ptr = std::shared_ptr<close_chan>;
     extern close_chan INVALID_CLOSE_CHAN;
+
+    class AsyncMutex {
+    private:
+        bool m_busy = false;
+        using busy_chan = asiochan::channel<void>;
+        std::vector<busy_chan> m_busy_chans;
+        std::mutex m_mutex;
+    public:
+        [[nodiscard]] asio::awaitable<bool> accquire(close_chan& close_chan = INVALID_CLOSE_CHAN);
+        auto release() -> asio::awaitable<void>;
+        void release(asio::execution::executor auto executor)
+        {
+            std::lock_guard g(m_mutex);
+            m_busy = false;
+            for (auto &ch : m_busy_chans)
+            {
+                asio::co_spawn(executor, ch.write(), asio::detached);
+            }
+        }
+    };
+
+    class CloseSignalState;
+
+    class CloseSignal : public asiochan::channel<void, 1>
+    {
+        using PC = asiochan::channel<void, 1>;
+    private:
+        std::shared_ptr<CloseSignalState> m_state;
+    public:
+        CloseSignal();
+        [[nodiscard]] auto try_read() -> bool;
+        [[nodiscard]] auto try_write() -> bool;
+        [[nodiscard]] auto read() -> asio::awaitable<void>;
+        [[nodiscard]] auto write() -> asio::awaitable<void>;
+    };
+
     inline bool is_valid_close_chan(const close_chan ch) noexcept {
         return ch != INVALID_CLOSE_CHAN;
     }
@@ -98,7 +139,7 @@ namespace cfgo
 
     auto wait_timeout(const duration_t& dur) -> asio::awaitable<void>;
 
-    template<typename T, asiochan::channel_buff_size buff_size = 0>
+    template<typename T>
     auto chan_read(asiochan::readable_channel_type<T> auto ch, close_chan close_ch = INVALID_CLOSE_CHAN) -> asio::awaitable<cancelable<T>> {
         if (is_valid_close_chan(close_ch))
         {
@@ -146,6 +187,7 @@ namespace cfgo
             }
         }
     }
+    
 } // namespace cfgo
 
 

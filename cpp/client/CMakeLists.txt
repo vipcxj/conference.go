@@ -31,14 +31,20 @@ set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/defer.hpp"
     "${H_PUBLIC_PATH}/pattern.hpp"
     "${H_PUBLIC_PATH}/exports.h"
+    "${H_PUBLIC_PATH}/utils.hpp"
     "${H_PUBLIC_PATH}/spd_helper.hpp"
     "${H_PUBLIC_PATH}/gst_helper.h"
     "${H_PUBLIC_PATH}/error.hpp"
     "${H_PUBLIC_PATH}/cbridge.hpp"
-    "${H_PUBLIC_PATH}/cinterface.h"
+    "${H_PUBLIC_PATH}/capi.h"
+    "${H_PUBLIC_PATH}/cfgo.hpp"
 )
 set(MY_GST_PLUGIN_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/gst/gstcfgosrc.h"
+    "${H_PUBLIC_PATH}/gst/pipeline.hpp"
+    "${H_PUBLIC_PATH}/gst/link.hpp"
+    "${H_PUBLIC_PATH}/gst/gst.hpp"
+    "${H_PUBLIC_PATH}/gst/utils.hpp"
 )
 set(H_PRIVATE "${SRC_PATH}/private")
 set(H_PRIVATE_PATH "${H_PRIVATE}/cfgo")
@@ -49,10 +55,13 @@ set(MY_PRIVATE_HEADERS
     "${H_PRIVATE_PATH}/sio_helper.hpp"
     "${H_PRIVATE_PATH}/rtc_helper.hpp"
     "${H_PRIVATE_PATH}/move_only_function.hpp"
-    "${H_PRIVATE_PATH}/utils.hpp"
     "${H_IMPL}/client.hpp"
     "${H_IMPL}/track.hpp"
     "${H_IMPL}/subscribation.hpp"
+)
+set(MY_GST_PLUGIN_PRIVATE_HEADERS
+    "${H_IMPL}/pipeline.hpp"
+    "${H_IMPL}/link.hpp"
 )
 set(MY_SOURCES
     "${SRC_PATH}/configuration.cpp"
@@ -66,13 +75,18 @@ set(MY_SOURCES
     "${SRC_PATH}/gst_helper.c"
     "${SRC_PATH}/coevent.cpp"
     "${SRC_PATH}/utils.cpp"
-    "${SRC_PATH}/cinterface.cpp"
+    "${SRC_PATH}/capi.cpp"
     "${H_IMPL}/client.cpp"
     "${H_IMPL}/track.cpp"
     "${H_IMPL}/subscribation.cpp"
 )
 set(MY_GST_PLUGIN_SOURCES
-    "${SRC_PATH}/gstcfgosrc.cpp"
+    "${SRC_PATH}/gst/gstcfgosrc.cpp"
+    "${SRC_PATH}/gst/pipeline.cpp"
+    "${SRC_PATH}/gst/link.cpp"
+    "${SRC_PATH}/gst/utils.cpp"
+    "${H_IMPL}/pipeline.cpp"
+    "${H_IMPL}/link.cpp"
 )
 set(MY_TEST_PATH "${SRC_PATH}/test")
 
@@ -98,31 +112,20 @@ pkg_search_module(gstreamer-video REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
 
 find_package(asio CONFIG REQUIRED)
 find_path(ASIOCHAN_INCLUDE_DIRS "asiochan/asiochan.hpp")
+find_package(Boost REQUIRED)
+find_package(cpptrace CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(sioclient CONFIG REQUIRED)
 find_package(LibDataChannel CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 #list(APPEND CMAKE_INSTALL_RPATH [=[$ORIGIN/../lib]=])
 
-add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
-target_compile_definitions(cfgoclient PRIVATE BUILDING_CFGO)
-target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
-target_include_directories(cfgoclient PRIVATE ${H_PRIVATE} ${SRC_PATH})
-find_package(Boost REQUIRED)
-find_package(cpptrace CONFIG REQUIRED)
-target_link_libraries(cfgoclient PRIVATE cpptrace::cpptrace)
-find_package(spdlog CONFIG REQUIRED)
-target_link_libraries(cfgoclient PRIVATE spdlog::spdlog)
-find_package(sioclient CONFIG REQUIRED)
-target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
-if(TARGET LibDataChannel::LibDataChannel)
-    target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannel)
-else()
-    target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannelStatic)
-endif()
-if(GSTREAMER_SUPPORT)
+function(link_gstreamer target)
     if(USE_GSTREAMER_FULL_STATIC)
-        target_link_libraries(cfgoclient PRIVATE PkgConfig::gstreamer-full)
+        target_link_libraries(${target} PRIVATE PkgConfig::gstreamer-full)
     else()
-        target_link_libraries(cfgoclient PRIVATE 
+        target_link_libraries(${target} PRIVATE 
             PkgConfig::gstreamer
             PkgConfig::gstreamer-allocators
             PkgConfig::gstreamer-app
@@ -134,19 +137,41 @@ if(GSTREAMER_SUPPORT)
             PkgConfig::gstreamer-plugins-base
             PkgConfig::gstreamer-rtp
             PkgConfig::gstreamer-rtsp
-            PkgConfig::gstreamer-sdp
             PkgConfig::gstreamer-tag
             PkgConfig::gstreamer-video
         )
     endif()
+endfunction()
+
+
+add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
+target_compile_definitions(cfgoclient PRIVATE BUILDING_CFGO)
+target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
+target_include_directories(cfgoclient PRIVATE ${H_PRIVATE} ${SRC_PATH})
+target_link_libraries(cfgoclient PRIVATE cpptrace::cpptrace)
+target_link_libraries(cfgoclient PRIVATE spdlog::spdlog)
+target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
+target_link_libraries(cfgoclient PRIVATE nlohmann_json::nlohmann_json)
+if(TARGET LibDataChannel::LibDataChannel)
+    target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannel)
+else()
+    target_link_libraries(cfgoclient PRIVATE LibDataChannel::LibDataChannelStatic)
+endif()
+if(GSTREAMER_SUPPORT)
+    link_gstreamer(cfgoclient)
 endif()
 target_compile_definitions(cfgoclient PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
 target_include_directories(cfgoclient PRIVATE ${ASIOCHAN_INCLUDE_DIRS})
 
 if(GSTREAMER_SUPPORT)
-    add_library(cfgogst ${MY_GST_PLUGIN_SOURCES} ${MY_GST_PLUGIN_PUBLIC_HEADERS})
+    add_library(cfgogst ${MY_GST_PLUGIN_SOURCES} ${MY_GST_PLUGIN_PUBLIC_HEADERS} ${MY_GST_PLUGIN_PRIVATE_HEADERS})
+    target_compile_definitions(cfgogst PRIVATE BUILDING_CFGO)
     target_include_directories(cfgogst PUBLIC ${H_PUBLIC})
+    target_include_directories(cfgogst PRIVATE ${H_PRIVATE} ${SRC_PATH})
     target_link_libraries(cfgogst PRIVATE cfgoclient)
+    target_compile_definitions(cfgogst PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
+    target_include_directories(cfgogst PRIVATE ${ASIOCHAN_INCLUDE_DIRS})
+    link_gstreamer(cfgogst)
 endif()
 
 add_executable(test1 "${SRC_PATH}/main.cpp" ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
@@ -181,30 +206,23 @@ target_link_libraries(test-async PRIVATE asio::asio cfgoclient)
 target_link_libraries(test-async PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
 add_test(NAME test-async COMMAND test-async)
 
+if(GSTREAMER_SUPPORT)
+    add_executable(test-gst "${MY_TEST_PATH}/gst.cpp")
+    target_compile_definitions(test-gst PRIVATE BUILDING_CFGO)
+    target_include_directories(test-gst PUBLIC ${H_PUBLIC})
+    target_include_directories(test-gst PRIVATE ${H_PRIVATE} ${SRC_PATH})
+    target_compile_definitions(test-gst PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
+    target_link_libraries(test-gst PRIVATE cfgoclient cfgogst)
+    link_gstreamer(test-gst)
+    find_package(Poco REQUIRED COMPONENTS Net Foundation)
+    target_link_libraries(test-gst PRIVATE Poco::Foundation Poco::Net)
+endif()
+
 add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")
 target_include_directories(test-gstreamer PUBLIC ${H_PUBLIC})
 target_include_directories(test-gstreamer PRIVATE ${H_PRIVATE})
 target_compile_definitions(test-gstreamer PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
-
-if(USE_GSTREAMER_FULL_STATIC)
-    target_link_libraries(test-gstreamer PRIVATE PkgConfig::gstreamer-full)
-else()
-    target_link_libraries(test-gstreamer PRIVATE 
-        PkgConfig::gstreamer
-        PkgConfig::gstreamer-allocators
-        PkgConfig::gstreamer-app
-        PkgConfig::gstreamer-audio
-        PkgConfig::gstreamer-base
-        PkgConfig::gstreamer-controller
-        PkgConfig::gstreamer-net
-        PkgConfig::gstreamer-pbutils
-        PkgConfig::gstreamer-plugins-base
-        PkgConfig::gstreamer-rtp
-        PkgConfig::gstreamer-rtsp
-        PkgConfig::gstreamer-tag
-        PkgConfig::gstreamer-video
-    )
-endif()
+link_gstreamer(test-gstreamer)
 find_package(Poco REQUIRED COMPONENTS Net Foundation)
 target_link_libraries(test-gstreamer PRIVATE Poco::Foundation Poco::Net)
 target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient)

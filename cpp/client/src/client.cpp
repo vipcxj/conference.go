@@ -32,4 +32,8 @@ namespace cfgo
         return impl()->subscribe(pattern, req_types, close_chan);
     }
 
+    Client::CtxPtr Client::execution_context() const noexcept
+    {
+        return impl()->execution_context();
+    }
 }

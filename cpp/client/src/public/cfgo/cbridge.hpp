@@ -6,28 +6,39 @@
 #include "cfgo/pattern.hpp"
 #include "cfgo/subscribation.hpp"
 #include "cfgo/track.hpp"
+#include "cfgo/capi.h"
+#include "rtc/rtc.hpp"
 
 namespace cfgo
 {
     Client::CtxPtr get_execution_context(int handle);
-    int emplace_execution_context(Client::CtxPtr ptr);
-    void erase_execution_context(int handle);
+    int wrap_execution_context(Client::CtxPtr ptr);
+    void ref_execution_context(int handle);
+    void unref_execution_context(int handle);
 
     close_chan_ptr get_close_chan(int handle);
-    int emplace_close_chan(close_chan_ptr ptr);
-    void erase_close_chan(int handle);
+    int wrap_close_chan(close_chan_ptr ptr);
+    void ref_close_chan(int handle);
+    void unref_close_chan(int handle);
 
     Client::Ptr get_client(int handle);
-    int emplace_client(Client::Ptr ptr);
-    void erase_client(int handle);
+    int wrap_client(Client::Ptr ptr);
+    void ref_client(int handle);
+    void unref_client(int handle);
 
     Subscribation::Ptr get_subscribation(int handle);
-    int emplace_subscribation(Subscribation::Ptr ptr);
-    void erase_subscribation(int handle);
+    int wrap_subscribation(Subscribation::Ptr ptr);
+    void ref_subscribation(int handle);
+    void unref_subscribation(int handle);
 
     Track::Ptr get_track(int handle);
-    int emplace_track(Track::Ptr ptr);
-    void erase_track(int handle);
+    int wrap_track(Track::Ptr ptr);
+    void ref_track(int handle);
+    void unref_track(int handle);
+
+    rtc::Configuration rtc_config_to_cpp(const rtcConfiguration * conf);
+    cfgo::Configuration cfgo_config_to_cpp(const cfgoConfiguration * conf);
+    cfgo::Pattern cfgo_pattern_to_cpp(const cfgoPattern * pattern);
 } // namespace cfgo
 
 #endif

@@ -82,6 +82,8 @@ namespace cfgo
     std::filesystem::path getexepath();
     std::filesystem::path getexedir();
     std::string what(const std::exception_ptr &eptr = std::current_exception());
+    constexpr const char * THIS_IS_IMPOSSIBLE = "This is impossible!";
+    constexpr const char * NOT_IMPLEMENTED_YET = "The method not implemented yet!";
 
     template <typename T>
     using impl_ptr = std::shared_ptr<T>;

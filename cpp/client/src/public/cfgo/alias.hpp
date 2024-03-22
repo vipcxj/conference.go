@@ -11,8 +11,6 @@ namespace cfgo
     using msg_chan = asiochan::channel<msg_ptr>;
     using msg_chan_ptr = std::shared_ptr<msg_chan>;
     using msg_chan_weak_ptr = std::weak_ptr<msg_chan>;
-    using close_chan = asiochan::channel<void>;
-    using close_chan_ptr = std::shared_ptr<close_chan>;
 
     struct Track;
     using TrackPtr = std::shared_ptr<Track>;

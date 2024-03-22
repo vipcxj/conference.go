@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include "nlohmann/json.hpp"
 #include "sio_message.h"
 
 namespace cfgo {
@@ -47,6 +48,7 @@ namespace cfgo {
         }
     };
     
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Pattern, op, args, children)
 }
 
 #endif
