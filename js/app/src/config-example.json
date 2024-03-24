@@ -1,0 +1,6 @@
+{
+    "signalHost": "localhost",
+    "signalPort": 8080,
+    "authHost": "localhost",
+    "authPort": 3100
+}

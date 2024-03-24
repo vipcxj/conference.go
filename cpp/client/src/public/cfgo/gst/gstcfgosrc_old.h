@@ -17,46 +17,40 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef _GST_CFGOSRC_H_
-#define _GST_CFGOSRC_H_
+#ifndef _GST_CFGO_SRC_H_
+#define _GST_CFGO_SRC_H_
 
-#include <gst/gst.h>
+#include "gst/base/gstbasesrc.h"
+#include "cfgo/capi.h"
 
 G_BEGIN_DECLS
 
-#define GST_TYPE_CFGOSRC   (gst_cfgosrc_get_type())
-#define GST_CFGOSRC(obj)   (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_CFGOSRC,GstCfgoSrc))
-#define GST_CFGOSRC_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_CFGOSRC,GstCfgoSrcClass))
-#define GST_IS_CFGOSRC(obj)   (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_CFGOSRC))
-#define GST_IS_CFGOSRC_CLASS(obj)   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_CFGOSRC))
+#define GST_TYPE_CFGO_SRC   (gst_cfgo_src_get_type())
+#define GST_CFGO_SRC(obj)   (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_CFGO_SRC,GstCfgoSrc))
+#define GST_CFGO_SRC_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_CFGO_SRC,GstCfgoSrcClass))
+#define GST_IS_CFGO_SRC(obj)   (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_CFGO_SRC))
+#define GST_IS_CFGO_SRC_CLASS(klass)   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_CFGO_SRC))
 
 typedef struct _GstCfgoSrc GstCfgoSrc;
 typedef struct _GstCfgoSrcClass GstCfgoSrcClass;
 typedef struct _GstCfgoSrcPrivate GstCfgoSrcPrivate;
-{
-  /* data */
-};
-
 
 struct _GstCfgoSrc
 {
-  GstBin bin;
-
-  GstPad *sinkpad;
-  GstPad *srcpad;
-
-  /*< private >*/
-  GstCfgoSrcPrivate *priv;
+  GstBaseSrc base_cfgosrc;
+  int client_handle;
+  const gchar * pattern;
+  GstCfgoSrcPrivate * priv;
 };
 
 struct _GstCfgoSrcClass
 {
-  GstElementClass base_cfgosrc_class;
+  GstBaseSrcClass base_cfgosrc_class;
 };
 
-GType gst_cfgosrc_get_type (void);
+GType gst_cfgo_src_get_type (void);
 
-GST_ELEMENT_REGISTER_DECLARE (cfgosrc);
+GST_PLUGIN_STATIC_DECLARE(cfgosrc);
 
 G_END_DECLS
 

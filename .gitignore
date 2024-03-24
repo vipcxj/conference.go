@@ -25,6 +25,7 @@ node_modules
 dist/
 *.ivf
 /js/client/lib/
+/js/app/src/config.json
 /server
 dist.tar.gz
 __debug_bin*

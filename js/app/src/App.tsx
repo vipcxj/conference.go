@@ -1,6 +1,7 @@
 import logo from './logo.svg';
 import './App.css';
 import 'flexboxgrid';
+import config from './config.json';
 import { useQueryParam, StringParam, NumberParam, withDefault } from 'use-query-params';
 import { Video, VideoProps, useCreateOnce } from './Socket';
 import { HlsPlayer } from './hls';
@@ -35,12 +36,12 @@ function App() {
   if (mode === 'hls') {
     row = col = 1;
   }
-  if (12 % col != 0) {
+  if (12 % col !== 0) {
     return <div>The query param col must be divisible by 12.</div>;
   }
   const colSize = 12 / col;
   for (let i = 0; i < row * col; ++i) {
-    let signalPort = 8080;
+    let signalPort = config.signalPort || 8080;
     if (cluster > 1) {
       const offset = (i % col) % cluster;
       signalPort += offset;
@@ -71,10 +72,8 @@ function App() {
           uid: `${ub + ((i + row) % (row * col))}`,
         },
       },
-      // signalHost: 'http://localhost:8080',
-      // authHost: 'http://localhost:3100',
-      signalHost: `http://192.168.1.233:${signalPort}`,
-      authHost: 'http://192.168.1.233:3100',
+      signalHost: `http://${config.signalHost || 'localhost'}:${signalPort}`,
+      authHost: `http://${config.authHost || 'localhost'}:${config.authPort || 3100}`,
     }
   }
 
