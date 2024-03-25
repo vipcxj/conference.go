@@ -2,6 +2,7 @@
 #include "cfgo/defer.hpp"
 #include "cfgo/utils.hpp"
 #include "cpptrace/cpptrace.hpp"
+#include <list>
 #include <iostream>
 
 namespace cfgo
@@ -79,6 +80,7 @@ namespace cfgo
         AsyncMutex m_a_read_mutex;
         duration_t m_timeout = duration_t {0};
         std::shared_ptr<asio::steady_timer> m_timer;
+        std::list<asiochan::channel<void, 1>> m_waiters;
 
         void init_timer(asio::execution::executor auto executor, CloseSignal * s);
     };
@@ -115,132 +117,64 @@ namespace cfgo
                 {
                     co_return;
                 }
-                co_await s.write();
+                s.close();
             }, asio::detached);
         }
     }
 
-    CloseSignal::CloseSignal(): PC(), m_state(std::make_shared<CloseSignalState>())
+    CloseSignal::CloseSignal(): m_state(std::make_shared<CloseSignalState>())
     {}
 
-    // void CloseSignal::clear_waiter()
-    // {
-    //     auto readers = shared_state().reader_list();
-    //     while (auto node = readers.dequeue_first_available())
-    //     {
-    //         asiochan::detail::notify_waiter(*node);
-    //     }
-    //     auto writers = shared_state().writer_list();
-    //     while (auto node = writers.dequeue_first_available())
-    //     {
-    //         asiochan::detail::notify_waiter(*node);
-    //     }
-    // }
-
-    auto CloseSignal::try_read() -> bool
+    auto CloseSignal::init_timer() -> asio::awaitable<void>
     {
-        std::cout << "close_ch: try_read" << std::endl;
-        if (m_state->m_closed)
-        {
-            return true;
-        }
-        std::lock_guard lock(m_state->m_mutex);
-        if (m_state->m_closed)
-        {
-            return true;
-        }
-        else
-        {
-            return PC::try_read();
-        }
-    }
-
-    auto CloseSignal::try_write() -> bool
-    {
-        if (m_state->m_closed)
-        {
-            return true;
-        }
-        std::lock_guard lock(m_state->m_mutex);
-        if (m_state->m_closed)
-        {
-            return true;
-        }
-        if (PC::try_write())
-        {
-            m_state->m_closed = true;
-            return true;
-        }
-        else
-        {
-            return false;
-        }
-    }
-
-    auto CloseSignal::read() -> asio::awaitable<void>
-    {
-        std::cout << "close_ch: read" << std::endl;
-        if (m_state->m_closed)
-        {
-            co_return;
-        }
         auto executor = co_await asio::this_coro::executor;
         m_state->init_timer(executor, this);
-        if (co_await m_state->m_a_read_mutex.accquire())
-        {
-            DEFER({
-                m_state->m_a_read_mutex.release(executor);
-            });
-            if (m_state->m_closed)
-            {
-                co_return;
-            }
-            co_await PC::read();
-            {
-                std::lock_guard lock(m_state->m_mutex);
-                if (!m_state->m_closed)
-                {
-                    m_state->m_closed = true;
-                    // clear_waiter();
-                }
-            }
-            co_return;
-        }
     }
 
-    auto CloseSignal::write() -> asio::awaitable<void>
+    auto CloseSignal::get_waiter() -> std::optional<Waiter>
     {
         if (m_state->m_closed)
         {
-            co_return;
+            return std::nullopt;
         }
-        bool writed = true;
+        std::lock_guard lock(m_state->m_mutex);
+        if (m_state->m_closed)
         {
-            std::lock_guard lock(m_state->m_mutex);
-            if (!m_state->m_closed)
-            {
-                m_state->m_closed = true;
-                writed = PC::try_write();
-            }
+            return std::nullopt;
         }
-        if (!writed)
-        {
-
-            co_await PC::write();
-        }
-        co_return;
+        Waiter waiter {};
+        m_state->m_waiters.push_back(waiter);
+        return waiter;
     }
 
     bool CloseSignal::is_closed() const noexcept
     {
+        std::lock_guard lock(m_state->m_mutex);
         return m_state->m_closed;
     }
 
     void CloseSignal::close()
     {
-        if (!try_write())
+        if (m_state->m_closed)
         {
-            throw cpptrace::logic_error(THIS_IS_IMPOSSIBLE);
+            return;
+        }
+        std::lock_guard lock(m_state->m_mutex);
+        if (m_state->m_closed)
+        {
+            return;
+        }
+        m_state->m_closed = true;
+        m_state->m_timeout = duration_t {0};
+        m_state->m_timer->cancel();
+        while (!m_state->m_waiters.empty())
+        {
+            auto && waiter = m_state->m_waiters.front();
+            if (!waiter.try_write())
+            {
+                throw cpptrace::logic_error(cfgo::THIS_IS_IMPOSSIBLE);
+            }
+            m_state->m_waiters.pop_front();
         }
     }
 
@@ -256,11 +190,9 @@ namespace cfgo
             return;
         }
         duration_t old_timeout = m_state->m_timeout;
-        std::cout << "close_ch: set timeout to " << std::chrono::duration_cast<std::chrono::milliseconds>(dur).count() << " ms." << std::endl;
         m_state->m_timeout = dur;
         if (m_state->m_timer)
         {
-            std::cout << "close_ch: timer exist." << std::endl;
             if (dur == duration_t {0})
             {
                 m_state->m_timer->cancel();
@@ -282,7 +214,7 @@ namespace cfgo
                     {
                         co_return;
                     }
-                    co_await self.write();
+                    self.close();
                 }, asio::detached);
             }
             else
