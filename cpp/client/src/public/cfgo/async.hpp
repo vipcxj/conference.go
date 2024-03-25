@@ -15,6 +15,7 @@ namespace cfgo
     using close_chan = CloseSignal;
     using close_chan_ptr = std::shared_ptr<close_chan>;
     extern close_chan INVALID_CLOSE_CHAN;
+    using duration_t = std::chrono::steady_clock::duration;
 
     class AsyncMutex {
     private:
@@ -38,17 +39,23 @@ namespace cfgo
 
     class CloseSignalState;
 
-    class CloseSignal : public asiochan::channel<void, 1>
+    class CloseSignal : public asiochan::channel<void, 1>, public std::enable_shared_from_this<CloseSignal>
     {
         using PC = asiochan::channel<void, 1>;
     private:
         std::shared_ptr<CloseSignalState> m_state;
+        // void clear_waiter();
     public:
         CloseSignal();
         [[nodiscard]] auto try_read() -> bool;
         [[nodiscard]] auto try_write() -> bool;
         [[nodiscard]] auto read() -> asio::awaitable<void>;
         [[nodiscard]] auto write() -> asio::awaitable<void>;
+        [[nodiscard]] bool is_closed() const noexcept;
+        void close();
+        void set_timeout(const duration_t& dur);
+
+        friend class CloseSignalState;
     };
 
     inline bool is_valid_close_chan(const close_chan ch) noexcept {
@@ -132,12 +139,17 @@ namespace cfgo
 
     cancelable<void> make_canceled();
 
-    using duration_t = std::chrono::steady_clock::duration;
-    close_chan make_timeout(asio::execution::executor auto executor, const duration_t& dur);
-
-    auto make_timeout(const duration_t& dur) -> asio::awaitable<close_chan>;
+    close_chan make_timeout(const duration_t& dur);
 
     auto wait_timeout(const duration_t& dur) -> asio::awaitable<void>;
+
+    template <asiochan::select_op... Ops,
+              asio::execution::executor Executor = typename asiochan::detail::head_t<Ops...>::executor_type>
+    requires asiochan::waitable_selection<Ops...>
+    [[nodiscard]] auto select(Ops... ops_args) -> asio::awaitable<asiochan::select_result<Ops...>, Executor>
+    {
+
+    }
 
     template<typename T>
     auto chan_read(asiochan::readable_channel_type<T> auto ch, close_chan close_ch = INVALID_CLOSE_CHAN) -> asio::awaitable<cancelable<T>> {
@@ -146,7 +158,8 @@ namespace cfgo
             if constexpr(std::is_same_v<void, std::decay_t<T>>)
             {
                 auto && res = co_await asiochan::select(
-                    asiochan::ops::read(ch, close_ch)
+                    asiochan::ops::read(ch, close_ch),
+                    asiochan::ops::write
                 );
                 if (res.received_from(close_ch))
                 {

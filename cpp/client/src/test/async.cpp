@@ -43,8 +43,7 @@ TEST(Chan, MakeTimeout) {
     using namespace cfgo;
     bool done = false;
     do_async([&done]() -> asio::awaitable<void> {
-        auto executor = co_await asio::this_coro::executor;
-        auto timeout = cfgo::make_timeout(executor, std::chrono::milliseconds{500});
+        auto timeout = cfgo::make_timeout(std::chrono::milliseconds{500});
         co_await timeout.read();
         done = true;
         co_return;
@@ -79,7 +78,7 @@ TEST(Chan, ChanRead) {
             co_return;
         });
         do_async([ch, &canceled]() mutable -> asio::awaitable<void> {
-            auto timeout = co_await cfgo::make_timeout(std::chrono::milliseconds{100});
+            auto timeout = cfgo::make_timeout(std::chrono::milliseconds{100});
             auto res2 = co_await chan_read<int>(ch, timeout);
             EXPECT_TRUE(res2.is_canceled());
             canceled = true;

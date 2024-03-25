@@ -5,6 +5,7 @@
 #include <memory>
 #include "cfgo/config/configuration.h"
 #include "cfgo/alias.hpp"
+#include "cfgo/async.hpp"
 #include "cfgo/utils.hpp"
 #include "rtc/track.hpp"
 #include "asio/awaitable.hpp"
@@ -48,6 +49,17 @@ namespace cfgo
         std::shared_ptr<rtc::Track> & track() noexcept;
         const std::shared_ptr<rtc::Track> & track() const noexcept;
         void * get_gst_caps(int pt) const;
+        /**
+         * wait until track open or closed. return false if close_ch is closed.
+        */
+        auto await_open_or_closed(const close_chan &  close_ch = INVALID_CLOSE_CHAN) -> asio::awaitable<bool>;
+        /**
+         * wait until a msg is available. return nullptr when close_ch is closed or track is closed.
+        */
+        auto await_msg(MsgType msg_type, const close_chan &  close_ch = INVALID_CLOSE_CHAN) -> asio::awaitable<MsgPtr>;
+        /**
+         * immediately return a msg or nullptr if no msg available.
+        */
         MsgPtr receive_msg(MsgType msg_type);
         friend class impl::Client;
     };

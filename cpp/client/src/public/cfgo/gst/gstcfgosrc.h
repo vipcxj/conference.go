@@ -33,17 +33,16 @@ G_BEGIN_DECLS
 typedef struct _GstCfgoSrc GstCfgoSrc;
 typedef struct _GstCfgoSrcClass GstCfgoSrcClass;
 typedef struct _GstCfgoSrcPrivate GstCfgoSrcPrivate;
-{
-  /* data */
-};
 
 
 struct _GstCfgoSrc
 {
   GstBin bin;
 
-  GstPad *sinkpad;
-  GstPad *srcpad;
+  int client_handle;
+  const gchar * pattern;
+  guint64 sub_timeout;
+  guint64 read_timeout;
 
   /*< private >*/
   GstCfgoSrcPrivate *priv;
@@ -51,12 +50,12 @@ struct _GstCfgoSrc
 
 struct _GstCfgoSrcClass
 {
-  GstElementClass base_cfgosrc_class;
+  GstBinClass parent_class;
 };
 
 GType gst_cfgosrc_get_type (void);
 
-GST_ELEMENT_REGISTER_DECLARE (cfgosrc);
+GST_PLUGIN_STATIC_DECLARE (cfgosrc);
 
 G_END_DECLS
 
