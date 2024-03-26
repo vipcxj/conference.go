@@ -12,11 +12,11 @@ struct fmt::formatter<std::optional<T>> : fmt::formatter<std::string>
     auto format(const std::optional<T>& my, fmt::format_context &ctx) const -> decltype(ctx.out()) {
         if (my)
         {
-            return format_to(ctx.out(), "{}", my.value());
+            return fmt::format_to(ctx.out(), "{}", my.value());
         }
         else
         {
-            return format_to(ctx.out(), "nullopt");
+            return fmt::format_to(ctx.out(), "nullopt");
         }
     }
 };
@@ -27,11 +27,11 @@ struct fmt::formatter<sio::message::ptr> : fmt::formatter<std::string>
     auto format(const sio::message::ptr& my, fmt::format_context &ctx) const -> decltype(ctx.out()) {
         if (my)
         {
-            return format_to(ctx.out(), "{}", cfgo::sio_msg_to_str(my));
+            return fmt::format_to(ctx.out(), "{}", cfgo::sio_msg_to_str(my));
         }
         else
         {
-            return format_to(ctx.out(), "nullopt");
+            return fmt::format_to(ctx.out(), "nullopt");
         }
     }
 };

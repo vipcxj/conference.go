@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <exception>
+#include <cstdint>
 #include "cfgo/track.hpp"
 #include "cfgo/subscribation.hpp"
 #include "cfgo/defer.hpp"
@@ -176,7 +177,7 @@ namespace cfgo
             std::make_shared<T>(a);
         };
         template <class T>
-        concept convertible_from_msg_ptr = std::is_convertible_v<std::string, T> || std::is_convertible_v<int, T>;
+        concept convertible_from_msg_ptr = std::is_convertible_v<std::string, T> || std::is_convertible_v<std::int64_t, T>;
 
         template <construct_with_msg_ptr T>
         auto get_msg_object_field(msg_ptr msg, std::string field) -> std::shared_ptr<T>
@@ -232,7 +233,7 @@ namespace cfgo
             {
                 return msg->get_string();
             }
-            else if constexpr (std::is_convertible_v<int, T>)
+            else if constexpr (std::is_convertible_v<std::int64_t, T>)
             {
                 return msg->get_int();
             }
@@ -480,7 +481,7 @@ namespace cfgo
                     spdlog::debug("timeout when waiting subscribed msg.");
                     co_return nullptr;
                 }
-                auto sdp_id = get_msg_base_field<int>(subed_msg.value(), "sdpId");
+                auto sdp_id = get_msg_base_field<std::int64_t>(subed_msg.value(), "sdpId");
                 if (!sdp_id)
                 {
                     throw std::runtime_error("no sdpId found on subscribed msg.");
@@ -524,7 +525,7 @@ namespace cfgo
 
                 auto sdp_msg = co_await wait_for_msg("sdp", msg_channer, close_chan, [sdp_id](auto &&msg)
                 {
-                    return get_msg_base_field<int>(msg, "mid") == sdp_id;
+                    return get_msg_base_field<std::int64_t>(msg, "mid") == sdp_id;
                 });
                 if (!sdp_msg)
                 {

@@ -370,7 +370,10 @@ CFGO_API int cfgo_client_subscribe(
                 {
                     boost::trim(req_type);
                 }
-                std::remove_if(arg_req_types.begin(), arg_req_types.end(), [](auto && v) { return v.empty(); });
+                arg_req_types.erase(
+                    std::remove_if(arg_req_types.begin(), arg_req_types.end(), [](auto && v) { return v.empty(); }),
+                    arg_req_types.end()
+                );
                 cfgo::Pattern p;
                 cfgo_pattern_parse(pattern, p);
                 try
