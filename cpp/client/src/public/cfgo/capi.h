@@ -11,24 +11,6 @@ extern "C" {
 
 typedef enum
 {
-    CFGO_PATTERN_OP_ALL = 0,
-    CFGO_PATTERN_OP_SOME = 1,
-    CFGO_PATTERN_OP_NONE = 2,
-    CFGO_PATTERN_OP_PUBLISH_ID = 3,
-    CFGO_PATTERN_OP_STREAM_ID = 4,
-    CFGO_PATTERN_OP_TRACK_ID = 5,
-    CFGO_PATTERN_OP_TRACK_RID = 6,
-    CFGO_PATTERN_OP_TRACK_LABEL_ALL_MATCH = 7,
-    CFGO_PATTERN_OP_TRACK_LABEL_SOME_MATCH = 8,
-    CFGO_PATTERN_OP_TRACK_LABEL_NONE_MATCH = 9,
-    CFGO_PATTERN_OP_TRACK_LABEL_ALL_HAS = 10,
-    CFGO_PATTERN_OP_TRACK_LABEL_SOME_HAS = 11,
-    CFGO_PATTERN_OP_TRACK_LABEL_NONE_HAS = 12,
-    CFGO_PATTERN_OP_TRACK_TYPE = 13
-} cfgoPatternOp;
-
-typedef enum
-{
     CFGO_MSG_TYPE_RTP,
     CFGO_MSG_TYPE_RTCP,
     CFGO_MSG_TYPE_ALL
@@ -40,15 +22,6 @@ typedef enum
     CFGO_ERR_FAILURE = -1,
     CFGO_ERR_TIMEOUT = -2
 } cfgoErr;
-
-typedef struct _cfgo_pattern
-{
-    cfgoPatternOp op;
-    const char **args;
-    int arg_num;
-    _cfgo_pattern **children;
-    int child_num;
-} cfgoPattern;
 
 typedef struct
 {
@@ -66,7 +39,7 @@ CFGO_API int cfgo_execution_context_ref(int handle);
 CFGO_API int cfgo_execution_context_unref(int handle);
 
 CFGO_API int cfgo_close_chan_create();
-CFGO_API int cfgo_close_chan_close(int client_handle, int chan_handle);
+CFGO_API int cfgo_close_chan_close(int handle);
 CFGO_API int cfgo_close_chan_ref(int handle);
 CFGO_API int cfgo_close_chan_unref(int handle);
 

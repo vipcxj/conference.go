@@ -38,7 +38,7 @@ namespace cfgo
 
     rtc::Configuration rtc_config_to_cpp(const rtcConfiguration * conf);
     cfgo::Configuration cfgo_config_to_cpp(const cfgoConfiguration * conf);
-    cfgo::Pattern cfgo_pattern_to_cpp(const cfgoPattern * pattern);
+    void cfgo_pattern_parse(const char * pattern_json, cfgo::Pattern & pattern);
 } // namespace cfgo
 
 #endif

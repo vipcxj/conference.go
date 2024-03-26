@@ -203,17 +203,11 @@ namespace cfgo
         return vec;
     }
 
-    cfgo::Pattern cfgo_pattern_to_cpp(const cfgoPattern * pattern)
+    void cfgo_pattern_parse(const char * pattern_json, cfgo::Pattern & pattern)
     {
-        if (pattern == nullptr)
-        {
-            throw cpptrace::invalid_argument("The input pattern should not be null.");
-        }
-        cfgo::Pattern p;
-        p.op = (cfgo::Pattern::Op) pattern->op;
-        p.args = array_field_to_vector<const char *, std::string>("args", "arg num", pattern->args, pattern->arg_num, cfgo_str_to_cpp);
-        p.children = array_field_to_vector<const cfgoPattern *, cfgo::Pattern>("children", "child_num", pattern->children, pattern->child_num, cfgo_pattern_to_cpp);
-        return p;
+        CPPTRACE_WRAP_BLOCK(
+            cfgo::from_json(nlohmann::json::parse(pattern_json), pattern);
+        );
     }
 
     template<typename F>
@@ -308,12 +302,11 @@ CFGO_API int cfgo_close_chan_create()
     });
 }
 
-CFGO_API int cfgo_close_chan_close(int client_handle, int chan_handle)
+CFGO_API int cfgo_close_chan_close(int handle)
 {
-    return cfgo::c_wrap([client_handle, chan_handle]() {
-        auto client = cfgo::get_client(client_handle);
-        auto chan = cfgo::get_close_chan(chan_handle);
-        asio::co_spawn(asio::get_associated_executor(client->execution_context()), chan->write(), asio::detached);
+    return cfgo::c_wrap([handle]() {
+        auto chan = cfgo::get_close_chan(handle);
+        chan->close();
         return CFGO_ERR_SUCCESS;
     });
 }
@@ -372,15 +365,14 @@ CFGO_API int cfgo_client_subscribe(
             asio::get_associated_executor(client->execution_context()),
             [=]() -> asio::awaitable<void> {
                 std::vector<std::string> arg_req_types;
-                boost::split(arg_req_types, std::string_view(req_types), boost::is_any_of(" \t\r\n"));
+                boost::split(arg_req_types, std::string_view(req_types), boost::is_any_of(" ,\t\r\n"));
                 for (auto &&req_type : arg_req_types)
                 {
                     boost::trim(req_type);
                 }
+                std::remove_if(arg_req_types.begin(), arg_req_types.end(), [](auto && v) { return v.empty(); });
                 cfgo::Pattern p;
-                CPPTRACE_WRAP_BLOCK(
-                    cfgo::from_json(nlohmann::json::parse(pattern), p);
-                );
+                cfgo_pattern_parse(pattern, p);
                 try
                 {
                     cfgo::SubPtr sub;

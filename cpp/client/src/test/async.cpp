@@ -44,8 +44,10 @@ TEST(Chan, MakeTimeout) {
     bool done = false;
     do_async([&done]() -> asio::awaitable<void> {
         auto timeout = cfgo::make_timeout(std::chrono::milliseconds{500});
-        co_await timeout.read();
+        co_await timeout.await();
         done = true;
+        EXPECT_TRUE(timeout.is_closed());
+        EXPECT_TRUE(timeout.is_timeout());
         co_return;
     });
     std::this_thread::sleep_for(std::chrono::milliseconds{600});

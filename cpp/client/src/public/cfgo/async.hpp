@@ -39,19 +39,20 @@ namespace cfgo
     };
 
     class CloseSignalState;
-    template <asiochan::select_op... Ops>
-    class cancelable_select_result;
 
     class CloseSignal : public std::enable_shared_from_this<CloseSignal>
     {
-        using Waiter = asiochan::channel<void, 1>;
     private:
         std::shared_ptr<CloseSignalState> m_state;
+        void close(bool is_timeout);
         // void clear_waiter();
     public:
+        using Waiter = asiochan::channel<void, 1>;
         CloseSignal();
         [[nodiscard]] bool is_closed() const noexcept;
+        [[nodiscard]] bool is_timeout() const noexcept;
         void close();
+        auto await() -> asio::awaitable<bool>;
         void set_timeout(const duration_t& dur);
         [[nodiscard]] friend inline auto operator==(
             CloseSignal const& lhs,
@@ -82,12 +83,20 @@ namespace cfgo
         cancelable(T value): m_value(value) {}
         cancelable(): m_value(false) {}
 
-        T & value() noexcept {
+        auto value() & -> T & {
             return std::get<T>(m_value);
         }
 
-        const T & value() const noexcept {
+        auto value() const & -> T const & {
             return std::get<T>(m_value);
+        }
+
+        auto value() && -> T && {
+            return std::get<T>(std::move(m_value));
+        }
+
+        auto value() const && -> T const && {
+            return std::get<T>(std::move(m_value));
         }
 
         bool is_canceled() const noexcept {
@@ -96,6 +105,16 @@ namespace cfgo
 
         operator bool() const noexcept {
             return !is_canceled();
+        }
+
+        inline const T * operator->() const noexcept
+        {
+            return &value();
+        }
+
+        inline T * operator->() noexcept
+        {
+            return &value();
         }
     };
 
@@ -118,6 +137,16 @@ namespace cfgo
 
         operator bool() const noexcept {
             return !is_canceled();
+        }
+
+        inline const bool * operator->() const noexcept
+        {
+            return &m_value;
+        }
+
+        inline bool * operator->() noexcept
+        {
+            return &m_value;
         }
     };
 
@@ -151,38 +180,159 @@ namespace cfgo
 
     cancelable<void> make_canceled();
 
+    template<typename... TS>
+    class cancelable_select_result : public cancelable<std::variant<TS...>>
+    {
+    public:
+        using PC = cancelable<std::variant<TS...>>;
+        cancelable_select_result(std::variant<TS...> v): PC(v) {}
+        cancelable_select_result(): PC() {}
+
+        template <typename T>
+        static constexpr bool is_alternative = (std::same_as<T, TS> or ...);
+
+        // clang-format off
+        template <typename T>
+        requires is_alternative<T>
+        [[nodiscard]] auto get() & -> T&
+        // clang-format on
+        {
+            return std::visit(
+                asiochan::detail::overloaded{
+                    [](T& result) -> T& { return result; },
+                    [](auto const&) -> T& { throw asiochan::bad_select_result_access{}; },
+                },
+                PC::value());
+        }
+
+        // clang-format off
+        template <typename T>
+        requires is_alternative<T>
+        [[nodiscard]] auto get() const& -> T const&
+        // clang-format on
+        {
+            return std::visit(
+                asiochan::detail::overloaded{
+                    [](T const& result) -> T const& { return result; },
+                    [](auto const&) -> T const& { throw asiochan::bad_select_result_access{}; },
+                },
+                PC::value());
+        }
+
+        // clang-format off
+        template <typename T>
+        requires is_alternative<T>
+        [[nodiscard]] auto get() && -> T&&
+        // clang-format on
+        {
+            return std::visit(
+                asiochan::detail::overloaded{
+                    [](T& result) -> T&& { return std::move(result); },
+                    [](auto const&) -> T&& { throw asiochan::bad_select_result_access{}; },
+                },
+                PC::value());
+        }
+
+        // clang-format off
+        template <typename T>
+        requires is_alternative<T>
+        [[nodiscard]] auto get() const&& -> T const&&
+        // clang-format on
+        {
+            return std::visit(
+                asiochan::detail::overloaded{
+                    [](T const& result) -> T const&& { return std::move(result); },
+                    [](auto const&) -> T const&& { throw asiochan::bad_select_result_access{}; },
+                },
+                PC::value());
+        }
+
+        // clang-format off
+        template <asiochan::sendable_value T>
+        requires is_alternative<asiochan::read_result<T>>
+        [[nodiscard]] auto get_received() & -> T&
+        // clang-format on
+        {
+            return get<asiochan::read_result<T>>().get();
+        }
+
+        // clang-format off
+        template <asiochan::sendable_value T>
+        requires is_alternative<asiochan::read_result<T>>
+        [[nodiscard]] auto get_received() const& -> T const&
+        // clang-format on
+        {
+            return get<asiochan::read_result<T>>().get();
+        }
+
+        // clang-format off
+        template <asiochan::sendable_value T>
+        requires is_alternative<asiochan::read_result<T>>
+        [[nodiscard]] auto get_received()&& -> T&&
+        // clang-format on
+        {
+            return std::move(get<asiochan::read_result<T>>().get());
+        }
+
+        // clang-format off
+        template <asiochan::sendable_value T>
+        requires is_alternative<asiochan::read_result<T>>
+        [[nodiscard]] auto get_received() const&& -> T const&&
+        // clang-format on
+        {
+            return std::move(get<asiochan::read_result<T>>().get());
+        }
+
+        // clang-format off
+        template <asiochan::any_readable_channel_type T>
+        requires is_alternative<asiochan::read_result<typename T::send_type>>
+        [[nodiscard]] auto received_from(T const& channel) const noexcept -> bool
+        // clang-format on
+        {
+            using SendType = typename T::send_type;
+
+            return std::visit(
+                asiochan::detail::overloaded{
+                    [&](asiochan::read_result<SendType> const& result)
+                    { return result.matches(channel); },
+                    [](auto const&)
+                    { return false; },
+                },
+                PC::value());
+        }
+    };
+
+    template<asiochan::select_op... Ops>
+    auto make_canceled_select_result() -> cancelable_select_result<typename Ops::result_type...>
+    {
+        return cancelable_select_result<typename Ops::result_type...>();
+    }
+
     close_chan make_timeout(const duration_t& dur);
 
     auto wait_timeout(const duration_t& dur) -> asio::awaitable<void>;
-
-    template <asiochan::select_op... Ops>
-    class cancelable_select_result : public cancelable<asiochan::select_result<Ops...>>
-    {
-    public:
-        using value_t = asiochan::select_result<Ops...>;
-        cancelable_select_result(): cancelable() {}
-        cancelable_select_result(const asiochan::select_result<Ops...> & select_result): cancelable(select_result) {}
-        inline const value_t * operator->() const noexcept
-        {
-            return &this->value();
-        }
-        inline value_t * operator->() noexcept
-        {
-            return &this->value();
-        }
-    };
 
     template <asiochan::sendable T, asiochan::select_op Op1, asiochan::select_op Op2>
     class combine_read_op
     {
     public:
-        using executor_type = Op1::executor_type;
+        using executor_type = typename Op1::executor_type;
         using result_type = asiochan::read_result<T>;
-        static constexpr auto num_alternatives = Op1::num_alternatives + Op2::num_alternatives;
-        static constexpr auto always_waitfree = Op1::always_waitfree || Op2::always_waitfree;
-        using wait_state_type = Op1::wait_state_type;
+        static constexpr auto num_alternatives_1 = Op1::num_alternatives;
+        static constexpr auto num_alternatives_2 = Op2::num_alternatives;
+        static constexpr auto num_alternatives = num_alternatives_1 + num_alternatives_2;
+        static constexpr auto always_waitfree_1 = Op1::always_waitfree;
+        static constexpr auto always_waitfree_2 = Op2::always_waitfree;
+        static constexpr auto always_waitfree = always_waitfree_1 || always_waitfree_2;
+        using wait_state_type_1 = typename Op1::wait_state_type;
+        using wait_state_type_2 = typename Op2::wait_state_type;
+        struct wait_state_type
+        {
+            wait_state_type_1 state_1;
+            wait_state_type_2 state_2;
+        };
 
-        explicit combine_read_op(Op1 && op1, Op2 && op2): m_op1(std::forward(op1)), m_op2(std::forward(op2))
+        explicit combine_read_op(const Op1 & op1, const Op2 & op2): m_op1(op1), m_op2(op2)
         {}
 
         [[nodiscard]] auto submit_if_ready() -> std::optional<std::size_t>
@@ -204,11 +354,11 @@ namespace cfgo
             wait_state_type& wait_state)
             -> std::optional<std::size_t>
         {
-            if (auto res = m_op1.submit_with_wait(select_ctx, base_token, wait_state))
+            if (auto res = m_op1.submit_with_wait(select_ctx, base_token, wait_state.state_1))
             {
                 return res;
             }
-            if (auto res = m_op2.submit_with_wait(select_ctx, base_token, wait_state))
+            if (auto res = m_op2.submit_with_wait(select_ctx, base_token, wait_state.state_2))
             {
                 return Op1::num_alternatives + *res;
             }
@@ -219,14 +369,17 @@ namespace cfgo
             std::optional<std::size_t> const successful_alternative,
             wait_state_type& wait_state)
         {
-            m_op1.clear_wait(successful_alternative, wait_state);
-            if (successful_alternative >= Op1::num_alternatives)
+            if (successful_alternative)
             {
-                m_op2.clear_wait(successful_alternative - Op1::num_alternatives, wait_state);
-            }
-            else
-            {
-                m_op2.clear_wait(successful_alternative + num_alternatives, wait_state);
+                m_op1.clear_wait(successful_alternative, wait_state.state_1);
+                if (successful_alternative >= Op1::num_alternatives)
+                {
+                    m_op2.clear_wait(*successful_alternative - Op1::num_alternatives, wait_state.state_2);
+                }
+                else
+                {
+                    m_op2.clear_wait(*successful_alternative + num_alternatives, wait_state.state_2);
+                }
             }
         }
 
@@ -250,54 +403,91 @@ namespace cfgo
     template<asiochan::select_op Op>
     constexpr bool is_void_read_op = std::is_same_v<asiochan::read_result<void>, std::decay_t<typename Op::result_type>>;
 
-    template <asiochan::select_op... Ops,
-              asio::execution::executor Executor = typename asiochan::detail::head_t<Ops...>::executor_type>
-    requires asiochan::waitable_selection<Ops...>
-    [[nodiscard]] auto select(close_chan close_ch, Ops... ops_args) -> asio::awaitable<cancelable_select_result<Ops...>, Executor>
+    template<asiochan::select_op Op, asiochan::select_op... Ops>
+    constexpr bool none_is_void_read_op()
     {
+        if constexpr (sizeof...(Ops) == 0)
+            return !is_void_read_op<Op>;
+        else
+            return !is_void_read_op<Op> && none_is_void_read_op<Ops...>();
+    }
+
+    template <asiochan::select_op First_Op, asiochan::select_op... Ops,
+              asio::execution::executor Executor = typename First_Op::executor_type>
+    requires asiochan::waitable_selection<First_Op, Ops...>
+    constexpr auto select_(First_Op first_op, Ops... other_ops)
+    {
+        if constexpr (sizeof...(Ops) == 0)
+        {
+            return asiochan::select(first_op);
+        }
+        else
+        {
+            return asiochan::select(first_op, other_ops...);
+        }
+    }
+    
+
+    template <asiochan::select_op First_Op, asiochan::select_op... Ops,
+              asio::execution::executor Executor = typename First_Op::executor_type>
+    requires asiochan::waitable_selection<First_Op, Ops...>
+    [[nodiscard]] auto select(close_chan close_ch, First_Op first_op, Ops... other_ops) -> asio::awaitable<cancelable_select_result<typename First_Op::result_type, typename Ops::result_type...>>
+    {
+        if constexpr (sizeof...(Ops) > 0)
+        {
+            static_assert(none_is_void_read_op<Ops...>(), "None of other_ops could be asiochan::ops::read<void>, use first_op instead.");
+        }
         if (is_valid_close_chan(close_ch))
         {
             co_await close_ch.init_timer();
             if (auto waiter_opt = close_ch.get_waiter())
             {
-                auto void_read_op = std::tuple_cat(magic::pick_if<is_void_read_op<Ops>>(std::forward<Ops>(ops_args))...);
-                auto other_ops = std::tuple_cat(magic::pick_if<!is_void_read_op<Ops>>(std::forward<Ops>(ops_args))...);
-                constexpr auto void_read_op_num = std::tuple_size_v<decltype(void_read_op)>;
-                static_assert(void_read_op_num == 0 || void_read_op_num == 1, "only accept at most one void read op.");
-                if constexpr (std::tuple_size_v<decltype(void_read_op)> == 0)
-                {
-                    auto res = co_await std::apply(
-                        asiochan::select,
-                        std::tuple_cat(std::forward_as_tuple<>(std::forward<Ops>(ops_args)...), std::make_tuple(asiochan::ops::read(*waiter_opt)))
+                if constexpr (is_void_read_op<First_Op>)
+                {   
+                    auto && res = co_await select_(
+                        combine_read_op<void, asiochan::ops::read<void, close_chan::Waiter>, std::decay_t<First_Op>>(
+                            asiochan::ops::read(*waiter_opt),
+                            first_op
+                        ),
+                        other_ops...
                     );
                     if (res.received_from(*waiter_opt))
                     {
-                        co_return cancelable_select_result {};
+                        co_return make_canceled_select_result<First_Op, Ops...>();
                     }
                     else
                     {
-                        co_return cancelable_select_result {asiochan::select_result<Ops...>(std::get(res.to_variant(), res.alternative()), res.alternative())};
+                        co_return cancelable_select_result<typename First_Op::result_type, typename Ops::result_type...>(std::move(res).to_variant());
                     }
                 }
                 else
                 {
-                    auto res = co_await std::apply(
-                        asiochan::select,
-                        std::tuple_cat(other_ops, std::make_tuple(combine_read_op<void, auto, auto>(std::get<0>(void_read_op), asiochan::ops::read(*waiter_opt))))
+                    auto res = co_await select_(
+                        asiochan::ops::read(*waiter_opt),
+                        first_op,
+                        other_ops...
                     );
-                    // TO-DO:
-                    co_return cancelable_select_result {};
+                    if (res.received_from(*waiter_opt))
+                    {
+                        co_return make_canceled_select_result<First_Op, Ops...>();
+                    }
+                    else
+                    {
+                        co_return cancelable_select_result<typename First_Op::result_type, typename Ops::result_type...>(
+                            magic::shift_variant(std::move(res).to_variant())
+                        );
+                    }
                 }
             }
             else
             {
-                co_return cancelable_select_result {};
+                co_return make_canceled_select_result<First_Op, Ops...>();
             }
         }
         else
         {
-            auto res = asiochan::select(std::forward<Ops>(ops_args)...);
-            co_return cancelable_select_result{res};
+            auto && res = co_await select_(first_op, std::forward<Ops>(other_ops)...);
+            co_return cancelable_select_result<typename First_Op::result_type, typename Ops::result_type...>(std::move(res).to_variant());
         }
 
     }
@@ -306,40 +496,29 @@ namespace cfgo
     auto chan_read(asiochan::readable_channel_type<T> auto ch, close_chan close_ch = INVALID_CLOSE_CHAN) -> asio::awaitable<cancelable<T>> {
         if (is_valid_close_chan(close_ch))
         {
-            if constexpr(std::is_same_v<void, std::decay_t<T>>)
+            auto && res = co_await select(
+                close_ch,
+                asiochan::ops::read(ch)
+            );
+            if (!res)
             {
-                auto && res = co_await select(
-                    close_ch,
-                    asiochan::ops::read(ch)
-                );
-                if (!res)
-                {
-                    co_return make_canceled<T>();
-                }
-                else
-                {
-                    co_return make_resolved();
-                }
+                co_return make_canceled<T>();
             }
             else
             {
-                auto && res = co_await select(
-                    close_ch,
-                    asiochan::ops::read(ch)
-                );
-                if (!res)
+                if constexpr(std::is_void_v<T>)
                 {
-                    co_return make_canceled<T>();
+                    co_return make_resolved();
                 }
                 else
                 {
-                    co_return res->get_received<T>();
+                    co_return res.template get_received<T>();
                 }
             }
         }
         else
         {
-            if constexpr(std::is_same_v<void, std::decay_t<T>>)
+            if constexpr(std::is_void_v<T>)
             {
                 co_await ch.read();
                 co_return make_resolved();

@@ -228,10 +228,11 @@ namespace cfgo
             }
             if (is_valid_close_chan(close_ch))
             {
-                auto res = co_await asiochan::select(
-                    asiochan::ops::read(m_open_notify, m_closed_notify, close_ch)
+                auto res = co_await cfgo::select(
+                    close_ch,
+                    asiochan::ops::read(m_open_notify, m_closed_notify)
                 );
-                if (res.received_from(close_ch))
+                if (!res)
                 {
                     co_return false;
                 }
@@ -301,10 +302,11 @@ namespace cfgo
             {
                 if (is_valid_close_chan(close_ch))
                 {
-                    auto res = co_await asiochan::select(
-                        asiochan::ops::read(m_msg_notify, m_closed_notify, close_ch)
+                    auto res = co_await cfgo::select(
+                        close_ch,
+                        asiochan::ops::read(m_msg_notify, m_closed_notify)
                     );
-                    if (res.received_from(close_ch))
+                    if (!res)
                     {
                         co_return nullptr;
                     }

@@ -76,6 +76,7 @@ namespace cfgo
     struct CloseSignalState : public std::enable_shared_from_this<CloseSignalState>
     {
         bool m_closed = false;
+        bool m_is_timeout = false;
         std::mutex m_mutex;
         AsyncMutex m_a_read_mutex;
         duration_t m_timeout = duration_t {0};
@@ -87,7 +88,6 @@ namespace cfgo
 
     void CloseSignalState::init_timer(asio::execution::executor auto executor, CloseSignal * s)
     {
-        std::cout << "close_ch: init_timer" << std::endl;
         if (m_closed || m_timer)
         {
             return;
@@ -99,7 +99,6 @@ namespace cfgo
             return;
         }
         m_timer = std::make_shared<asio::steady_timer>(executor);
-        std::cout << "close_ch: create timer" << std::endl;
         if (m_timeout != duration_t {0})
         {
             m_timer->expires_after(m_timeout);
@@ -117,7 +116,7 @@ namespace cfgo
                 {
                     co_return;
                 }
-                s.close();
+                s.close(true);
             }, asio::detached);
         }
     }
@@ -153,7 +152,18 @@ namespace cfgo
         return m_state->m_closed;
     }
 
+    bool CloseSignal::is_timeout() const noexcept
+    {
+        std::lock_guard lock(m_state->m_mutex);
+        return m_state->m_is_timeout;
+    }
+
     void CloseSignal::close()
+    {
+        close(false);
+    }
+
+    void CloseSignal::close(bool is_timeout)
     {
         if (m_state->m_closed)
         {
@@ -165,6 +175,7 @@ namespace cfgo
             return;
         }
         m_state->m_closed = true;
+        m_state->m_is_timeout = is_timeout;
         m_state->m_timeout = duration_t {0};
         m_state->m_timer->cancel();
         while (!m_state->m_waiters.empty())
@@ -214,7 +225,7 @@ namespace cfgo
                     {
                         co_return;
                     }
-                    self.close();
+                    self.close(true);
                 }, asio::detached);
             }
             else
@@ -222,6 +233,16 @@ namespace cfgo
                 m_state->m_timer->expires_at(m_state->m_timer->expiry() - old_timeout + dur);
             }
         }
+    }
+
+    auto CloseSignal::await() -> asio::awaitable<bool>
+    {
+        co_await init_timer();
+        if (auto waiter = get_waiter())
+        {
+            co_await waiter->read();
+        }
+        co_return !is_timeout();
     }
 
 } // namespace cfgo
