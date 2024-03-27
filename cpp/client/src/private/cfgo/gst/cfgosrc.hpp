@@ -5,7 +5,7 @@
 #include "cfgo/async.hpp"
 #include "gst/gst.h"
 
-class GstCfgoSrc;
+typedef struct _GstCfgoSrc GstCfgoSrc;
 
 namespace cfgo
 {
@@ -14,7 +14,6 @@ namespace cfgo
         class CfgoSrc
         {
         private:
-            GstCfgoSrc * m_owner;
             Client::Ptr m_client;
             Pattern m_pattern;
             std::vector<std::string> m_req_types;
@@ -39,7 +38,7 @@ namespace cfgo
 
             void _reset_sub_closer();
             void _reset_read_closer();
-            auto _loop() -> asio::awaitable<void>;
+            auto _loop(GstCfgoSrc * owner) -> asio::awaitable<void>;
         protected:
             CfgoSrc(GstCfgoSrc * owner, int client_handle, const char * pattern_json, const char * req_types_str, guint64 sub_timeout, guint64 read_timeout);
             CfgoSrc(const CfgoSrc &) = delete;

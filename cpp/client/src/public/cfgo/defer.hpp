@@ -1,31 +1,7 @@
-/*
-Copyright © 2015 Matthias Kretz <kretz@kde.org>
-All rights reserved.
+#ifndef _CFGO_DEFER_HPP_
+#define _CFGO_DEFER_HPP_
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the names of contributing organizations nor the
-      names of its contributors may be used to endorse or promote products
-      derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
-
-namespace ext
+namespace cfgo
 {
     namespace detail
     {
@@ -68,8 +44,9 @@ namespace ext
         defers_when_fail &operator=(const defers_when_fail &) = delete;
         defers_when_fail &operator=(defers_when_fail &&) = delete;
 
-        defers_when_fail(): m_success(false), m_i(0) {}
-        ~defers_when_fail() {
+        defers_when_fail() : m_success(false), m_i(0) {}
+        ~defers_when_fail()
+        {
             if (m_success)
             {
                 return;
@@ -79,17 +56,21 @@ namespace ext
                 f.second();
             }
         }
-        int add_defer(std::function<void()> f) {
+        int add_defer(std::function<void()> f)
+        {
             int i = m_i++;
             m_cleanups[i] = std::move(f);
             return i;
         };
-        void remove_defer(int i) {
+        void remove_defer(int i)
+        {
             m_cleanups.erase(i);
         }
-        void success() {
+        void success()
+        {
             m_success = true;
         }
+
     private:
         int m_i;
         bool m_success;
@@ -104,7 +85,10 @@ namespace ext
 #define DEFER_UNIQUE_VARNAME(x) DEFER_JOIN(x, __LINE__)
 #endif
 
-#define DEFER(lambda__) [[maybe_unused]] const auto &DEFER_UNIQUE_VARNAME(defer_object) = ext::defer([&]() lambda__)
-#define DEFERS_WHEN_FAIL(name) ext::defers_when_fail name{}
+#define DEFER(lambda__) [[maybe_unused]] const auto &DEFER_UNIQUE_VARNAME(defer_object) = cfgo::defer([&]() lambda__)
+#define DEFERS_WHEN_FAIL(name) \
+    cfgo::defers_when_fail name {}
 #define ADD_DEFER(name, lambda__) name.add_defer([&]() lambda__)
-} // namespace ext
+} // namespace cfgo
+
+#endif

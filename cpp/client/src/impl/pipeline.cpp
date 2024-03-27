@@ -157,7 +157,7 @@ namespace cfgo
 
                 auto len1 = name1.length();
                 auto len2 = name2.length();
-                bool f1 = 0, f2 = 0;
+                int f1 = 0, f2 = 0;
                 size_t i = 0, j = 0;
                 for (;i < len1 && j < len2; ++i, ++j)
                 {

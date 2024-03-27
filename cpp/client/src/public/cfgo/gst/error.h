@@ -14,7 +14,7 @@ typedef enum
 #define CFGO_ERROR (cfgo_error_quark ())
 GQuark cfgo_error_quark (void);
 
-void cfgo_error_set_timeout (GError ** error, const gchar * message, bool trace);
+void cfgo_error_set_timeout (GError ** error, const gchar * message, gboolean trace);
 const gchar * cfgo_error_get_trace (GError *error);
 const gchar * cfgo_error_get_message (GError *error);
 

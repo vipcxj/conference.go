@@ -77,25 +77,6 @@ G_DEFINE_TYPE_WITH_CODE(GstCfgoSrc, gst_cfgosrc, GST_TYPE_BIN,
                         GST_DEBUG_CATEGORY_INIT(gst_cfgosrc_debug_category, "cfgosrc", 0,
                                                 "debug category for cfgosrc element"));
 
-auto _gst_cfgosrc_loop_task(
-    GstCfgoSrc *cfgosrc, 
-    cfgo::Client::Ptr client,
-    const cfgo::Pattern pattern,
-    const std::vector<std::string> & reqtypes,
-    cfgo::close_chan_ptr sub_close_ch, 
-    cfgo::close_chan_ptr read_close_ch
-) -> asio::awaitable<void>
-{
-    if (co_await cfgosrc->priv->a_mutex.accquire())
-    {
-        DEFER({
-            cfgosrc->priv->a_mutex.release();
-        });
-        client->subscribe(pattern, reqtypes, *sub_close_ch);
-    }
-    
-}
-
 static void
 gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
 {

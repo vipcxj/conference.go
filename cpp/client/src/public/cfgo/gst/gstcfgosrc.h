@@ -2,6 +2,7 @@
 #define _GST_CFGOSRC_H_
 
 #include <gst/gst.h>
+#include "cfgo/exports.h"
 
 G_BEGIN_DECLS
 
@@ -36,7 +37,7 @@ struct _GstCfgoSrcClass
 
 GType gst_cfgosrc_get_type (void);
 
-GST_PLUGIN_STATIC_DECLARE (cfgosrc);
+CFGO_API_WITHOUT_EXTERN GST_PLUGIN_STATIC_DECLARE (cfgosrc);
 
 G_END_DECLS
 
