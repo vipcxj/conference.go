@@ -210,6 +210,19 @@ namespace cfgo
         );
     }
 
+    void cfgo_req_types_parse(const char * req_types_str, std::vector<std::string> & req_types)
+    {
+        boost::split(req_types, std::string_view(req_types_str), boost::is_any_of(" ,\t\r\n"));
+        for (auto &&req_type : req_types)
+        {
+            boost::trim(req_type);
+        }
+        req_types.erase(
+            std::remove_if(req_types.begin(), req_types.end(), [](auto && v) { return v.empty(); }),
+            req_types.end()
+        );
+    }
+
     template<typename F>
     int c_wrap(F func)
     {
@@ -365,17 +378,9 @@ CFGO_API int cfgo_client_subscribe(
             asio::get_associated_executor(client->execution_context()),
             [=]() -> asio::awaitable<void> {
                 std::vector<std::string> arg_req_types;
-                boost::split(arg_req_types, std::string_view(req_types), boost::is_any_of(" ,\t\r\n"));
-                for (auto &&req_type : arg_req_types)
-                {
-                    boost::trim(req_type);
-                }
-                arg_req_types.erase(
-                    std::remove_if(arg_req_types.begin(), arg_req_types.end(), [](auto && v) { return v.empty(); }),
-                    arg_req_types.end()
-                );
+                cfgo::cfgo_req_types_parse(req_types, arg_req_types);
                 cfgo::Pattern p;
-                cfgo_pattern_parse(pattern, p);
+                cfgo::cfgo_pattern_parse(pattern, p);
                 try
                 {
                     cfgo::SubPtr sub;

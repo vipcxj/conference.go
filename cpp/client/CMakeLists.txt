@@ -44,8 +44,11 @@ set(MY_PUBLIC_HEADERS
 )
 set(MY_GST_PLUGIN_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/gst/gstcfgosrc.h"
+    "${H_PUBLIC_PATH}/gst/error.h"
+    "${H_PUBLIC_PATH}/gst/error.hpp"
     "${H_PUBLIC_PATH}/gst/pipeline.hpp"
     "${H_PUBLIC_PATH}/gst/link.hpp"
+    "${H_PUBLIC_PATH}/gst/gst.h"
     "${H_PUBLIC_PATH}/gst/gst.hpp"
     "${H_PUBLIC_PATH}/gst/utils.hpp"
 )
@@ -63,6 +66,7 @@ set(MY_PRIVATE_HEADERS
     "${H_IMPL}/subscribation.hpp"
 )
 set(MY_GST_PLUGIN_PRIVATE_HEADERS
+    "${H_PRIVATE_PATH}/gst/cfgosrc.hpp"
     "${H_IMPL}/pipeline.hpp"
     "${H_IMPL}/link.hpp"
 )
@@ -85,6 +89,8 @@ set(MY_SOURCES
 )
 set(MY_GST_PLUGIN_SOURCES
     "${SRC_PATH}/gst/gstcfgosrc.cpp"
+    "${SRC_PATH}/gst/error.cpp"
+    "${SRC_PATH}/gst/cfgosrc.cpp"
     "${SRC_PATH}/gst/pipeline.cpp"
     "${SRC_PATH}/gst/link.cpp"
     "${SRC_PATH}/gst/utils.cpp"

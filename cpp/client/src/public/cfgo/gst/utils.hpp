@@ -19,8 +19,10 @@ namespace cfgo
             }); \
         }   
 
-    CFGO_DECLARE_MAKE_SHARED(gst_element, GstElement);
-
+    namespace gst
+    {
+        CFGO_DECLARE_MAKE_SHARED(gst_element, GstElement);
+    } // namespace gst
 } // namespace cfgo
 
 

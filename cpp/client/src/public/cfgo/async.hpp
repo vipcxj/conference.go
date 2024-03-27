@@ -38,22 +38,31 @@ namespace cfgo
         }
     };
 
-    class CloseSignalState;
+    namespace detail
+    {
+        class CloseSignalState;
+    } // namespace detail
+    
 
-    class CloseSignal : public std::enable_shared_from_this<CloseSignal>
+    class CloseSignal
     {
     private:
-        std::shared_ptr<CloseSignalState> m_state;
-        void close(bool is_timeout);
-        // void clear_waiter();
+        std::shared_ptr<detail::CloseSignalState> m_state;
+        CloseSignal(const std::shared_ptr<detail::CloseSignalState> & state);
+        CloseSignal(std::shared_ptr<detail::CloseSignalState> && state);
     public:
         using Waiter = asiochan::channel<void, 1>;
         CloseSignal();
         [[nodiscard]] bool is_closed() const noexcept;
         [[nodiscard]] bool is_timeout() const noexcept;
         void close();
-        auto await() -> asio::awaitable<bool>;
+        bool close_no_except() noexcept;
+        /**
+         * Async wait until closed or timeout. Return false if timeout.
+        */
+        [[nodiscard]] auto await() -> asio::awaitable<bool>;
         void set_timeout(const duration_t& dur);
+        [[nodiscard]] CloseSignal create_child();
         [[nodiscard]] friend inline auto operator==(
             CloseSignal const& lhs,
             CloseSignal const& rhs) noexcept -> bool
@@ -67,7 +76,7 @@ namespace cfgo
         auto init_timer() -> asio::awaitable<void>;
         [[nodiscard]] auto get_waiter() -> std::optional<Waiter>;
 
-        friend class CloseSignalState;
+        friend class detail::CloseSignalState;
     };
 
     inline bool is_valid_close_chan(const close_chan ch) noexcept {
