@@ -2,6 +2,7 @@
 #define _CFGO_GST_ERROR_H_
 
 #include "glib.h"
+#include "gst/gst.h"
 
 G_BEGIN_DECLS
 
@@ -17,6 +18,8 @@ GQuark cfgo_error_quark (void);
 void cfgo_error_set_timeout (GError ** error, const gchar * message, gboolean trace);
 const gchar * cfgo_error_get_trace (GError *error);
 const gchar * cfgo_error_get_message (GError *error);
+
+void cfgo_error_submit(GstElement * src, GError * error);
 
 G_END_DECLS
 

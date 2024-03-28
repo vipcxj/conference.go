@@ -212,6 +212,11 @@ namespace cfgo
 
     void cfgo_req_types_parse(const char * req_types_str, std::vector<std::string> & req_types)
     {
+        req_types.clear();
+        if (!req_types_str)
+        {
+            return;
+        }
         boost::split(req_types, std::string_view(req_types_str), boost::is_any_of(" ,\t\r\n"));
         for (auto &&req_type : req_types)
         {

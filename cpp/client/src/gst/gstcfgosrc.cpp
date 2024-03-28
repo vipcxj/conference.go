@@ -18,6 +18,9 @@
 
 #include <gst/gst.h>
 #include "cfgo/gst/gstcfgosrc.h"
+#include "cfgo/gst/cfgosrc.hpp"
+#include "cfgo/gst/error.hpp"
+#include "cfgo/gst/utils.hpp"
 #include "cfgo/async.hpp"
 #include "cfgo/capi.h"
 #include "cfgo/cbridge.hpp"
@@ -32,12 +35,10 @@ GST_DEBUG_CATEGORY_STATIC(gst_cfgosrc_debug_category);
 
 struct _GstCfgoSrcPrivate
 {
-    cfgo::close_chan_ptr sub_close_ch;
-    cfgo::close_chan_ptr read_close_ch;
-    asiochan::unbounded_channel<cfgo::Client::Ptr> client_ch;
-    asiochan::unbounded_channel<std::string> pattern_ch;
-    cfgo::AsyncMutex a_mutex;
     std::mutex mutex;
+    bool running;
+    cfgo::gst::CfgoSrc::UPtr task;
+    GstElement * rtpbin;
 };
 
 static void gst_cfgosrc_set_property(GObject *object,
@@ -52,15 +53,23 @@ static GstPad *gst_cfgosrc_request_new_pad(GstElement *element,
 static void gst_cfgosrc_release_pad(GstElement *element, GstPad *pad);
 static GstStateChangeReturn
 gst_cfgosrc_change_state(GstElement *element, GstStateChange transition);
-static gboolean gst_cfgosrc_send_event(GstElement *element, GstEvent *event);
 
 enum
 {
     PROP_0,
     PROP_CLIENT,
     PROP_PATTERN,
+    PROP_REQ_TYPES,
     PROP_SUB_TIMEOUT,
-    PROP_READ_TIMEOUT
+    PROP_SUB_TRIES,
+    PROP_SUB_TRY_DELAY_INIT,
+    PROP_SUB_TRY_DELAY_STEP,
+    PROP_SUB_TRY_DELAY_LEVEL,
+    PROP_READ_TIMEOUT,
+    PROP_READ_TRIES,
+    PROP_READ_TRY_DELAY_INIT,
+    PROP_READ_TRY_DELAY_STEP,
+    PROP_READ_TRY_DELAY_LEVEL
 };
 
 /* pad templates */
@@ -97,7 +106,6 @@ gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
     gobject_class->dispose = gst_cfgosrc_dispose;
     gobject_class->finalize = gst_cfgosrc_finalize;
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_cfgosrc_change_state);
-    element_class->send_event = GST_DEBUG_FUNCPTR(gst_cfgosrc_send_event);
 
     g_object_class_install_property(
         gobject_class, PROP_CLIENT,
@@ -112,10 +120,40 @@ gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
             NULL,
             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
     g_object_class_install_property(
+        gobject_class, PROP_REQ_TYPES,
+        g_param_spec_string(
+            "req-types", "req-types", "The reqire types for subscribing, \"video\", \"audio\" or \"video,audio\"",
+            NULL,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
         gobject_class, PROP_SUB_TIMEOUT,
         g_param_spec_uint64(
             "sub-timeout", "sub-timeout", "timeout miliseconds of subscribing",
             0, G_MAXUINT64, 0,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_SUB_TRIES,
+        g_param_spec_int(
+            "sub-tries", "sub-tries", "max tries of subscribing, -1 means forever",
+            -1, G_MAXINT32, -1,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_SUB_TRY_DELAY_INIT,
+        g_param_spec_uint64(
+            "sub-try-delay-init", "sub-try-delay-init", "the init delay time in milisecond before next subscribing try",
+            0, G_MAXUINT64, 0,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_SUB_TRY_DELAY_STEP,
+        g_param_spec_uint(
+            "sub-try-delay-step", "sub-try-delay-step", "the increase step of delay time in milisecond before next subscribing try.",
+            0, G_MAXINT32, 0,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_SUB_TRY_DELAY_LEVEL,
+        g_param_spec_uint(
+            "sub-try-delay-level", "sub-try-delay-level", "the max increase level of delay time before next subscribing try.",
+            0, 16, 0,
             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
     g_object_class_install_property(
         gobject_class, PROP_READ_TIMEOUT,
@@ -123,12 +161,189 @@ gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
             "read-timeout", "read-timeout", "timeout miliseconds of reading data",
             0, G_MAXUINT64, 0,
             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_READ_TRIES,
+        g_param_spec_int(
+            "read-tries", "read-tries", "max tries of reading data, -1 means forever",
+            -1, G_MAXINT32, -1,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_READ_TRY_DELAY_INIT,
+        g_param_spec_uint64(
+            "read-try-delay-init", "read-try-delay-init", "the init delay time in milisecond before next reading data try",
+            0, G_MAXUINT64, 0,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_READ_TRY_DELAY_STEP,
+        g_param_spec_uint(
+            "read-try-delay-step", "read-try-delay-step", "the increase step of delay time in milisecond before next reading data try.",
+            0, G_MAXINT32, 0,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_READ_TRY_DELAY_LEVEL,
+        g_param_spec_uint(
+            "read-try-delay-level", "read-try-delay-level", "the max increase level of delay time before next reading data try.",
+            0, 16, 0,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 }
 
 static void
 gst_cfgosrc_init(GstCfgoSrc *cfgosrc)
 {
     cfgosrc->priv = (GstCfgoSrcPrivate *)gst_cfgosrc_get_instance_private(cfgosrc);
+    auto rtpbin = gst_element_factory_make("rtpbin", "rtpbin");
+    if (!rtpbin)
+    {
+        GST_ERROR_OBJECT(cfgosrc, "%s", "Unable to create rtpbin.");
+        using namespace cfgo::gst;
+        auto error = steal_shared_g_error(create_gerror_general("Unable to create rtpbin.", true));
+        cfgo_error_submit(GST_ELEMENT(cfgosrc), error.get());
+        return;
+    }
+    cfgosrc->priv->rtpbin = rtpbin;
+    gst_bin_add(GST_BIN(cfgosrc), rtpbin);
+    auto rtp_sink = gst_element_request_pad_simple(rtpbin, "recv_rtp_sink_0");
+    if (!rtp_sink)
+    {
+        GST_ERROR_OBJECT(cfgosrc, "%s", "Unable to request pad recv_rtp_sink_0 from rtpbin.");
+        using namespace cfgo::gst;
+        auto error = steal_shared_g_error(create_gerror_general("Unable to request pad recv_rtp_sink_0 from rtpbin.", true));
+        cfgo_error_submit(GST_ELEMENT(cfgosrc), error.get());
+        return;
+    }
+    cfgosrc->rtp_pad = rtp_sink;
+    auto rtcp_sink = gst_element_request_pad_simple(rtpbin, "recv_rtcp_sink_0");
+    if (!rtcp_sink)
+    {
+        GST_ERROR_OBJECT(cfgosrc, "%s", "Unable to request pad recv_rtcp_sink_0 from rtpbin.");
+        using namespace cfgo::gst;
+        auto error = steal_shared_g_error(create_gerror_general("Unable to request pad recv_rtcp_sink_0 from rtpbin.", true));
+        cfgo_error_submit(GST_ELEMENT(cfgosrc), error.get());
+        return;
+    }
+    cfgosrc->rtcp_pad = rtcp_sink;
+    
+}
+
+void _gst_cfgosrc_maybe_start(GstCfgoSrc *cfgosrc)
+{
+    if (cfgosrc->priv->running)
+    {
+        if (cfgosrc->client_handle > 0 
+            && cfgosrc->pattern && strlen(cfgosrc->pattern) > 0)
+        {
+            cfgosrc->priv->task = cfgo::gst::CfgoSrc::create(
+                cfgosrc, cfgosrc->client_handle, 
+                cfgosrc->pattern, cfgosrc->req_types, 
+                cfgosrc->sub_timeout, cfgosrc->read_timeout
+            );
+            cfgosrc->priv->task->set_sub_try(
+                cfgosrc->sub_tries,
+                cfgosrc->sub_try_delay_init,
+                cfgosrc->sub_try_delay_step,
+                cfgosrc->sub_try_delay_level
+            );
+            cfgosrc->priv->task->set_read_try(
+                cfgosrc->read_tries,
+                cfgosrc->read_try_delay_init,
+                cfgosrc->read_try_delay_step,
+                cfgosrc->read_try_delay_level
+            );
+            cfgosrc->priv->task->set_rtp_pad(cfgosrc->rtp_pad);
+            cfgosrc->priv->task->set_rtcp_pad(cfgosrc->rtcp_pad);
+        }
+    }
+}
+
+void gst_cfgosrc_start(GstCfgoSrc *cfgosrc)
+{
+    std::lock_guard lock(cfgosrc->priv->mutex);
+    cfgosrc->priv->running = true;
+    _gst_cfgosrc_maybe_start(cfgosrc);
+}
+
+void gst_cfgosrc_stop(GstCfgoSrc *cfgosrc)
+{
+    std::lock_guard lock(cfgosrc->priv->mutex);
+    cfgosrc->priv->running = false;
+    if (cfgosrc->priv->task)
+    {
+        cfgosrc->priv->task->set_rtp_pad(nullptr);
+        cfgosrc->priv->task->set_rtcp_pad(nullptr);
+        cfgosrc->priv->task = nullptr;
+    }
+}
+
+bool gst_cfgosrc_set_string_property(const GValue *value, const gchar ** target)
+{
+    const gchar * src = g_value_get_string(value);
+    if (src == *target)
+    {
+        return false;
+    }
+    else if (src == nullptr)
+    {
+        g_free(target);
+        *target = nullptr;
+        return true;
+    }
+    else if (*target == nullptr)
+    {
+        *target = g_strdup(src);
+        return true;
+    }
+    else if (g_str_equal(src, *target))
+    {
+        return false;
+    }
+    else
+    {
+        g_free(target);
+        *target = g_strdup(src);
+        return true;
+    }
+}
+
+bool gst_cfgosrc_set_int32_property(const GValue * value, gint32 * target)
+{
+    auto src = g_value_get_int(value);
+    if (src == *target)
+    {
+        return false;
+    }
+    else
+    {
+        *target = src;
+        return true;
+    }
+}
+
+bool gst_cfgosrc_set_uint32_property(const GValue * value, guint32 * target)
+{
+    auto src = g_value_get_uint(value);
+    if (src == *target)
+    {
+        return false;
+    }
+    else
+    {
+        *target = src;
+        return true;
+    }
+}
+
+bool gst_cfgosrc_set_uint64_property(const GValue * value, guint64 * target)
+{
+    auto src = g_value_get_uint64(value);
+    if (src == *target)
+    {
+        return false;
+    }
+    else
+    {
+        *target = src;
+        return true;
+    }
 }
 
 void gst_cfgosrc_set_property(GObject *object, guint property_id,
@@ -153,6 +368,7 @@ void gst_cfgosrc_set_property(GObject *object, guint property_id,
             cfgo_client_ref(handle);
             cfgosrc->client_handle = handle;
             GST_DEBUG_OBJECT(cfgosrc, "Client argument was changed to %d\n", handle);
+            _gst_cfgosrc_maybe_start(cfgosrc);
         }
         else
         {
@@ -163,22 +379,111 @@ void gst_cfgosrc_set_property(GObject *object, guint property_id,
     case PROP_PATTERN:
     {
         std::lock_guard lock(cfgosrc->priv->mutex);
-        cfgosrc->pattern = g_value_get_string(value);
-        GST_DEBUG_OBJECT(cfgosrc, "Pattern argument was changed to %s\n", cfgosrc->pattern);
+        if (gst_cfgosrc_set_string_property(value, &cfgosrc->pattern))
+        {
+             _gst_cfgosrc_maybe_start(cfgosrc);
+            GST_DEBUG_OBJECT(cfgosrc, "The pattern argument was changed to %s\n", cfgosrc->pattern);
+        }
+        break;
+    }
+    case PROP_REQ_TYPES:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        if (gst_cfgosrc_set_string_property(value, &cfgosrc->req_types))
+        {
+             _gst_cfgosrc_maybe_start(cfgosrc);
+            GST_DEBUG_OBJECT(cfgosrc, "The req-types argument was changed to %s\n", cfgosrc->req_types);
+        }
         break;
     }
     case PROP_SUB_TIMEOUT:
     {
         std::lock_guard lock(cfgosrc->priv->mutex);
-        cfgosrc->sub_timeout = g_value_get_uint64(value);
-        GST_DEBUG_OBJECT(cfgosrc, "Sub timeout argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->sub_timeout));
+        if (gst_cfgosrc_set_uint64_property(value, &cfgosrc->sub_timeout))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The sub-timeout argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->sub_timeout));
+        }
+        break;
+    }
+    case PROP_SUB_TRIES:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        if (gst_cfgosrc_set_int32_property(value, &cfgosrc->sub_tries))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The sub-tries argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->sub_tries));
+        }
+        break;
+    }
+    case PROP_SUB_TRY_DELAY_INIT:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        if (gst_cfgosrc_set_uint64_property(value, &cfgosrc->sub_try_delay_init))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The sub-try-delay-init argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->sub_try_delay_init));
+        }
+        break;
+    }
+    case PROP_SUB_TRY_DELAY_STEP:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        if (gst_cfgosrc_set_uint32_property(value, &cfgosrc->sub_try_delay_step))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The sub-try-delay-step argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->sub_try_delay_step));
+        }
+        break;
+    }
+    case PROP_SUB_TRY_DELAY_LEVEL:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        if (gst_cfgosrc_set_uint32_property(value, &cfgosrc->sub_try_delay_level))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The sub-try-delay-level argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->sub_try_delay_level));
+        }
         break;
     }
     case PROP_READ_TIMEOUT:
     {
         std::lock_guard lock(cfgosrc->priv->mutex);
-        cfgosrc->read_timeout = g_value_get_uint64(value);
-        GST_DEBUG_OBJECT(cfgosrc, "Read timeout argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->read_timeout));
+        if (gst_cfgosrc_set_uint64_property(value, &cfgosrc->read_timeout))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The read-timeout argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->read_timeout));
+        }
+        break;
+    }
+    case PROP_READ_TRIES:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        if (gst_cfgosrc_set_int32_property(value, &cfgosrc->read_tries))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The read-tries argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->read_tries));
+        }
+        break;
+    }
+    case PROP_READ_TRY_DELAY_INIT:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        if (gst_cfgosrc_set_uint64_property(value, &cfgosrc->read_try_delay_init))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The read-try-delay-init argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->read_try_delay_init));
+        }
+        break;
+    }
+    case PROP_READ_TRY_DELAY_STEP:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        if (gst_cfgosrc_set_uint32_property(value, &cfgosrc->read_try_delay_step))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The read-try-delay-step argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->read_try_delay_step));
+        }
+        break;
+    }
+    case PROP_READ_TRY_DELAY_LEVEL:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        if (gst_cfgosrc_set_uint32_property(value, &cfgosrc->read_try_delay_level))
+        {
+            GST_DEBUG_OBJECT(cfgosrc, "The read-try-delay-level argument was changed to %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(cfgosrc->read_try_delay_level));
+        }
         break;
     }
     default:
@@ -208,16 +513,69 @@ void gst_cfgosrc_get_property(GObject *object, guint property_id,
         g_value_set_string(value, cfgosrc->pattern);
         break;
     }
+    case PROP_REQ_TYPES:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        g_value_set_string(value, cfgosrc->req_types);
+    }
     case PROP_SUB_TIMEOUT:
     {
         std::lock_guard lock(cfgosrc->priv->mutex);
         g_value_set_uint64(value, cfgosrc->sub_timeout);
         break;
     }
+    case PROP_SUB_TRIES:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        g_value_set_int(value, cfgosrc->sub_tries);
+        break;
+    }
+    case PROP_SUB_TRY_DELAY_INIT:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        g_value_set_uint64(value, cfgosrc->sub_try_delay_init);
+        break;
+    }
+    case PROP_SUB_TRY_DELAY_STEP:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        g_value_set_uint(value, cfgosrc->sub_try_delay_step);
+        break;
+    }
+    case PROP_SUB_TRY_DELAY_LEVEL:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        g_value_set_uint(value, cfgosrc->sub_try_delay_level);
+        break;
+    }
     case PROP_READ_TIMEOUT:
     {
         std::lock_guard lock(cfgosrc->priv->mutex);
         g_value_set_uint64(value, cfgosrc->read_timeout);
+        break;
+    }
+    case PROP_READ_TRIES:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        g_value_set_int(value, cfgosrc->read_tries);
+        break;
+    }
+    case PROP_READ_TRY_DELAY_INIT:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        g_value_set_uint64(value, cfgosrc->read_try_delay_init);
+        break;
+    }
+    case PROP_READ_TRY_DELAY_STEP:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        g_value_set_uint(value, cfgosrc->read_try_delay_step);
+        break;
+    }
+    case PROP_READ_TRY_DELAY_LEVEL:
+    {
+        std::lock_guard lock(cfgosrc->priv->mutex);
+        g_value_set_uint(value, cfgosrc->read_try_delay_level);
         break;
     }
     default:
@@ -232,7 +590,7 @@ void gst_cfgosrc_dispose(GObject *object)
 
     GST_DEBUG_OBJECT(cfgosrc, "dispose");
 
-    /* clean up as possible.  may be called multiple times */
+    gst_cfgosrc_stop(cfgosrc);
 
     G_OBJECT_CLASS(gst_cfgosrc_parent_class)->dispose(object);
 }
@@ -243,8 +601,33 @@ void gst_cfgosrc_finalize(GObject *object)
 
     GST_DEBUG_OBJECT(cfgosrc, "finalize");
 
-    /* clean up object here */
-
+    if (cfgosrc->rtp_pad)
+    {
+        gst_element_release_request_pad(cfgosrc->priv->rtpbin, cfgosrc->rtp_pad);
+        gst_object_unref(cfgosrc->rtp_pad);
+    }
+    if (cfgosrc->rtcp_pad)
+    {
+        gst_element_release_request_pad(cfgosrc->priv->rtpbin, cfgosrc->rtcp_pad);
+        gst_object_unref(cfgosrc->rtcp_pad);
+    }
+    if (cfgosrc->priv->rtpbin)
+    {
+        gst_bin_remove(GST_BIN(cfgosrc), cfgosrc->priv->rtpbin);
+    }
+    if (cfgosrc->client_handle > 0)
+    {
+        cfgo_client_unref(cfgosrc->client_handle);
+    }
+    if (cfgosrc->pattern)
+    {
+        g_free(&cfgosrc->pattern);
+    }
+    if (cfgosrc->req_types)
+    {
+        g_free(&cfgosrc->req_types);
+    }
+    
     G_OBJECT_CLASS(gst_cfgosrc_parent_class)->finalize(object);
 }
 
@@ -264,6 +647,7 @@ gst_cfgosrc_change_state(GstElement *element, GstStateChange transition)
     case GST_STATE_CHANGE_READY_TO_PAUSED:
         break;
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
+        gst_cfgosrc_start(cfgosrc);
         break;
     default:
         break;
@@ -274,6 +658,7 @@ gst_cfgosrc_change_state(GstElement *element, GstStateChange transition)
     switch (transition)
     {
     case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
+        gst_cfgosrc_stop(cfgosrc);
         break;
     case GST_STATE_CHANGE_PAUSED_TO_READY:
         break;
@@ -284,13 +669,6 @@ gst_cfgosrc_change_state(GstElement *element, GstStateChange transition)
     }
 
     return ret;
-}
-
-static gboolean
-gst_cfgosrc_send_event(GstElement *element, GstEvent *event)
-{
-
-    return TRUE;
 }
 
 static gboolean

@@ -33,6 +33,7 @@ set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/defer.hpp"
     "${H_PUBLIC_PATH}/pattern.hpp"
     "${H_PUBLIC_PATH}/exports.h"
+    "${H_PUBLIC_PATH}/common.hpp"
     "${H_PUBLIC_PATH}/utils.hpp"
     "${H_PUBLIC_PATH}/black_magic.hpp"
     "${H_PUBLIC_PATH}/spd_helper.hpp"

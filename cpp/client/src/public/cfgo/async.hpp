@@ -5,6 +5,7 @@
 #include <mutex>
 #include <vector>
 #include "cfgo/alias.hpp"
+#include "cfgo/common.hpp"
 #include "cfgo/black_magic.hpp"
 #include "asio/awaitable.hpp"
 #include "asio/steady_timer.hpp"
@@ -538,6 +539,51 @@ namespace cfgo
                 co_return make_resolved(v);
             }
         }
+    }
+
+    template<typename T>
+    auto async_retry(const TryOption & option, std::function<asio::awaitable<T>()> func, std::function<bool(T)> retry_checker, close_chan close_ch) -> asio::awaitable<cancelable<T>>
+    {
+        auto tried = option.m_tries, tries = option.m_tries;
+        auto delay_init = option.m_delay_init;
+        auto delay_step = option.m_delay_step;
+        auto delay_level = option.m_delay_level > 16 ? 16 : option.m_delay_level;
+        std::uint32_t delay_current_level = 0;
+        do
+        {
+            auto res = co_await func();
+            if (retry_checker(res))
+            {
+                if (tried == 0)
+                {
+                    co_return make_canceled<T>();
+                }
+                else if (tried > 0)
+                {
+                    --tried;
+                }
+                auto delay = delay_init;
+                if (delay_current_level > 0)
+                {
+                    delay += delay_step * (1 << (delay_current_level - 1));
+                }
+                if (delay_current_level < delay_level)
+                {
+                    ++delay_current_level;
+                }
+                if (delay > 0)
+                {
+                    auto timer = close_ch.create_child();
+                    timer.set_timeout(std::chrono::milliseconds {delay});
+                    bool closed = co_await timer.await();
+                    if (closed)
+                    {
+                        co_return make_canceled<T>();
+                    }
+                }
+            }
+            co_return make_resolved<T>(res);
+        } while (true);
     }
     
 } // namespace cfgo

@@ -113,6 +113,7 @@ namespace cfgo
     private:
         impl_ptr<T> mImpl;
     };
+
 }
 
 #endif

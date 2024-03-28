@@ -136,7 +136,7 @@ namespace cfgo
 
         auto crete_gerror (CfgoError type, const gchar * message, bool gen_trace, const std::exception_ptr & except) -> GError *
         {
-            auto error = g_error_new(CFGO_ERROR, type, message);
+            auto error = g_error_new(CFGO_ERROR, type, "%s", message);
             if (gen_trace || except)
             {
                 auto priv = cfgo_error_get_private(error);
@@ -166,6 +166,11 @@ namespace cfgo
         GError * create_gerror_timeout(const std::string & message, bool trace)
         {
             return crete_gerror(CFGO_ERROR_TIMEOUT, message.c_str(), trace, nullptr);
+        }
+
+        GError * create_gerror_general(const std::string & message, bool trace)
+        {
+            return crete_gerror(CFGO_ERROR_GENERAL, message.c_str(), trace, nullptr);
         }
 
         GError * create_gerror_from_except(const std::exception_ptr & except, bool trace)
@@ -204,4 +209,20 @@ const gchar * cfgo_error_get_message (GError *error)
 void cfgo_error_set_timeout (GError ** error, const gchar * message, gboolean trace)
 {
     *error = cfgo::gst::create_gerror_timeout(message, trace);
+}
+
+void cfgo_error_submit(GstElement * src, GError * error)
+{
+    auto message = gst_message_new_error(GST_OBJECT(src), error, cfgo_error_get_trace(error));
+    if (!message || !gst_element_post_message(GST_ELEMENT(src), message))
+    {
+        spdlog::warn("Failed to post the error message to gst element {}. The error is \"{}\".", 
+            GST_ELEMENT_NAME(src), 
+            cfgo_error_get_message(error)
+        );
+    }
+    if (message)
+    {
+        gst_message_unref(message);
+    }
 }

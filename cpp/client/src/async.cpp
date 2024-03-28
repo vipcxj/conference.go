@@ -188,7 +188,10 @@ namespace cfgo
             m_closed = true;
             m_is_timeout = is_timeout;
             m_timeout = duration_t {0};
-            m_timer->cancel();
+            if (m_timer)
+            {
+                m_timer->cancel();
+            }
             while (!m_waiters.empty())
             {
                 auto && waiter = m_waiters.front();
