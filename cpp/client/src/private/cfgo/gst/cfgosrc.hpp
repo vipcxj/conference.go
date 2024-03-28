@@ -27,11 +27,27 @@ namespace cfgo
             close_chan m_read_closer;
             std::mutex m_mutex;
             std::vector<GstPad *> m_pads;
+            GstCfgoSrc * m_owner;
+            bool m_detached;
 
             void _reset_sub_closer();
             void _reset_read_closer();
-            auto _loop(GstCfgoSrc * owner) -> asio::awaitable<void>;
+            auto _loop() -> asio::awaitable<void>;
             auto _post_buffer(GstCfgoSrc * owner, Track::Ptr track, Track::MsgType msg_type) -> asio::awaitable<void>;
+            template<typename T>
+            cancelable<T> _safe_use_owner(std::function<T(GstCfgoSrc * owner)> func)
+            {
+                if (m_detached)
+                {
+                    return make_canceled<T>();
+                }
+                std::lock_guard lock(m_mutex);
+                if (m_detached)
+                {
+                    return make_canceled<T>();
+                }
+                return make_resolved<T>(func(m_owner));
+            }
         protected:
             CfgoSrc(GstCfgoSrc * owner, int client_handle, const char * pattern_json, const char * req_types_str, guint64 sub_timeout, guint64 read_timeout);
             CfgoSrc(const CfgoSrc &) = delete;
@@ -55,6 +71,7 @@ namespace cfgo
             void set_sub_try(gint32 tries, guint64 delay_init = 0, guint32 delay_step = 0, guint32 delay_level = 0);
             void set_read_timeout(guint64 timeout);
             void set_read_try(gint32 tries, guint64 delay_init = 0, guint32 delay_step = 0, guint32 delay_level = 0);
+            void detach();
         };
     } // namespace gst    
 } // namespace cfgo

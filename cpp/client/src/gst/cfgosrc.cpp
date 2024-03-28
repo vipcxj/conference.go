@@ -11,17 +11,21 @@ namespace cfgo
 {
     namespace gst
     {
-        CfgoSrc::CfgoSrc(GstCfgoSrc * owner, int client_handle, const char * pattern_json, const char * req_types_str, guint64 sub_timeout, guint64 read_timeout)
-        : m_client(get_client(client_handle)), m_sub_timeout(sub_timeout), m_read_timeout(m_read_timeout), m_ready(false)
+        CfgoSrc::CfgoSrc(GstCfgoSrc * owner, int client_handle, const char * pattern_json, const char * req_types_str, guint64 sub_timeout, guint64 read_timeout): 
+            m_owner(owner), 
+            m_detached(false), 
+            m_client(get_client(client_handle)), 
+            m_sub_timeout(sub_timeout), 
+            m_read_timeout(m_read_timeout)
         {
             cfgo_pattern_parse(pattern_json, m_pattern);
             cfgo_req_types_parse(req_types_str, m_req_types);
             asio::co_spawn(
                 asio::get_associated_executor(m_client->execution_context()),
-                [weak_self = weak_from_this(), owner]() -> asio::awaitable<void> {
+                [weak_self = weak_from_this()]() -> asio::awaitable<void> {
                     if (auto self = weak_self.lock())
                     {
-                        co_await self->_loop(owner);
+                        co_await self->_loop();
                     }
                 },
                 asio::detached
@@ -88,6 +92,17 @@ namespace cfgo
             m_read_try_option.m_delay_init = delay_init;
             m_read_try_option.m_delay_step = delay_step;
             m_read_try_option.m_delay_level = delay_level;
+        }
+
+        void CfgoSrc::detach()
+        {
+            if (m_detached)
+            {
+                return;
+            }
+            std::lock_guard lock(m_mutex);
+            m_detached = true;
+            m_owner = nullptr;
         }
 
         auto CfgoSrc::_post_buffer(GstCfgoSrc * owner, Track::Ptr track, Track::MsgType msg_type) -> asio::awaitable<void>
@@ -174,12 +189,8 @@ namespace cfgo
             } while (true);
         }
 
-        auto CfgoSrc::_loop(GstCfgoSrc * owner) -> asio::awaitable<void>
+        auto CfgoSrc::_loop() -> asio::awaitable<void>
         {
-            gst_object_ref(owner);
-            DEFER({
-                gst_object_unref(owner);
-            });
             co_await m_ready_closer.await();
             try
             {
@@ -207,8 +218,10 @@ namespace cfgo
                 {
                     if (m_close_ch.is_timeout() || m_sub_closer.is_timeout())
                     {
-                        auto error = steal_shared_g_error(create_gerror_timeout("Timeout to subscribing."));
-                        cfgo_error_submit(GST_ELEMENT(owner), error.get());
+                        _safe_use_owner<void>([](auto owner) {
+                            auto error = steal_shared_g_error(create_gerror_timeout("Timeout to subscribing."));
+                            cfgo_error_submit(GST_ELEMENT(owner), error.get());
+                        });
                     }
                     co_return;
                 }
@@ -217,19 +230,21 @@ namespace cfgo
                 for (auto &&track : sub.value()->tracks())
                 {
                     tasks = std::move(std::move(tasks)
-                    && [this, track, owner]() -> asio::awaitable<void> {
-                        _post_buffer(owner, track, Track::MsgType::RTP);
+                    && [this, track]() -> asio::awaitable<void> {
+                        _post_buffer(track, Track::MsgType::RTP);
                     }()
-                    && [this, track, owner]() -> asio::awaitable<void> {
-                        _post_buffer(owner, track, Track::MsgType::RTCP);
+                    && [this, track]() -> asio::awaitable<void> {
+                        _post_buffer(track, Track::MsgType::RTCP);
                     }());
                 }
                 co_await std::move(tasks);
             }
             catch(...)
             {
-                auto error = steal_shared_g_error(create_gerror_from_except(std::current_exception(), true));
-                cfgo_error_submit(GST_ELEMENT(owner), error.get());
+                _safe_use_owner<void>([](auto owner) {
+                    auto error = steal_shared_g_error(create_gerror_from_except(std::current_exception(), true));
+                    cfgo_error_submit(GST_ELEMENT(owner), error.get());
+                });
             }
         }
     } // namespace gst

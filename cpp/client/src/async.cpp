@@ -4,7 +4,7 @@
 #include "cpptrace/cpptrace.hpp"
 #include "spdlog/spdlog.h"
 #include <list>
-#include <iostream>
+#include <chrono>
 
 namespace cfgo
 {
@@ -82,11 +82,13 @@ namespace cfgo
             using Waiter = CloseSignal::Waiter;
             bool m_closed = false;
             bool m_is_timeout = false;
+            bool m_stop = false;
             std::mutex m_mutex;
-            AsyncMutex m_a_read_mutex;
             duration_t m_timeout = duration_t {0};
+            duration_t m_stop_timeout = duration_t {0};
             std::shared_ptr<asio::steady_timer> m_timer;
             std::list<Waiter> m_waiters;
+            std::list<Waiter> m_stop_waiters;
             CloseSignalState * m_parent = nullptr;
             std::list<Ptr> m_children;
 
@@ -104,7 +106,15 @@ namespace cfgo
 
             void close(bool is_timeout);
 
+            void stop(bool stop_timer);
+
+            void resume();
+
+            auto get_stop_waiter() -> std::optional<Waiter>;
+
             bool close_no_except(bool is_timeout) noexcept;
+
+            void _set_timeout(const duration_t& dur);
 
             void set_timeout(const duration_t& dur);
 
@@ -186,6 +196,7 @@ namespace cfgo
                 return;
             }
             m_closed = true;
+            m_stop = false;
             m_is_timeout = is_timeout;
             m_timeout = duration_t {0};
             if (m_timer)
@@ -200,6 +211,15 @@ namespace cfgo
                     throw cpptrace::logic_error(cfgo::THIS_IS_IMPOSSIBLE);
                 }
                 m_waiters.pop_front();
+            }
+            while (!m_stop_waiters.empty())
+            {
+                auto && waiter = m_stop_waiters.front();
+                if (!waiter.try_write())
+                {
+                    throw cpptrace::logic_error(cfgo::THIS_IS_IMPOSSIBLE);
+                }
+                m_stop_waiters.pop_front();
             }
             if (m_parent != nullptr)
             {
@@ -248,14 +268,82 @@ namespace cfgo
             return _close_no_except(is_timeout);
         }
 
-        void CloseSignalState::set_timeout(const duration_t& dur)
+        void CloseSignalState::stop(bool stop_timer)
         {
-            if (m_closed)
+            if (m_closed || m_stop)
             {
                 return;
             }
             std::lock_guard lock(m_mutex);
-            if (m_timeout == dur)
+            if (!m_closed)
+            {
+                m_stop = true;
+                if (stop_timer)
+                {
+                    if (m_timer && m_timeout > duration_t {0})
+                    {
+                        auto now = std::chrono::steady_clock::now();
+                        if (m_timer->expiry() > now)
+                        {
+                            m_stop_timeout = m_timer->expiry() - now;
+                            _set_timeout(duration_t {0});
+                        }
+                    }
+                    else
+                    {
+                        m_stop_timeout = m_timeout;
+                        _set_timeout(duration_t {0});
+                    }
+                }
+            }
+        }
+
+        void CloseSignalState::resume()
+        {
+            if (!m_stop)
+            {
+                return;
+            }
+            std::lock_guard lock(m_mutex);
+            if (m_stop)
+            {
+                m_stop = false;
+                while (!m_stop_waiters.empty())
+                {
+                    auto waiter = m_stop_waiters.front();
+                    if (!waiter.try_write())
+                    {
+                        throw cpptrace::logic_error(cfgo::THIS_IS_IMPOSSIBLE);
+                    }
+                    m_stop_waiters.pop_front();
+                }
+                if (m_stop_timeout > duration_t {0})
+                {
+                    _set_timeout(m_stop_timeout);
+                    m_stop_timeout = duration_t {0};
+                }
+            }
+        }
+
+        auto CloseSignalState::get_stop_waiter() -> std::optional<Waiter>
+        {
+            if (!m_stop)
+            {
+                return std::nullopt;
+            }
+            std::lock_guard lock(m_mutex);
+            if (!m_stop)
+            {
+                return std::nullopt;
+            }
+            Waiter waiter {};
+            m_stop_waiters.push_back(waiter);
+            return waiter;
+        }
+
+        void CloseSignalState::_set_timeout(const duration_t& dur)
+        {
+            if (m_closed || m_timeout == dur)
             {
                 return;
             }
@@ -282,6 +370,16 @@ namespace cfgo
                     m_timer->expires_at(m_timer->expiry() - old_timeout + dur);
                 }
             }
+        }
+
+        void CloseSignalState::set_timeout(const duration_t& dur)
+        {
+            if (m_closed)
+            {
+                return;
+            }
+            std::lock_guard lock(m_mutex);
+            _set_timeout(dur);
         }
 
         auto CloseSignalState::create_child() -> Ptr
@@ -329,6 +427,11 @@ namespace cfgo
         return m_state->get_waiter();
     }
 
+    auto CloseSignal::get_stop_waiter() -> std::optional<Waiter>
+    {
+        return m_state->get_stop_waiter();
+    }
+
     bool CloseSignal::is_closed() const noexcept
     {
         return m_state->m_closed;
@@ -352,6 +455,16 @@ namespace cfgo
     void CloseSignal::set_timeout(const duration_t& dur)
     {
         m_state->set_timeout(dur);
+    }
+
+    void CloseSignal::stop(bool stop_timer)
+    {
+        m_state->stop(stop_timer);
+    }
+
+    void CloseSignal::resume()
+    {
+        m_state->resume();
     }
 
     CloseSignal CloseSignal::create_child()

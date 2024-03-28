@@ -64,6 +64,8 @@ namespace cfgo
         [[nodiscard]] auto await() -> asio::awaitable<bool>;
         void set_timeout(const duration_t& dur);
         [[nodiscard]] CloseSignal create_child();
+        void stop(bool stop_timer = true);
+        void resume();
         [[nodiscard]] friend inline auto operator==(
             CloseSignal const& lhs,
             CloseSignal const& rhs) noexcept -> bool
@@ -76,6 +78,7 @@ namespace cfgo
 
         auto init_timer() -> asio::awaitable<void>;
         [[nodiscard]] auto get_waiter() -> std::optional<Waiter>;
+        [[nodiscard]] auto get_stop_waiter() -> std::optional<Waiter>;
 
         friend class detail::CloseSignalState;
     };
@@ -450,6 +453,10 @@ namespace cfgo
         if (is_valid_close_chan(close_ch))
         {
             co_await close_ch.init_timer();
+            if (auto stop_waiter = close_ch.get_stop_waiter())
+            {
+                co_await stop_waiter->read();
+            }
             if (auto waiter_opt = close_ch.get_waiter())
             {
                 if constexpr (is_void_read_op<First_Op>)
@@ -467,6 +474,14 @@ namespace cfgo
                     }
                     else
                     {
+                        if (auto stop_waiter = close_ch.get_stop_waiter())
+                        {
+                            co_await stop_waiter->read();
+                        }
+                        if (close_ch.is_closed())
+                        {
+                            co_return make_canceled_select_result<First_Op, Ops...>();
+                        }
                         co_return cancelable_select_result<typename First_Op::result_type, typename Ops::result_type...>(std::move(res).to_variant());
                     }
                 }
@@ -483,6 +498,14 @@ namespace cfgo
                     }
                     else
                     {
+                        if (auto stop_waiter = close_ch.get_stop_waiter())
+                        {
+                            co_await stop_waiter->read();
+                        }
+                        if (close_ch.is_closed())
+                        {
+                            co_return make_canceled_select_result<First_Op, Ops...>();
+                        }
                         co_return cancelable_select_result<typename First_Op::result_type, typename Ops::result_type...>(
                             magic::shift_variant(std::move(res).to_variant())
                         );

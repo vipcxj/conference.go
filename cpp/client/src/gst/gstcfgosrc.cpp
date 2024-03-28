@@ -39,7 +39,21 @@ struct _GstCfgoSrcPrivate
     bool running;
     cfgo::gst::CfgoSrc::UPtr task;
     GstElement * rtpbin;
+
 };
+
+namespace cfgo
+{
+    namespace gst
+    {
+        struct CfgoSrcPrivateState
+        {
+            
+        }
+    } // namespace gst
+    
+} // namespace cfgo
+
 
 static void gst_cfgosrc_set_property(GObject *object,
                                      guint property_id, const GValue *value, GParamSpec *pspec);
@@ -268,8 +282,7 @@ void gst_cfgosrc_stop(GstCfgoSrc *cfgosrc)
     cfgosrc->priv->running = false;
     if (cfgosrc->priv->task)
     {
-        cfgosrc->priv->task->set_rtp_pad(nullptr);
-        cfgosrc->priv->task->set_rtcp_pad(nullptr);
+        cfgosrc->priv->task->detach();
         cfgosrc->priv->task = nullptr;
     }
 }
