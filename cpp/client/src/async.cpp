@@ -10,6 +10,16 @@ namespace cfgo
 {
     close_chan INVALID_CLOSE_CHAN{};
 
+    const char* TimeoutError::what() const noexcept
+    {
+        return "timeout";
+    }
+
+    const char* CancelError::what() const noexcept
+    {
+        return "canceled";
+    }
+
     cancelable<void> make_resolved() {
         return cancelable<void>(false);
     }
@@ -487,4 +497,71 @@ namespace cfgo
         co_return !is_timeout();
     }
 
+    namespace detail
+    {
+        class AsyncParallelTask
+        {
+        private:
+            using TaskType = cfgo::AsyncParallelTask::TaskType;
+            using Mode = cfgo::AsyncParallelTask::Mode;
+            close_chan m_close_ch;
+            asiochan::channel<void> m_done_chs;
+            std::vector<TaskType> m_tasks;
+            std::mutex m_mutex;
+            bool m_start;
+
+            void _should_not_started()
+            {
+                if (m_start)
+                {
+                    throw cpptrace::logic_error("Forbidden operation. The async parallel tasks have started.");
+                }
+            }
+        public:
+            AsyncParallelTask(close_chan close_ch);
+
+            void add_task(TaskType task);
+
+            auto await(Mode mode) -> asio::awaitable<void>;
+        };
+        
+        AsyncParallelTask::AsyncParallelTask(close_chan close_ch): m_start(false)
+        {
+            if (is_valid_close_chan(close_ch))
+            {
+                m_close_ch = close_ch;
+            }
+            else
+            {
+                m_close_ch = close_chan {};
+            }
+        }
+        
+        void AsyncParallelTask::add_task(TaskType task)
+        {
+            std::lock_guard lock(m_mutex);
+            _should_not_started();
+            m_tasks.push_back(task);
+        }
+
+        auto AsyncParallelTask::await(Mode mode) -> asio::awaitable<void>
+        {
+            bool first_start;
+            {
+                std::lock_guard lock(m_mutex);
+                if (!m_start)
+                {
+                    m_start = true;
+                    first_start = true;
+                }
+            }
+            if (first_start)
+            {
+                /* code */
+            }
+            
+        }
+        
+    } // namespace detail
+    
 } // namespace cfgo

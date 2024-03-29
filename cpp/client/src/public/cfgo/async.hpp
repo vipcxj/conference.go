@@ -43,7 +43,18 @@ namespace cfgo
     {
         class CloseSignalState;
     } // namespace detail
+
+    class TimeoutError : public std::exception
+    {
+    public:
+        const char* what() const noexcept override;
+    };
     
+    class CancelError : public std::exception
+    {
+    public:
+        const char* what() const noexcept override;
+    };
 
     class CloseSignal
     {
@@ -519,7 +530,97 @@ namespace cfgo
             auto && res = co_await select_(first_op, std::forward<Ops>(other_ops)...);
             co_return cancelable_select_result<typename First_Op::result_type, typename Ops::result_type...>(std::move(res).to_variant());
         }
+    }
 
+    template <asiochan::select_op First_Op, asiochan::select_op... Ops,
+              asio::execution::executor Executor = typename First_Op::executor_type>
+    requires asiochan::waitable_selection<First_Op, Ops...>
+    [[nodiscard]] auto select_or_throw(close_chan close_ch, First_Op first_op, Ops... other_ops) -> asio::awaitable<asiochan::select_result<typename First_Op::result_type, typename Ops::result_type...>>
+    {
+        if constexpr (sizeof...(Ops) > 0)
+        {
+            static_assert(none_is_void_read_op<Ops...>(), "None of other_ops could be asiochan::ops::read<void>, use first_op instead.");
+        }
+        if (is_valid_close_chan(close_ch))
+        {
+            co_await close_ch.init_timer();
+            if (auto waiter_opt = close_ch.get_waiter())
+            {
+                if constexpr (is_void_read_op<First_Op>)
+                {   
+                    auto && res = co_await select_(
+                        combine_read_op<void, asiochan::ops::read<void, close_chan::Waiter>, std::decay_t<First_Op>>(
+                            asiochan::ops::read(*waiter_opt),
+                            first_op
+                        ),
+                        other_ops...
+                    );
+                    if (res.received_from(*waiter_opt))
+                    {
+                        if (close_ch.is_timeout())
+                        {
+                            throw TimeoutError();
+                        }
+                        else
+                        {
+                            throw CancelError();
+                        }
+                    }
+                    else
+                    {
+                        if (auto stop_waiter = close_ch.get_stop_waiter())
+                        {
+                            co_await stop_waiter->read();
+                        }
+                        if (close_ch.is_closed() && !close_ch.is_timeout())
+                        {
+                            throw CancelError();
+                        }
+                        co_return res;
+                    }
+                }
+                else
+                {
+                    auto res = co_await select_(
+                        asiochan::ops::read(*waiter_opt),
+                        first_op,
+                        other_ops...
+                    );
+                    if (res.received_from(*waiter_opt))
+                    {
+                        if (close_ch.is_timeout())
+                        {
+                            throw TimeoutError();
+                        }
+                        else
+                        {
+                            throw CancelError();
+                        }
+                    }
+                    else
+                    {
+                        if (auto stop_waiter = close_ch.get_stop_waiter())
+                        {
+                            co_await stop_waiter->read();
+                        }
+                        if (close_ch.is_closed() && !close_ch.is_timeout())
+                        {
+                            throw CancelError();
+                        }
+                        co_return asiochan::select_result(magic::shift_variant(std::move(res).to_variant()));
+                    }
+                }
+            }
+            else
+            {
+                co_return make_canceled_select_result<First_Op, Ops...>();
+            }
+        }
+        else
+        {
+            auto && res = co_await select_(first_op, std::forward<Ops>(other_ops)...);
+            co_return cancelable_select_result<typename First_Op::result_type, typename Ops::result_type...>(std::move(res).to_variant());
+        }
     }
 
     template<typename T>
@@ -606,12 +707,23 @@ namespace cfgo
         } while (true);
     }
 
-    template<typename T>
-    class AsyncParallelTask
+    namespace detail
     {
-        
+        class AsyncParallelTask;
+    } // namespace detail
+
+    class AsyncParallelTask : public ImplBy<detail::AsyncParallelTask>
+    {
+    public:
+        using TaskType = std::function<asio::awaitable<void>(close_chan closer)>;
+        enum Mode
+        {
+
+        };
+
+        AsyncParallelTask(close_chan close_ch);
     };
-    
+
 } // namespace cfgo
 
 
