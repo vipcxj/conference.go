@@ -48,7 +48,7 @@ namespace cfgo {
         }
     };
     
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Pattern, op, args, children)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Pattern, op, args, children)
 }
 
 #endif

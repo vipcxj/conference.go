@@ -33,8 +33,6 @@ struct _GstCfgoSrc
     guint64 read_try_delay_init;
     guint32 read_try_delay_step;
     guint32 read_try_delay_level;
-    GstPad * rtp_pad;
-    GstPad * rtcp_pad;
 
     /*< private >*/
     GstCfgoSrcPrivate *priv;

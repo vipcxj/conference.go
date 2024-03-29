@@ -35,6 +35,7 @@ set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/exports.h"
     "${H_PUBLIC_PATH}/common.hpp"
     "${H_PUBLIC_PATH}/utils.hpp"
+    "${H_PUBLIC_PATH}/fmt.hpp"
     "${H_PUBLIC_PATH}/black_magic.hpp"
     "${H_PUBLIC_PATH}/spd_helper.hpp"
     "${H_PUBLIC_PATH}/gst_helper.h"
@@ -125,6 +126,7 @@ find_path(ASIOCHAN_INCLUDE_DIRS "asiochan/asiochan.hpp")
 find_package(Boost REQUIRED)
 find_package(cpptrace CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(fmt CONFIG REQUIRED)
 find_package(sioclient CONFIG REQUIRED)
 find_package(LibDataChannel CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -169,6 +171,7 @@ target_include_directories(cfgoclient PRIVATE ${H_PRIVATE} ${SRC_PATH})
 fix_win_version_warn(cfgoclient)
 target_link_libraries(cfgoclient PRIVATE cpptrace::cpptrace)
 target_link_libraries(cfgoclient PRIVATE spdlog::spdlog)
+target_link_libraries(cfgoclient PRIVATE fmt::fmt)
 target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
 target_link_libraries(cfgoclient PRIVATE nlohmann_json::nlohmann_json)
 if(TARGET LibDataChannel::LibDataChannel)
@@ -192,6 +195,9 @@ if(GSTREAMER_SUPPORT)
     target_compile_definitions(cfgogst PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
     target_include_directories(cfgogst PRIVATE ${ASIOCHAN_INCLUDE_DIRS})
     link_gstreamer(cfgogst)
+    target_link_libraries(cfgogst PRIVATE cpptrace::cpptrace)
+    target_link_libraries(cfgogst PRIVATE spdlog::spdlog)
+    target_link_libraries(cfgogst PRIVATE fmt::fmt)
 endif()
 
 add_executable(test1 "${SRC_PATH}/main.cpp" ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})

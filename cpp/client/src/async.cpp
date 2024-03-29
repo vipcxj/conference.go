@@ -457,6 +457,11 @@ namespace cfgo
         m_state->set_timeout(dur);
     }
 
+    duration_t CloseSignal::get_timeout() const noexcept
+    {
+        return m_state->m_timeout;
+    }
+
     void CloseSignal::stop(bool stop_timer)
     {
         m_state->stop(stop_timer);

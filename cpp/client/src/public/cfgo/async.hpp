@@ -63,6 +63,7 @@ namespace cfgo
         */
         [[nodiscard]] auto await() -> asio::awaitable<bool>;
         void set_timeout(const duration_t& dur);
+        duration_t get_timeout() const noexcept;
         [[nodiscard]] CloseSignal create_child();
         void stop(bool stop_timer = true);
         void resume();
@@ -453,10 +454,6 @@ namespace cfgo
         if (is_valid_close_chan(close_ch))
         {
             co_await close_ch.init_timer();
-            if (auto stop_waiter = close_ch.get_stop_waiter())
-            {
-                co_await stop_waiter->read();
-            }
             if (auto waiter_opt = close_ch.get_waiter())
             {
                 if constexpr (is_void_read_op<First_Op>)
@@ -478,7 +475,7 @@ namespace cfgo
                         {
                             co_await stop_waiter->read();
                         }
-                        if (close_ch.is_closed())
+                        if (close_ch.is_closed() && !close_ch.is_timeout())
                         {
                             co_return make_canceled_select_result<First_Op, Ops...>();
                         }
@@ -502,7 +499,7 @@ namespace cfgo
                         {
                             co_await stop_waiter->read();
                         }
-                        if (close_ch.is_closed())
+                        if (close_ch.is_closed() && !close_ch.is_timeout())
                         {
                             co_return make_canceled_select_result<First_Op, Ops...>();
                         }
@@ -565,7 +562,7 @@ namespace cfgo
     }
 
     template<typename T>
-    auto async_retry(const TryOption & option, std::function<asio::awaitable<T>()> func, std::function<bool(T)> retry_checker, close_chan close_ch) -> asio::awaitable<cancelable<T>>
+    auto async_retry(const TryOption & option, std::function<asio::awaitable<T>(int)> func, std::function<bool(const T &)> retry_checker, close_chan close_ch) -> asio::awaitable<cancelable<T>>
     {
         auto tried = option.m_tries, tries = option.m_tries;
         auto delay_init = option.m_delay_init;
@@ -574,7 +571,7 @@ namespace cfgo
         std::uint32_t delay_current_level = 0;
         do
         {
-            auto res = co_await func();
+            auto res = co_await func(tries - tried + 1);
             if (retry_checker(res))
             {
                 if (tried == 0)
@@ -608,6 +605,12 @@ namespace cfgo
             co_return make_resolved<T>(res);
         } while (true);
     }
+
+    template<typename T>
+    class AsyncParallelTask
+    {
+        
+    };
     
 } // namespace cfgo
 

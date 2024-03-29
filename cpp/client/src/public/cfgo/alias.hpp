@@ -7,6 +7,7 @@
 
 namespace cfgo
 {
+    using string = std::string;
     using msg_ptr = sio::message::ptr;
     using msg_chan = asiochan::channel<msg_ptr>;
     using msg_chan_ptr = std::shared_ptr<msg_chan>;

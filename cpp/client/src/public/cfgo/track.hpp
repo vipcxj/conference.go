@@ -29,6 +29,7 @@ namespace cfgo
     {
         using Ptr = std::shared_ptr<Track>;
         using MsgPtr = std::unique_ptr<rtc::binary>;
+        using MsgSharedPtr = std::shared_ptr<rtc::binary>;
         enum MsgType
         {
             RTP,

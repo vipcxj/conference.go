@@ -2,6 +2,7 @@
 #define _CFGO_COMMON_HPP_
 
 #include <cstdint>
+#include <string>
 
 namespace cfgo
 {

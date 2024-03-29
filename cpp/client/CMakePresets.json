@@ -10,7 +10,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "GSTREAMER_SUPPORT": "ON",
-                "USE_GSTREAMER_FULL_STATIC": "OFF",
+                "USE_GSTREAMER_FULL_STATIC": "ON",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
             }
         }

@@ -2,8 +2,6 @@
 #include "gst/app/gstappsrc.h"
 #include "gst/pbutils/pbutils.h"
 
-#include "boost/format.hpp"
-
 #include "cpptrace/cpptrace.hpp"
 
 #include "Poco/URI.h"
@@ -580,7 +578,7 @@ auto get_token() -> std::string {
     auto&& rs = session.receiveResponse(response);
     if (response.getStatus() != HTTPResponse::HTTP_OK)
     {
-        throw cpptrace::runtime_error((boost::format("unable to get the token. status code: %1%.") % response.getStatus()).str());
+        throw cpptrace::runtime_error(fmt::format("unable to get the token. status code: {}.", response.getStatus()));
     }
     return std::string{ std::istreambuf_iterator<char>(rs), std::istreambuf_iterator<char>() };
 }
@@ -607,7 +605,7 @@ auto main_task(const std::string & token, const cfgo::Client::CtxPtr & io_ctx, G
             }
         }
     };
-    auto timeout = co_await cfgo::make_timeout(std::chrono::seconds{30});
+    auto timeout = cfgo::make_timeout(std::chrono::seconds{30});
     std::cout << "subscribing..." << std::endl;
     auto sub = co_await client.subscribe(pattern, {}, timeout);
     if (!sub)

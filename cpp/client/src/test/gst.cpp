@@ -29,7 +29,7 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token) -> asio
     using namespace cfgo;
     cfgo::Configuration conf { "http://localhost:8080", token };
     auto client_ptr = std::make_shared<Client>(conf, exec_ctx);
-    Pipeline pipeline("test pipeline", exec_ctx);
+    gst::Pipeline pipeline("test pipeline", exec_ctx);
     pipeline.add_node("cfgosrc", "cfgosrc");
     g_object_set(
         pipeline.require_node("cfgosrc").get(),
@@ -56,11 +56,30 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token) -> asio
     co_return;
 }
 
+void debug_plugins()
+{
+    auto plugins = gst_registry_get_plugin_list(gst_registry_get());
+    DEFER({
+        gst_plugin_list_free(plugins);
+    });
+    int plugins_num = 0;
+    while (plugins)
+    {
+        auto plugin = (GstPlugin *) (plugins->data);
+        plugins = g_list_next(plugins);
+        g_print("plugin: %s\n", gst_plugin_get_name(plugin));
+        ++plugins_num;
+    }
+    g_print("found %d plugins\n", plugins_num);
+}
+
 int main(int argc, char **argv) {
     gst_init(&argc, &argv);
     GST_PLUGIN_STATIC_REGISTER(cfgosrc);
-    spdlog::set_level(spdlog::level::debug);
+    spdlog::set_level(spdlog::level::trace);
     gst_debug_set_threshold_for_name("cfgosrc", GST_LEVEL_TRACE);
+
+    debug_plugins();
 
     auto pool = std::make_shared<asio::thread_pool>();
     auto token = get_token();
