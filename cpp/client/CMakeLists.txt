@@ -38,7 +38,6 @@ set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/fmt.hpp"
     "${H_PUBLIC_PATH}/black_magic.hpp"
     "${H_PUBLIC_PATH}/spd_helper.hpp"
-    "${H_PUBLIC_PATH}/gst_helper.h"
     "${H_PUBLIC_PATH}/error.hpp"
     "${H_PUBLIC_PATH}/cbridge.hpp"
     "${H_PUBLIC_PATH}/capi.h"
@@ -52,6 +51,7 @@ set(MY_GST_PLUGIN_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/gst/link.hpp"
     "${H_PUBLIC_PATH}/gst/gst.h"
     "${H_PUBLIC_PATH}/gst/gst.hpp"
+    "${H_PUBLIC_PATH}/gst/helper.h"
     "${H_PUBLIC_PATH}/gst/utils.hpp"
 )
 set(H_PRIVATE "${SRC_PATH}/private")
@@ -81,7 +81,6 @@ set(MY_SOURCES
     "${SRC_PATH}/error.cpp"
     "${SRC_PATH}/sio_helper.cpp"
     "${SRC_PATH}/rtc_helper.cpp"
-    "${SRC_PATH}/gst_helper.c"
     "${SRC_PATH}/coevent.cpp"
     "${SRC_PATH}/utils.cpp"
     "${SRC_PATH}/capi.cpp"
@@ -96,6 +95,7 @@ set(MY_GST_PLUGIN_SOURCES
     "${SRC_PATH}/gst/pipeline.cpp"
     "${SRC_PATH}/gst/link.cpp"
     "${SRC_PATH}/gst/utils.cpp"
+    "${SRC_PATH}/gst/helper.c"
     "${H_IMPL}/pipeline.cpp"
     "${H_IMPL}/link.cpp"
 )
@@ -155,6 +155,18 @@ function(link_gstreamer target)
     endif()
 endfunction()
 
+function(link_common_libs target)
+    target_link_libraries(${target} PRIVATE cpptrace::cpptrace)
+    target_link_libraries(${target} PRIVATE spdlog::spdlog)
+    target_link_libraries(${target} PRIVATE fmt::fmt)
+endfunction(link_common_libs target)
+
+function(include_asiochan target)
+    target_compile_definitions(${target} PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
+    target_include_directories(${target} PRIVATE ${ASIOCHAN_INCLUDE_DIRS})
+endfunction(include_asiochan target)
+
+
 function(fix_win_version_warn target)
     if(WIN32)
         message("WIN_TARGET_VER=${WIN_TARGET_VER}")
@@ -169,9 +181,8 @@ target_compile_definitions(cfgoclient PRIVATE BUILDING_CFGO)
 target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
 target_include_directories(cfgoclient PRIVATE ${H_PRIVATE} ${SRC_PATH})
 fix_win_version_warn(cfgoclient)
-target_link_libraries(cfgoclient PRIVATE cpptrace::cpptrace)
-target_link_libraries(cfgoclient PRIVATE spdlog::spdlog)
-target_link_libraries(cfgoclient PRIVATE fmt::fmt)
+link_common_libs(cfgoclient)
+include_asiochan(cfgoclient)
 target_link_libraries(cfgoclient PRIVATE sioclient::sioclient sioclient::sioclient_tls)
 target_link_libraries(cfgoclient PRIVATE nlohmann_json::nlohmann_json)
 if(TARGET LibDataChannel::LibDataChannel)
@@ -182,8 +193,6 @@ endif()
 if(GSTREAMER_SUPPORT)
     link_gstreamer(cfgoclient)
 endif()
-target_compile_definitions(cfgoclient PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
-target_include_directories(cfgoclient PRIVATE ${ASIOCHAN_INCLUDE_DIRS})
 
 if(GSTREAMER_SUPPORT)
     add_library(cfgogst ${MY_GST_PLUGIN_SOURCES} ${MY_GST_PLUGIN_PUBLIC_HEADERS} ${MY_GST_PLUGIN_PRIVATE_HEADERS})
@@ -192,12 +201,9 @@ if(GSTREAMER_SUPPORT)
     target_include_directories(cfgogst PRIVATE ${H_PRIVATE} ${SRC_PATH})
     fix_win_version_warn(cfgogst)
     target_link_libraries(cfgogst PRIVATE cfgoclient)
-    target_compile_definitions(cfgogst PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
-    target_include_directories(cfgogst PRIVATE ${ASIOCHAN_INCLUDE_DIRS})
+    include_asiochan(cfgogst)
     link_gstreamer(cfgogst)
-    target_link_libraries(cfgogst PRIVATE cpptrace::cpptrace)
-    target_link_libraries(cfgogst PRIVATE spdlog::spdlog)
-    target_link_libraries(cfgogst PRIVATE fmt::fmt)
+    link_common_libs(cfgogst)
 endif()
 
 add_executable(test1 "${SRC_PATH}/main.cpp" ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
@@ -236,13 +242,21 @@ add_test(NAME test-async COMMAND test-async)
 if(GSTREAMER_SUPPORT)
     add_executable(test-gst "${MY_TEST_PATH}/gst.cpp")
     target_compile_definitions(test-gst PRIVATE BUILDING_CFGO)
-    target_include_directories(test-gst PUBLIC ${H_PUBLIC})
-    target_include_directories(test-gst PRIVATE ${H_PRIVATE} ${SRC_PATH})
-    target_compile_definitions(test-gst PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
+    target_include_directories(test-gst PRIVATE ${H_PUBLIC} ${H_PRIVATE} ${SRC_PATH})
     target_link_libraries(test-gst PRIVATE cfgoclient cfgogst)
+    fix_win_version_warn(cfgogst)
     link_gstreamer(test-gst)
+    include_asiochan(test-gst)
+    link_common_libs(test-gst)
     find_package(Poco REQUIRED COMPONENTS Net Foundation)
     target_link_libraries(test-gst PRIVATE Poco::Foundation Poco::Net)
+    if(WIN32)
+        add_custom_command(TARGET test-gst POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/bin
+            $<TARGET_FILE_DIR:test-gst>
+        )
+    endif(WIN32)
 endif()
 
 add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")

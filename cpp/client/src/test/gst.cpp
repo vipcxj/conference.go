@@ -9,6 +9,7 @@
 #include "Poco/Net/HTTPResponse.h"
 
 #include <string>
+#include <cstdlib>
 
 auto get_token() -> std::string {
     using namespace Poco::Net;
@@ -62,6 +63,8 @@ void debug_plugins()
     DEFER({
         gst_plugin_list_free(plugins);
     });
+    g_print("PATH: %s\n", std::getenv("PATH"));
+    g_print("GST_PLUGIN_PATH: %s\n", std::getenv("GST_PLUGIN_PATH"));
     int plugins_num = 0;
     while (plugins)
     {
@@ -74,6 +77,7 @@ void debug_plugins()
 }
 
 int main(int argc, char **argv) {
+    cpptrace::register_terminate_handler();
     gst_init(&argc, &argv);
     GST_PLUGIN_STATIC_REGISTER(cfgosrc);
     spdlog::set_level(spdlog::level::trace);

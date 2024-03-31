@@ -19,7 +19,7 @@ void cfgo_error_set_timeout (GError ** error, const gchar * message, gboolean tr
 const gchar * cfgo_error_get_trace (GError *error);
 const gchar * cfgo_error_get_message (GError *error);
 
-void cfgo_error_submit(GstElement * src, GError * error);
+void cfgo_error_submit (GstElement * src, GError * error);
 
 G_END_DECLS
 

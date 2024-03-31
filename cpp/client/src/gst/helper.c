@@ -1,4 +1,4 @@
-#include "cfgo/gst_helper.h"
+#include "cfgo/gst/helper.h"
 
 /* Functions below print the Capabilities in a human-friendly format */
 static gboolean print_field (GQuark field, const GValue * value, gpointer pfx) {

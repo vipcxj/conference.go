@@ -1,7 +1,6 @@
 #include "cfgo/async.hpp"
 #include "cfgo/defer.hpp"
 #include "cfgo/utils.hpp"
-#include "cpptrace/cpptrace.hpp"
 #include "spdlog/spdlog.h"
 #include <list>
 #include <chrono>
@@ -10,14 +9,29 @@ namespace cfgo
 {
     close_chan INVALID_CLOSE_CHAN{};
 
-    const char* TimeoutError::what() const noexcept
-    {
-        return "timeout";
-    }
+    CancelError::CancelError(std::string&& message, Reason reason, bool trace) noexcept:
+        cpptrace::exception_with_message(std::move(message), trace ? cpptrace::detail::get_raw_trace_and_absorb() : cpptrace::raw_trace{}),
+        m_reason(reason),
+        m_trace(trace)
+    {}
+
+    CancelError::CancelError(Reason reason, bool trace) noexcept: CancelError("", reason, trace)
+    {}
+
+    CancelError::CancelError(bool is_timeout, bool trace) noexcept: CancelError(is_timeout ? TIMEOUT : CANCEL, trace)
+    {}
+
+    CancelError::CancelError(const close_chan & close_ch, bool trace) noexcept:
+        CancelError(
+            close_ch.is_timeout() ? std::move(close_ch.get_timeout_reason()) : std::move(close_ch.get_close_reason()),
+            close_ch.is_timeout() ? TIMEOUT : CANCEL,
+            trace
+        )
+    {}
 
     const char* CancelError::what() const noexcept
     {
-        return "canceled";
+        return m_trace ? cpptrace::exception_with_message::what() : cpptrace::exception_with_message::message();
     }
 
     cancelable<void> make_resolved() {
@@ -42,7 +56,7 @@ namespace cfgo
         co_return;
     }
 
-    auto AsyncMutex::accquire(close_chan &close_chan) -> asio::awaitable<bool>
+    auto AsyncMutex::accquire(close_chan close_chan) -> asio::awaitable<bool>
     {
         bool success = false;
         busy_chan ch{};
@@ -91,11 +105,13 @@ namespace cfgo
             using Ptr = std::shared_ptr<CloseSignalState>;
             using Waiter = CloseSignal::Waiter;
             bool m_closed = false;
+            std::string m_close_reason;
             bool m_is_timeout = false;
             bool m_stop = false;
             std::mutex m_mutex;
             duration_t m_timeout = duration_t {0};
             duration_t m_stop_timeout = duration_t {0};
+            std::string m_timeout_reason;
             std::shared_ptr<asio::steady_timer> m_timer;
             std::list<Waiter> m_waiters;
             std::list<Waiter> m_stop_waiters;
@@ -110,11 +126,13 @@ namespace cfgo
 
             auto get_waiter() -> std::optional<Waiter>;
 
-            void _close(bool is_timeout);
+            void _close(bool is_timeout, std::string && reason);
 
-            bool _close_no_except(bool is_timeout) noexcept;
+            bool _close_no_except(bool is_timeout, std::string && reason) noexcept;
 
-            void close(bool is_timeout);
+            void close(bool is_timeout, std::string && reason);
+
+            bool close_no_except(bool is_timeout, std::string && reason) noexcept;
 
             void stop(bool stop_timer);
 
@@ -122,11 +140,9 @@ namespace cfgo
 
             auto get_stop_waiter() -> std::optional<Waiter>;
 
-            bool close_no_except(bool is_timeout) noexcept;
+            void _set_timeout(const duration_t& dur, std::string && reason);
 
-            void _set_timeout(const duration_t& dur);
-
-            void set_timeout(const duration_t& dur);
+            void set_timeout(const duration_t& dur, std::string && reason);
 
             Ptr create_child();
 
@@ -137,7 +153,7 @@ namespace cfgo
 
         CloseSignalState::~CloseSignalState() noexcept
         {
-            _close_no_except(false);
+            _close_no_except(false, "Destructor called.");
         }
 
         auto CloseSignalState::timer_task() -> asio::awaitable<void>
@@ -155,7 +171,7 @@ namespace cfgo
             {
                 co_return;
             }
-            close(true);
+            close(true, std::string(m_timeout_reason));
         }
 
         void CloseSignalState::init_timer(asio::execution::executor auto executor)
@@ -199,7 +215,7 @@ namespace cfgo
             return waiter;
         }
 
-        void CloseSignalState::_close(bool is_timeout)
+        void CloseSignalState::_close(bool is_timeout, std::string && reason)
         {
             if (m_closed)
             {
@@ -207,6 +223,7 @@ namespace cfgo
             }
             m_closed = true;
             m_stop = false;
+            m_close_reason = std::move(reason);
             m_is_timeout = is_timeout;
             m_timeout = duration_t {0};
             if (m_timer)
@@ -239,16 +256,16 @@ namespace cfgo
             {
                 auto child = m_children.front();
                 child->unbind_parent();
-                child->close_no_except(is_timeout);
+                child->close_no_except(is_timeout, std::move(reason));
                 m_children.pop_front();
             }
         }
 
-        bool CloseSignalState::_close_no_except(bool is_timeout) noexcept
+        bool CloseSignalState::_close_no_except(bool is_timeout, std::string && reason) noexcept
         {
             try
             {
-                _close(false);
+                _close(false, std::move(reason));
                 return true;
             }
             catch(...)
@@ -258,24 +275,24 @@ namespace cfgo
             return false;
         }
 
-        void CloseSignalState::close(bool is_timeout)
+        void CloseSignalState::close(bool is_timeout, std::string && reason)
         {
             if (m_closed)
             {
                 return;
             }
             std::lock_guard lock(m_mutex);
-            _close(is_timeout);
+            _close(is_timeout, std::move(reason));
         }
 
-        bool CloseSignalState::close_no_except(bool is_timeout) noexcept
+        bool CloseSignalState::close_no_except(bool is_timeout, std::string && reason) noexcept
         {
             if (m_closed)
             {
                 return true;
             }
             std::lock_guard lock(m_mutex);
-            return _close_no_except(is_timeout);
+            return _close_no_except(is_timeout, std::move(reason));
         }
 
         void CloseSignalState::stop(bool stop_timer)
@@ -285,7 +302,7 @@ namespace cfgo
                 return;
             }
             std::lock_guard lock(m_mutex);
-            if (!m_closed)
+            if (!m_closed && !m_stop)
             {
                 m_stop = true;
                 if (stop_timer)
@@ -296,14 +313,18 @@ namespace cfgo
                         if (m_timer->expiry() > now)
                         {
                             m_stop_timeout = m_timer->expiry() - now;
-                            _set_timeout(duration_t {0});
+                            _set_timeout(duration_t {0}, std::move(m_timeout_reason));
                         }
                     }
                     else
                     {
                         m_stop_timeout = m_timeout;
-                        _set_timeout(duration_t {0});
+                        _set_timeout(duration_t {0}, std::move(m_timeout_reason));
                     }
+                }
+                for (auto && child : m_children)
+                {
+                    child->stop(stop_timer);
                 }
             }
         }
@@ -329,8 +350,12 @@ namespace cfgo
                 }
                 if (m_stop_timeout > duration_t {0})
                 {
-                    _set_timeout(m_stop_timeout);
+                    _set_timeout(m_stop_timeout, std::move(m_timeout_reason));
                     m_stop_timeout = duration_t {0};
+                }
+                for (auto && child : m_children)
+                {
+                    child->resume();
                 }
             }
         }
@@ -351,9 +376,14 @@ namespace cfgo
             return waiter;
         }
 
-        void CloseSignalState::_set_timeout(const duration_t& dur)
+        void CloseSignalState::_set_timeout(const duration_t& dur, std::string&& reason)
         {
-            if (m_closed || m_timeout == dur)
+            if (m_closed)
+            {
+                return;
+            }
+            m_timeout_reason = std::move(reason);
+            if (m_timeout == dur)
             {
                 return;
             }
@@ -382,14 +412,14 @@ namespace cfgo
             }
         }
 
-        void CloseSignalState::set_timeout(const duration_t& dur)
+        void CloseSignalState::set_timeout(const duration_t& dur, std::string&& reason)
         {
             if (m_closed)
             {
                 return;
             }
             std::lock_guard lock(m_mutex);
-            _set_timeout(dur);
+            _set_timeout(dur, std::move(reason));
         }
 
         auto CloseSignalState::create_child() -> Ptr
@@ -452,19 +482,19 @@ namespace cfgo
         return m_state->m_is_timeout;
     }
 
-    void CloseSignal::close()
+    void CloseSignal::close(std::string && reason)
     {
-        m_state->close(false);
+        m_state->close(false, std::move(reason));
     }
 
-    bool CloseSignal::close_no_except() noexcept
+    bool CloseSignal::close_no_except(std::string && reason) noexcept
     {
-        return m_state->close_no_except(false);
+        return m_state->close_no_except(false, std::move(reason));
     }
 
-    void CloseSignal::set_timeout(const duration_t& dur)
+    void CloseSignal::set_timeout(const duration_t& dur, std::string && reason)
     {
-        m_state->set_timeout(dur);
+        m_state->set_timeout(dur, std::move(reason));
     }
 
     duration_t CloseSignal::get_timeout() const noexcept
@@ -497,71 +527,14 @@ namespace cfgo
         co_return !is_timeout();
     }
 
-    namespace detail
+    const char * CloseSignal::get_close_reason() const noexcept
     {
-        class AsyncParallelTask
-        {
-        private:
-            using TaskType = cfgo::AsyncParallelTask::TaskType;
-            using Mode = cfgo::AsyncParallelTask::Mode;
-            close_chan m_close_ch;
-            asiochan::channel<void> m_done_chs;
-            std::vector<TaskType> m_tasks;
-            std::mutex m_mutex;
-            bool m_start;
+        return m_state->m_close_reason.c_str();
+    }
 
-            void _should_not_started()
-            {
-                if (m_start)
-                {
-                    throw cpptrace::logic_error("Forbidden operation. The async parallel tasks have started.");
-                }
-            }
-        public:
-            AsyncParallelTask(close_chan close_ch);
-
-            void add_task(TaskType task);
-
-            auto await(Mode mode) -> asio::awaitable<void>;
-        };
-        
-        AsyncParallelTask::AsyncParallelTask(close_chan close_ch): m_start(false)
-        {
-            if (is_valid_close_chan(close_ch))
-            {
-                m_close_ch = close_ch;
-            }
-            else
-            {
-                m_close_ch = close_chan {};
-            }
-        }
-        
-        void AsyncParallelTask::add_task(TaskType task)
-        {
-            std::lock_guard lock(m_mutex);
-            _should_not_started();
-            m_tasks.push_back(task);
-        }
-
-        auto AsyncParallelTask::await(Mode mode) -> asio::awaitable<void>
-        {
-            bool first_start;
-            {
-                std::lock_guard lock(m_mutex);
-                if (!m_start)
-                {
-                    m_start = true;
-                    first_start = true;
-                }
-            }
-            if (first_start)
-            {
-                /* code */
-            }
-            
-        }
-        
-    } // namespace detail
+    const char * CloseSignal::get_timeout_reason() const noexcept
+    {
+        return m_state->m_timeout_reason.c_str();
+    }
     
 } // namespace cfgo

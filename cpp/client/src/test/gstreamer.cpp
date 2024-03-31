@@ -16,7 +16,7 @@
 #include "cfgo/subscribation.hpp"
 #include "cfgo/async.hpp"
 #include "cfgo/defer.hpp"
-#include "cfgo/gst_helper.h"
+#include "cfgo/gst/helper.h"
 #include <fstream>
 
 GST_DEBUG_CATEGORY_STATIC (appsrc_pipeline_debug);

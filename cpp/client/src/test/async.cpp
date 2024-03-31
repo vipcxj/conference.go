@@ -3,6 +3,7 @@
 #include "gtest/gtest.h"
 #include <chrono>
 #include <thread>
+#include <random>
 
 void do_async(std::function<asio::awaitable<void>()> func, bool wait = false) {
     auto tp = std::make_shared<asio::thread_pool>();
@@ -88,6 +89,465 @@ TEST(Chan, ChanRead) {
         co_await wait_timeout(std::chrono::milliseconds{300});
         EXPECT_TRUE(canceled);
 
+    }, true);
+}
+
+TEST(Chan, ChanReadOrThrow) {
+    using namespace cfgo;
+    do_async([]() -> asio::awaitable<void> {
+        asiochan::channel<int> ch{};
+        do_async([ch]() mutable -> asio::awaitable<void> {
+            co_await wait_timeout(std::chrono::milliseconds{100});
+            co_await ch.write(1);
+            co_return;
+        });
+        int res = 0;
+        do_async([ch, &res]() mutable -> asio::awaitable<void> {
+            res = co_await chan_read_or_throw<int>(ch);
+        });
+        co_await wait_timeout(std::chrono::milliseconds{200});
+        EXPECT_EQ(res, 1);
+
+        bool canceled = false;
+        do_async([ch]() mutable -> asio::awaitable<void> {
+            co_await wait_timeout(std::chrono::milliseconds{200});
+            co_await ch.write(1);
+            co_return;
+        });
+        res = 0;
+        do_async([ch, &res, &canceled]() mutable -> asio::awaitable<void> {
+            auto timeout = cfgo::make_timeout(std::chrono::milliseconds{100});
+            try
+            {
+                res = co_await chan_read_or_throw<int>(ch, timeout);
+            }
+            catch(const cfgo::CancelError& e)
+            {
+                canceled = true;
+            }
+        });
+        co_await wait_timeout(std::chrono::milliseconds{300});
+        EXPECT_TRUE(canceled);
+        EXPECT_EQ(res, 0);
+    }, true);
+}
+
+TEST(Chan, AsyncTasksAllT) {
+    using namespace cfgo;
+    do_async([]() -> asio::awaitable<void> {
+        std::mt19937 gen(1);
+        std::uniform_int_distribution<int> distrib(-100, 100);
+        std::size_t n_tasks = 5;
+
+        {
+            AsyncTasksAll<int> tasks{};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen)](auto closer) -> asio::awaitable<int> {
+                    co_await wait_timeout(std::chrono::milliseconds{200 + amp});
+                    co_return (int) i;
+                });
+            }
+            auto res_int_vec = co_await tasks.await();
+            EXPECT_EQ(res_int_vec.size(), n_tasks);
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                auto iter = std::find(res_int_vec.begin(), res_int_vec.end(), (int) i);
+                EXPECT_TRUE(iter != res_int_vec.end());
+            }
+        }
+
+        {
+            close_chan closer{};
+            AsyncTasksAll<int> tasks{closer};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen)](auto closer) -> asio::awaitable<int> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    co_return (int) i;
+                });
+            }
+            auto executor = co_await asio::this_coro::executor;
+            asio::co_spawn(executor, [closer]() mutable -> asio::awaitable<void> {
+                co_await wait_timeout(std::chrono::milliseconds{100});
+                closer.close();
+            }, asio::detached);
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const CancelError& e)
+            {
+                canceled = true;
+                EXPECT_FALSE(e.is_timeout());
+            }
+            EXPECT_TRUE(canceled);
+        }
+
+        {
+            close_chan closer{};
+            closer.set_timeout(std::chrono::milliseconds{100});
+            AsyncTasksAll<int> tasks{closer};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen)](auto closer) -> asio::awaitable<int> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    co_return (int) i;
+                });
+            }
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const CancelError& e)
+            {
+                canceled = true;
+                EXPECT_TRUE(e.is_timeout());
+            }
+            EXPECT_TRUE(canceled);
+        }
+
+        {
+            close_chan closer{};
+            AsyncTasksAll<int> tasks{closer};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen), n_tasks](auto closer) -> asio::awaitable<int> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    if (i == (std::size_t) (n_tasks / 2))
+                    {
+                        throw std::runtime_error("an error");
+                    }
+                    else
+                    {
+                        co_return (int) i;
+                    }
+                });
+            }
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const std::runtime_error& e)
+            {
+                canceled = true;
+                EXPECT_STREQ(e.what(), "an error");
+            }
+            EXPECT_TRUE(canceled);
+        }
+    }, true);
+}
+
+TEST(Chan, AsyncTasksAllVoid) {
+    using namespace cfgo;
+    do_async([]() -> asio::awaitable<void> {
+        std::mt19937 gen(1);
+        std::uniform_int_distribution<int> distrib(-100, 100);
+        std::size_t n_tasks = 5;
+        {
+            AsyncTasksAll<void> tasks{};
+            std::mutex mutex;
+            int sum = 0;
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen), &sum, &mutex](auto closer) -> asio::awaitable<void> {
+                    co_await wait_timeout(std::chrono::milliseconds{200 + amp});
+                    {
+                        std::lock_guard lock(mutex);
+                        sum += i;
+                    }
+                    co_return;
+                });
+            }
+            co_await tasks.await();
+            int sum_expect = 0;
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                sum_expect += i;
+            }
+            EXPECT_EQ(sum_expect, sum);
+        }
+
+        {
+            close_chan closer{};
+            AsyncTasksAll<void> tasks{closer};
+            std::mutex mutex;
+            int sum = 0;
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen), &sum, &mutex](auto closer) -> asio::awaitable<void> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    {
+                        std::lock_guard lock(mutex);
+                        sum += i;
+                    }
+                    co_return;
+                });
+            }
+            auto executor = co_await asio::this_coro::executor;
+            asio::co_spawn(executor, [closer]() mutable -> asio::awaitable<void> {
+                co_await wait_timeout(std::chrono::milliseconds{100});
+                closer.close();
+            }, asio::detached);
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const CancelError& e)
+            {
+                canceled = true;
+                EXPECT_FALSE(e.is_timeout());
+            }
+            EXPECT_TRUE(canceled);
+        }
+
+        {
+            close_chan closer{};
+            closer.set_timeout(std::chrono::milliseconds{100});
+            AsyncTasksAll<void> tasks{closer};
+            std::mutex mutex;
+            int sum = 0;
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen), &sum, &mutex](auto closer) -> asio::awaitable<void> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    {
+                        std::lock_guard lock(mutex);
+                        sum += i;
+                    }
+                    co_return;
+                });
+            }
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const CancelError& e)
+            {
+                canceled = true;
+                EXPECT_TRUE(e.is_timeout());
+            }
+            EXPECT_TRUE(canceled);
+        }
+
+        {
+            close_chan closer{};
+            AsyncTasksAll<void> tasks{closer};
+            std::mutex mutex;
+            int sum = 0;
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen), &sum, &mutex, n_tasks](auto closer) -> asio::awaitable<void> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    if (i == (std::size_t) (n_tasks / 2))
+                    {
+                        throw std::runtime_error("an error");
+                    }
+                    else
+                    {
+                        std::lock_guard lock(mutex);
+                        sum += i;
+                    }
+                });
+            }
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const std::runtime_error& e)
+            {
+                canceled = true;
+                EXPECT_STREQ(e.what(), "an error");
+            }
+            EXPECT_TRUE(canceled);
+        }
+    }, true);
+}
+
+TEST(Chan, AsyncTasksAnyT) {
+    using namespace cfgo;
+    do_async([]() -> asio::awaitable<void> {
+        std::mt19937 gen(1);
+        std::uniform_int_distribution<int> distrib(-100, 100);
+        std::size_t n_tasks = 5;
+
+        {
+            AsyncTasksAny<int> tasks{};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen)](auto closer) -> asio::awaitable<int> {
+                    co_await wait_timeout(std::chrono::milliseconds{200 + amp});
+                    co_return (int) i;
+                });
+            }
+            auto res = co_await tasks.await();
+            EXPECT_TRUE(res >= 0 && res < 5);
+        }
+
+        {
+            close_chan closer{};
+            AsyncTasksAny<int> tasks{closer};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen)](auto closer) -> asio::awaitable<int> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    co_return (int) i;
+                });
+            }
+            auto executor = co_await asio::this_coro::executor;
+            asio::co_spawn(executor, [closer]() mutable -> asio::awaitable<void> {
+                co_await wait_timeout(std::chrono::milliseconds{100});
+                closer.close();
+            }, asio::detached);
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const CancelError& e)
+            {
+                canceled = true;
+                EXPECT_FALSE(e.is_timeout());
+            }
+            EXPECT_TRUE(canceled);
+        }
+
+        {
+            close_chan closer{};
+            closer.set_timeout(std::chrono::milliseconds{100});
+            AsyncTasksAny<int> tasks{closer};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen)](auto closer) -> asio::awaitable<int> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    co_return (int) i;
+                });
+            }
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const CancelError& e)
+            {
+                canceled = true;
+                EXPECT_TRUE(e.is_timeout());
+            }
+            EXPECT_TRUE(canceled);
+        }
+
+        {
+            close_chan closer{};
+            AsyncTasksAny<int> tasks{closer};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen), n_tasks](auto closer) -> asio::awaitable<int> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    if (i == (std::size_t) (n_tasks / 2))
+                    {
+                        throw std::runtime_error("an error");
+                    }
+                    else
+                    {
+                        co_return (int) i;
+                    }
+                });
+            }
+            auto res = co_await tasks.await();
+            EXPECT_TRUE(res >= 0 && res < 5);
+        }
+    }, true);
+}
+
+TEST(Chan, AsyncTasksAnyVoid) {
+    using namespace cfgo;
+    do_async([]() -> asio::awaitable<void> {
+        std::mt19937 gen(1);
+        std::uniform_int_distribution<int> distrib(-100, 100);
+        std::size_t n_tasks = 5;
+
+        {
+            AsyncTasksAny<void> tasks{};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([amp = distrib(gen)](auto closer) -> asio::awaitable<void> {
+                    co_await wait_timeout(std::chrono::milliseconds{200 + amp});
+                });
+            }
+            co_await tasks.await();
+        }
+
+        {
+            close_chan closer{};
+            AsyncTasksAny<void> tasks{closer};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([amp = distrib(gen)](auto closer) -> asio::awaitable<void> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                });
+            }
+            auto executor = co_await asio::this_coro::executor;
+            asio::co_spawn(executor, [closer]() mutable -> asio::awaitable<void> {
+                co_await wait_timeout(std::chrono::milliseconds{100});
+                closer.close();
+            }, asio::detached);
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const CancelError& e)
+            {
+                canceled = true;
+                EXPECT_FALSE(e.is_timeout());
+            }
+            EXPECT_TRUE(canceled);
+        }
+
+        {
+            close_chan closer{};
+            closer.set_timeout(std::chrono::milliseconds{100});
+            AsyncTasksAny<void> tasks{closer};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([amp = distrib(gen)](auto closer) -> asio::awaitable<void> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                });
+            }
+            bool canceled = false;
+            try
+            {
+                co_await tasks.await();
+            }
+            catch(const CancelError& e)
+            {
+                canceled = true;
+                EXPECT_TRUE(e.is_timeout());
+            }
+            EXPECT_TRUE(canceled);
+        }
+
+        {
+            close_chan closer{};
+            AsyncTasksAny<void> tasks{closer};
+            for (std::size_t i = 0; i < n_tasks; i++)
+            {
+                tasks.add_task([i, amp = distrib(gen), n_tasks](auto closer) -> asio::awaitable<void> {
+                    co_await wait_timeout(std::chrono::milliseconds{300 + amp});
+                    if (i == (std::size_t) (n_tasks / 2))
+                    {
+                        throw std::runtime_error("an error");
+                    }
+                });
+            }
+            co_await tasks.await();
+        }
     }, true);
 }
 

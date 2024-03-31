@@ -1,7 +1,6 @@
 #ifndef _CFGO_CINTERFACE_HPP_
 #define _CFGO_CINTERFACE_HPP_
 
-#include "gst/gst.h"
 #include "rtc/rtc.h"
 #include "cfgo/exports.h"
 

@@ -393,9 +393,7 @@ namespace cfgo
                     co_return;
                 }
                 spdlog::debug("Subscribed with {} tracks.", sub.value()->tracks().size());
-                auto tasks = []() -> asio::awaitable<void> {
-                    co_return;
-                }();
+                cfgo::AsyncTasksAll<void> tasks(m_close_ch);
                 for (auto &&track : sub.value()->tracks())
                 {
                     auto session = _safe_use_owner<Session>([this, track](auto owner) {
@@ -405,22 +403,25 @@ namespace cfgo
                     {
                         co_return;
                     }
-                    
-                    using namespace asio::experimental::awaitable_operators;
-                    tasks = std::move(tasks)
-                    && [this, &session]() -> asio::awaitable<void> {
+                    tasks.add_task([this, &session](auto closer) -> asio::awaitable<void> {
                         spdlog::debug("rtp task.");
                         co_await _post_buffer(session.value(), Track::MsgType::RTP);
                         co_return;
-                    }()
-                    && [this, &session]() -> asio::awaitable<void> {
+                    });
+                    tasks.add_task([this, &session](auto closer) -> asio::awaitable<void> {
                         spdlog::debug("rtcp task.");
                         co_await _post_buffer(session.value(), Track::MsgType::RTCP);
                         co_return;
-                    }();
+                    });
                 }
-                co_await std::move(tasks);
-                co_return;
+                try
+                {
+                    co_await tasks.await();
+                }
+                catch(const cfgo::CancelError& e)
+                {
+                    spdlog::debug(fmt::format("The loop task is canceled because {}", e.what()));
+                }
             }
             catch(...)
             {
