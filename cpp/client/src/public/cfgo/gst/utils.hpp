@@ -34,6 +34,7 @@ namespace cfgo
     namespace gst
     {
         CFGO_DECLARE_MAKE_SHARED(gst_element, GstElement);
+        CFGO_DECLARE_MAKE_SHARED(gst_pad, GstPad);
         CFGO_DECLARE_STEAL_SHARED(g_error, GError);
     } // namespace gst
 } // namespace cfgo

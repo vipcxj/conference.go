@@ -16,8 +16,10 @@
 #include "config.h"
 #endif
 
-#include <gst/gst.h>
+#include "gst/gst.h"
+#include "gst/app/gstappsrc.h"
 #include "cfgo/gst/gstcfgosrc.h"
+#include "cfgo/gst/gstcfgosrc_private_api.hpp"
 #include "cfgo/gst/cfgosrc.hpp"
 #include "cfgo/gst/error.hpp"
 #include "cfgo/gst/utils.hpp"
@@ -47,10 +49,36 @@ namespace cfgo
     
 } // namespace cfgo
 
+class PrivateStateUPtr : public std::unique_ptr<cfgo::gst::GstCfgoSrcPrivateState>
+{
+private:
+    using PT = std::unique_ptr<cfgo::gst::GstCfgoSrcPrivateState>;
+public:
+    PrivateStateUPtr(typename PT::pointer pt);
+    ~PrivateStateUPtr();
+};
+
+PrivateStateUPtr::PrivateStateUPtr(typename PT::pointer pt): PT(pt)
+{
+    if (pt)
+    {
+        spdlog::debug("private instance created.");
+    }
+}
+
+PrivateStateUPtr::~PrivateStateUPtr()
+{
+    if (PT::get())
+    {
+        spdlog::debug("private instance destroied.");
+    }
+}
 
 struct _GstCfgoSrcPrivate
 {
-    cfgo::gst::GstCfgoSrcPrivateState * state;
+    PrivateStateUPtr state;
+    GstElement * rtpsrc;
+    GstElement * rtcpsrc;
 };
 
 #define GST_CFGOSRC_PVS(cfgosrc) cfgosrc->priv->state
@@ -63,6 +91,56 @@ struct _GstCfgoSrcPrivate
 #define GST_CFGOSRC_LOCK_GUARD_VARNAME(x) GST_CFGOSRC_JOIN(x, __LINE__)
 #endif
 #define GST_CFGOSRC_LOCK_GUARD(cfgosrc) std::lock_guard GST_CFGOSRC_LOCK_GUARD_VARNAME(guard)(GST_CFGOSRC_PVS(cfgosrc)->mutex)
+
+namespace cfgo
+{
+    namespace gst
+    {
+        void link_rtp_src(GstCfgoSrc * parent, GstPad * pad)
+        {
+            auto src_pad = gst_element_get_static_pad(parent->priv->rtpsrc, "src");
+            if (!src_pad)
+            {
+                throw cpptrace::range_error("Unable to get the pad src from rtpsrc.");
+            }
+            DEFER({
+                gst_object_unref(src_pad);
+            });
+            if (GST_PAD_LINK_FAILED(gst_pad_link(src_pad, pad)))
+            {
+                throw cpptrace::range_error("Unable to link the rtp src pad.");
+            }
+        }
+
+        void link_rtcp_src(GstCfgoSrc * parent, GstPad * pad)
+        {
+            auto src_pad = gst_element_get_static_pad(parent->priv->rtcpsrc, "src");
+            if (!src_pad)
+            {
+                throw cpptrace::range_error("Unable to get the pad src from rtcpsrc.");
+            }
+            DEFER({
+                gst_object_unref(src_pad);
+            });
+            if (GST_PAD_LINK_FAILED(gst_pad_link(src_pad, pad)))
+            {
+                throw cpptrace::range_error("Unable to link the rtcp src pad.");
+            }
+        }
+
+        GstFlowReturn push_rtp_buffer(GstCfgoSrc * parent, GstBuffer * buffer)
+        {
+            return gst_app_src_push_buffer(GST_APP_SRC(parent->priv->rtpsrc), buffer);
+        }
+
+        GstFlowReturn push_rtcp_buffer(GstCfgoSrc * parent, GstBuffer * buffer)
+        {
+            return gst_app_src_push_buffer(GST_APP_SRC(parent->priv->rtcpsrc), buffer);
+        }
+    } // namespace gst
+    
+} // namespace cfgo
+
 
 static void gst_cfgosrc_set_property(GObject *object,
                                      guint property_id, const GValue *value, GParamSpec *pspec);
@@ -214,15 +292,45 @@ gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 }
 
+
 static void
 gst_cfgosrc_init(GstCfgoSrc *cfgosrc)
 {
     cfgosrc->priv = (GstCfgoSrcPrivate *)gst_cfgosrc_get_instance_private(cfgosrc);
-    cfgosrc->priv->state = new cfgo::gst::GstCfgoSrcPrivateState();
+    GST_CFGOSRC_PVS(cfgosrc).reset(new cfgo::gst::GstCfgoSrcPrivateState());
+    auto rtpsrc = gst_element_factory_make("appsrc", "rtpsrc");
+    if (!rtpsrc)
+    {
+        throw cpptrace::runtime_error("Unable to create element rtpsrc for the parent cfgosrc.");
+    }
+    g_object_set(
+        rtpsrc,
+        "format", GST_FORMAT_TIME,
+        "is-live", TRUE,
+        "do-timestamp", TRUE,
+        NULL
+    );
+    gst_bin_add(GST_BIN(cfgosrc), rtpsrc);
+    cfgosrc->priv->rtpsrc = rtpsrc;
+    auto rtcpsrc = gst_element_factory_make("appsrc", "rtcpsrc");
+    if (!rtcpsrc)
+    {
+        throw cpptrace::runtime_error("Unable to create element rtcpsrc for the parent cfgosrc.");
+    }
+    g_object_set(
+        rtcpsrc,
+        "format", GST_FORMAT_TIME,
+        "is-live", TRUE,
+        "do-timestamp", TRUE,
+        NULL
+    );
+    gst_bin_add(GST_BIN(cfgosrc), rtcpsrc);
+    cfgosrc->priv->rtcpsrc = rtcpsrc;
 }
 
 void _gst_cfgosrc_prepare(GstCfgoSrc *cfgosrc, bool reset_task)
 {
+    GST_DEBUG_OBJECT(cfgosrc, "%s", "_gst_cfgosrc_prepare");
     if (GST_CFGOSRC_PVS(cfgosrc)->running)
     {
         if (cfgosrc->client_handle > 0 
@@ -231,6 +339,7 @@ void _gst_cfgosrc_prepare(GstCfgoSrc *cfgosrc, bool reset_task)
             if (!GST_CFGOSRC_PVS(cfgosrc)->task || reset_task)
             {
                 GST_DEBUG_OBJECT(cfgosrc, "%s", "Creating the task.");
+                spdlog::debug("cfgosrc created.");
                 GST_CFGOSRC_PVS(cfgosrc)->task = cfgo::gst::CfgoSrc::create(
                     cfgosrc->client_handle, 
                     cfgosrc->pattern, cfgosrc->req_types, 
@@ -279,6 +388,7 @@ void gst_cfgosrc_start(GstCfgoSrc *cfgosrc)
 
 void gst_cfgosrc_stop(GstCfgoSrc *cfgosrc)
 {
+    GST_DEBUG_OBJECT(cfgosrc, "%s", "gst_cfgosrc_stop");
     GST_CFGOSRC_LOCK_GUARD(cfgosrc);
     GST_CFGOSRC_PVS(cfgosrc)->running = false;
     if (GST_CFGOSRC_PVS(cfgosrc)->task)
@@ -605,12 +715,13 @@ void gst_cfgosrc_dispose(GObject *object)
 {
     GstCfgoSrc *cfgosrc = GST_CFGOSRC(object);
 
-    GST_DEBUG_OBJECT(cfgosrc, "dispose");
+    GST_DEBUG_OBJECT(cfgosrc, "%s", "dispose");
     {
         GST_CFGOSRC_LOCK_GUARD(cfgosrc);
         if (GST_CFGOSRC_PVS(cfgosrc)->task)
         {
             GST_CFGOSRC_PVS(cfgosrc)->task->detach();
+            spdlog::debug("cfgosrc destroy.");
             GST_CFGOSRC_PVS(cfgosrc)->task = nullptr;
         }
     }
@@ -621,11 +732,7 @@ void gst_cfgosrc_finalize(GObject *object)
 {
     GstCfgoSrc *cfgosrc = GST_CFGOSRC(object);
 
-    GST_DEBUG_OBJECT(cfgosrc, "finalize");
-    if (GST_CFGOSRC_PVS(cfgosrc))
-    {
-        delete(GST_CFGOSRC_PVS(cfgosrc));
-    }
+    GST_DEBUG_OBJECT(cfgosrc, "%s", "finalize");
     if (cfgosrc->client_handle > 0)
     {
         cfgo_client_unref(cfgosrc->client_handle);

@@ -12,6 +12,7 @@
 #include "asio/steady_timer.hpp"
 #include "asiochan/asiochan.hpp"
 #include "cpptrace/cpptrace.hpp"
+#include "spdlog/spdlog.h"
 
 namespace cfgo
 {
@@ -120,7 +121,8 @@ namespace cfgo
 
     public:
         using value_t = T;
-        cancelable(T value): m_value(value) {}
+        cancelable(const T & value): m_value(value) {}
+        cancelable(T && value): m_value(std::move(value)) {}
         cancelable(): m_value(false) {}
 
         auto value() & -> T & {
@@ -147,14 +149,24 @@ namespace cfgo
             return !is_canceled();
         }
 
-        inline const T * operator->() const noexcept
+        inline auto operator->() & -> T &
         {
-            return &value();
+            return value();
         }
 
-        inline T * operator->() noexcept
+        inline auto operator->() const & -> T const &
         {
-            return &value();
+            return value();
+        }
+
+        inline auto operator->() && -> T &&
+        {
+            return value();
+        }
+
+        inline auto operator->() const && -> T const &&
+        {
+            return value();
         }
     };
 
@@ -207,8 +219,8 @@ namespace cfgo
     };
 
     template<typename T>
-    cancelable<T> make_resolved(T value) {
-        return cancelable<T>(value);
+    cancelable<T> make_resolved(T && value) {
+        return cancelable<T>(std::forward<T>(value));
     }
 
     cancelable<void> make_resolved();
@@ -486,7 +498,7 @@ namespace cfgo
         static constexpr auto num_alternatives = num_alternatives_1 + num_alternatives_2;
         static constexpr auto always_waitfree_1 = Op1::always_waitfree;
         static constexpr auto always_waitfree_2 = Op2::always_waitfree;
-        static constexpr auto always_waitfree = always_waitfree_1 || always_waitfree_2;
+        static constexpr auto always_waitfree = always_waitfree_1 && always_waitfree_2;
         using wait_state_type_1 = typename Op1::wait_state_type;
         using wait_state_type_2 = typename Op2::wait_state_type;
         struct wait_state_type
@@ -521,9 +533,9 @@ namespace cfgo
             {
                 return res;
             }
-            if (auto res = m_op2.submit_with_wait(select_ctx, base_token, wait_state.state_2))
+            if (auto res = m_op2.submit_with_wait(select_ctx, base_token + Op1::num_alternatives, wait_state.state_2))
             {
-                return Op1::num_alternatives + *res;
+                return *res + Op1::num_alternatives;
             }
             return std::nullopt;
         }
@@ -534,15 +546,21 @@ namespace cfgo
         {
             if (successful_alternative)
             {
-                m_op1.clear_wait(successful_alternative, wait_state.state_1);
-                if (successful_alternative >= Op1::num_alternatives)
+                if (*successful_alternative >= Op1::num_alternatives)
                 {
+                    m_op1.clear_wait(std::nullopt, wait_state.state_1);
                     m_op2.clear_wait(*successful_alternative - Op1::num_alternatives, wait_state.state_2);
                 }
                 else
                 {
-                    m_op2.clear_wait(*successful_alternative + num_alternatives, wait_state.state_2);
+                    m_op1.clear_wait(successful_alternative, wait_state.state_1);
+                    m_op2.clear_wait(std::nullopt, wait_state.state_2);
                 }
+            }
+            else
+            {
+                m_op1.clear_wait(std::nullopt, wait_state.state_1);
+                m_op2.clear_wait(std::nullopt, wait_state.state_2);
             }
         }
 
@@ -615,6 +633,10 @@ namespace cfgo
                     );
                     if (res.received_from(*waiter_opt))
                     {
+                        if (!close_ch.is_closed())
+                        {
+                            spdlog::error("this should not happened. num of other ops: {}", sizeof...(Ops));
+                        }
                         co_return make_canceled_select_result<First_Op, Ops...>();
                     }
                     else
@@ -780,8 +802,7 @@ namespace cfgo
             }
             else
             {
-                auto && v = co_await ch.read();
-                co_return make_resolved(v);
+                co_return make_resolved(std::forward<T>(co_await ch.read()));
             }
         }
     }
@@ -898,7 +919,7 @@ namespace cfgo
                     }
                 }
             }
-            co_return make_resolved<T>(res);
+            co_return make_resolved<T>(std::forward<T>(res));
         } while (true);
     }
 
@@ -977,19 +998,21 @@ namespace cfgo
                                 if constexpr (std::is_void_v<T>)
                                 {
                                     co_await task(close_ch);
+                                    spdlog::trace("task done.");
                                     co_await chan_write_or_throw<DataType>(data_ch, DataType(i, nullptr), close_ch);
                                     co_return;
                                 }
                                 else
                                 {
                                     auto res = co_await task(close_ch);
+                                    spdlog::trace("task done.");
                                     co_await chan_write_or_throw<DataType>(data_ch, DataType(i, res, nullptr), close_ch);
                                     co_return res;
                                 }
                             }
                             catch(...)
                             {
-                                except = std::current_exception();                                  
+                                except = std::current_exception();                                 
                             }
                             bool closed = false;
                             if (close_ch.is_closed())
@@ -1000,20 +1023,27 @@ namespace cfgo
                             {
                                 if constexpr (std::is_void_v<T>)
                                 {
+                                    spdlog::trace("writing except");
                                     closed = !co_await chan_write<DataType>(data_ch, std::make_tuple(i, except), close_ch);
+                                    spdlog::trace("except writed with closer {}", closed ? "closed" : "not closed");
                                 }
                                 else
                                 {
+                                    spdlog::trace("writing except");
                                     closed = !co_await chan_write<DataType>(data_ch, std::make_tuple(i, std::nullopt, except), close_ch);
+                                    spdlog::trace("except writed with closer {}", closed ? "closed" : "not closed");
                                 }
                             }
                             if (closed)
                             {
+                                spdlog::trace("writing except without closer");
                                 if constexpr (std::is_void_v<T>)
                                     co_await data_ch.write(DataType{i, except});
                                 else
                                     co_await data_ch.write(DataType{i, std::nullopt, except});
-                            }  
+                                spdlog::trace("except writed without closer");
+                            }
+                            spdlog::trace("task exit.");
                         },
                         asio::detached
                     );
@@ -1052,7 +1082,7 @@ namespace cfgo
             m_result = std::vector<std::optional<T>>(n, std::nullopt);
             for (size_t i = 0; i < n; i++)
             {
-                auto res = co_await chan_read<PT::DataType>(PT::m_data_ch, PT::m_close_ch);
+                auto res = co_await chan_read<typename PT::DataType>(PT::m_data_ch, PT::m_close_ch);
                 if (res)
                 {
                     const auto & [index, opt_value, except] = res.value();
@@ -1100,7 +1130,7 @@ namespace cfgo
             auto n = PT::m_tasks.size();
             for (size_t i = 0; i < n; i++)
             {
-                auto res = co_await chan_read<PT::DataType>(PT::m_data_ch, PT::m_close_ch);
+                auto res = co_await chan_read<typename PT::DataType>(PT::m_data_ch, PT::m_close_ch);
                 if (res)
                 {
                     const auto & [index, except] = res.value();
@@ -1137,10 +1167,11 @@ namespace cfgo
         auto _sync() -> asio::awaitable<void>
         {
             auto n = PT::m_tasks.size();
+            m_excepts = std::vector<std::exception_ptr>(n, nullptr);
             bool accepted = false;
             for (size_t i = 0; i < n; i++)
             {
-                auto res = co_await chan_read<PT::DataType>(PT::m_data_ch, PT::m_close_ch);
+                auto res = co_await chan_read<typename PT::DataType>(PT::m_data_ch, PT::m_close_ch);
                 if (res)
                 {
                     const auto & [index, opt_value, except] = res.value();
@@ -1209,10 +1240,11 @@ namespace cfgo
         auto _sync() -> asio::awaitable<void>
         {
             auto n = PT::m_tasks.size();
+            m_excepts = std::vector<std::exception_ptr>(n, nullptr);
             bool accepted = false;
             for (size_t i = 0; i < n; i++)
             {
-                auto res = co_await chan_read<PT::DataType>(PT::m_data_ch, PT::m_close_ch);
+                auto res = co_await chan_read<typename PT::DataType>(PT::m_data_ch, PT::m_close_ch);
                 if (res)
                 {
                     const auto & [index, except] = res.value();

@@ -69,6 +69,7 @@ set(MY_PRIVATE_HEADERS
 )
 set(MY_GST_PLUGIN_PRIVATE_HEADERS
     "${H_PRIVATE_PATH}/gst/cfgosrc.hpp"
+    "${H_PRIVATE_PATH}/gst/gstcfgosrc_private_api.hpp"
     "${H_IMPL}/pipeline.hpp"
     "${H_IMPL}/link.hpp"
 )
@@ -266,4 +267,4 @@ target_compile_definitions(test-gstreamer PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
 link_gstreamer(test-gstreamer)
 find_package(Poco REQUIRED COMPONENTS Net Foundation)
 target_link_libraries(test-gstreamer PRIVATE Poco::Foundation Poco::Net)
-target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient)
+target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient cfgogst)

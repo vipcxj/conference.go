@@ -13,6 +13,15 @@ namespace cfgo
 {
     namespace gst
     {
+        class CfgoSrc;
+        class CfgoSrcSPtr : public std::shared_ptr<CfgoSrc>
+        {
+            using PT = std::shared_ptr<CfgoSrc>;
+        public:
+            CfgoSrcSPtr(CfgoSrc * pt = nullptr);
+            virtual ~CfgoSrcSPtr();
+        };
+
         class CfgoSrc : public std::enable_shared_from_this<CfgoSrc>
         {
         public:
@@ -93,14 +102,14 @@ namespace cfgo
             ~CfgoSrc();
 
             using UPtr = std::unique_ptr<CfgoSrc>;
-            using Ptr = std::shared_ptr<CfgoSrc>;
+            using Ptr = CfgoSrcSPtr;
             static auto create(
                 int client_handle, 
                 const char * pattern_json, 
                 const char * req_types_str, 
                 guint64 sub_timeout = 0, 
                 guint64 read_timeout = 0
-            ) -> UPtr;
+            ) -> Ptr;
             void set_sub_timeout(guint64 timeout);
             void set_sub_try(gint32 tries, guint64 delay_init = 0, guint32 delay_step = 0, guint32 delay_level = 0);
             void set_read_timeout(guint64 timeout);

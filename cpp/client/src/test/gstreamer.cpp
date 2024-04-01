@@ -578,7 +578,7 @@ auto get_token() -> std::string {
     auto&& rs = session.receiveResponse(response);
     if (response.getStatus() != HTTPResponse::HTTP_OK)
     {
-        throw cpptrace::runtime_error(fmt::format("unable to get the token. status code: {}.", response.getStatus()));
+        throw cpptrace::runtime_error(fmt::format("unable to get the token. status code: {}.", (int) response.getStatus()));
     }
     return std::string{ std::istreambuf_iterator<char>(rs), std::istreambuf_iterator<char>() };
 }

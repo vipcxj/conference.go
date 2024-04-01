@@ -105,7 +105,7 @@ namespace cfgo
             {
                 throw cpptrace::logic_error("Before call receive_msg, a valid rtc::track should be set.");
             }
-            track->onMessage(std::bind(&Track::on_track_msg, this, std::placeholders::_1));
+            track->onMessage(std::bind(&Track::on_track_msg, this, std::placeholders::_1), [](auto data) {});
             track->onOpen(std::bind(&Track::on_track_open, this));
             track->onClosed(std::bind(&Track::on_track_closed, this));
             track->onError(std::bind(&Track::on_track_error, this, std::placeholders::_1));
@@ -175,28 +175,24 @@ namespace cfgo
             }
         }
 
-        void Track::on_track_msg(rtc::message_variant msg) {
-            if (std::holds_alternative<rtc::binary>(msg))
+        void Track::on_track_msg(rtc::binary data) {
+            MsgBuffer & cache = rtc::IsRtcp(data) ? m_rtcp_cache : m_rtp_cache;
+            std::lock_guard g(m_lock);
+            if (m_seq == 0xffffffff)
             {
-                auto && data = std::get<rtc::binary>(msg);
-                MsgBuffer & cache = rtc::IsRtcp(data) ? m_rtcp_cache : m_rtp_cache;
-                std::lock_guard g(m_lock);
-                if (m_seq == 0xffffffff)
+                auto offset = makesure_min_seq();
+                for (auto &&v : m_rtcp_cache)
                 {
-                    auto offset = makesure_min_seq();
-                    for (auto &&v : m_rtcp_cache)
-                    {
-                        v.first -= offset;
-                    }
-                    for (auto &&v : m_rtp_cache)
-                    {
-                        v.first -= offset;
-                    }
-                    m_seq -= offset;
+                    v.first -= offset;
                 }
-                cache.push_back(std::make_pair(m_seq++, std::make_unique<rtc::binary>(data)));
-                std::ignore = m_msg_notify.try_write();
+                for (auto &&v : m_rtp_cache)
+                {
+                    v.first -= offset;
+                }
+                m_seq -= offset;
             }
+            cache.push_back(std::make_pair(m_seq++, std::make_unique<rtc::binary>(std::move(data))));
+            std::ignore = m_msg_notify.try_write();
         }
 
         void Track::on_track_open()
@@ -209,6 +205,7 @@ namespace cfgo
 
         void Track::on_track_closed()
         {
+            spdlog::debug("The track is closed.");
             if (!m_closed_notify.try_write())
             {
                 spdlog::warn("[Track::on_track_closed] This should not happen.");
@@ -277,6 +274,14 @@ namespace cfgo
 
         auto Track::await_msg(cfgo::Track::MsgType msg_type, close_chan close_ch) -> asio::awaitable<cfgo::Track::MsgPtr>
         {
+            auto self = weak_from_this().lock();
+            if (!self)
+            {
+                spdlog::warn("lose this when calling await_msg");
+                cpptrace::generate_trace().print_with_snippets(std::cout, cpptrace::isatty(cpptrace::stdout_fileno));
+                co_return nullptr;
+            }
+            
             if (!m_inited)
             {
                 throw cpptrace::logic_error("Before call await_msg, call prepare_track at first.");
@@ -284,7 +289,8 @@ namespace cfgo
             auto msg_ptr = receive_msg(msg_type);
             if (msg_ptr)
             {
-                co_return msg_ptr;
+                spdlog::trace("await_msg: {} bytes", msg_ptr->size());
+                co_return std::move(msg_ptr);
             }
             if (is_valid_close_chan(close_ch) && close_ch.is_closed())
             {
@@ -335,7 +341,8 @@ namespace cfgo
                 auto msg_ptr = receive_msg(msg_type);
                 if (msg_ptr)
                 {
-                    co_return msg_ptr;
+                    spdlog::trace("await_msg: {} bytes", msg_ptr->size());
+                    co_return std::move(msg_ptr);
                 }
                 if (track->isClosed())
                 {

@@ -24,7 +24,7 @@ namespace cfgo
 {
     namespace impl
     {
-        struct Track
+        struct Track : public std::enable_shared_from_this<Track>
         {
             using Ptr = std::shared_ptr<Track>;
             using MsgBuffer = boost::circular_buffer<std::pair<int, cfgo::Track::MsgPtr>>;
@@ -55,7 +55,7 @@ namespace cfgo
 
             uint32_t makesure_min_seq();
             void prepare_track();
-            void on_track_msg(rtc::message_variant data);
+            void on_track_msg(rtc::binary data);
             void on_track_open();
             void on_track_closed();
             void on_track_error(std::string error);
