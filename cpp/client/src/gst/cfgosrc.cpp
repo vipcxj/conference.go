@@ -20,12 +20,28 @@ namespace cfgo
                 spdlog::debug("CfgoSrcSPtr create.");
             }
         };
+        CfgoSrcSPtr::CfgoSrcSPtr(const CfgoSrcSPtr & other): PT(other) {
+            spdlog::debug("CfgoSrcSPtr copy.");
+        }
+        CfgoSrcSPtr::CfgoSrcSPtr(CfgoSrcSPtr && other): PT(std::move(other)) {
+            spdlog::debug("CfgoSrcSPtr move.");
+        }
         CfgoSrcSPtr::~CfgoSrcSPtr() {
             if (get())
             {
                 spdlog::debug("CfgoSrcSPtr destroy.");
             }
         };
+        CfgoSrcSPtr & CfgoSrcSPtr::operator=(const CfgoSrcSPtr & other)
+        {
+            spdlog::debug("CfgoSrcSPtr copy assign.");
+            return static_cast<CfgoSrcSPtr &>(PT::operator=(other));
+        }
+        CfgoSrcSPtr & CfgoSrcSPtr::operator=(CfgoSrcSPtr && other)
+        {
+            spdlog::debug("CfgoSrcSPtr move assign.");
+            return static_cast<CfgoSrcSPtr &>(PT::operator=(std::move(other)));
+        }
 
 
         CfgoSrc::CfgoSrc(int client_handle, const char * pattern_json, const char * req_types_str, guint64 sub_timeout, guint64 read_timeout):
@@ -33,7 +49,7 @@ namespace cfgo
             m_detached(true), 
             m_client(get_client(client_handle)), 
             m_sub_timeout(sub_timeout), 
-            m_read_timeout(m_read_timeout)
+            m_read_timeout(read_timeout)
         {
             cfgo_pattern_parse(pattern_json, m_pattern);
             cfgo_req_types_parse(req_types_str, m_req_types);
@@ -46,18 +62,6 @@ namespace cfgo
             _detach();
         }
 
-        void CfgoSrc::_reset_sub_closer()
-        {
-            m_sub_closer = m_close_ch.create_child();
-            m_sub_closer.set_timeout(std::chrono::milliseconds {m_sub_timeout});
-        }
-
-        void CfgoSrc::_reset_read_closer()
-        {
-            m_read_closer = m_close_ch.create_child();
-            m_read_closer.set_timeout(std::chrono::milliseconds {m_read_timeout});
-        }
-
         auto CfgoSrc::create(int client_handle, const char * pattern_json, const char * req_types_str, guint64 sub_timeout, guint64 read_timeout) -> Ptr
         {
             return Ptr{new CfgoSrc(client_handle, pattern_json, req_types_str, sub_timeout, read_timeout)};
@@ -67,7 +71,6 @@ namespace cfgo
         {
             std::lock_guard lock(m_mutex);
             m_sub_timeout = timeout;
-            m_sub_closer.set_timeout(std::chrono::milliseconds {m_sub_timeout});
         }
 
         void CfgoSrc::set_sub_try(gint32 tries, guint64 delay_init, guint32 delay_step, guint32 delay_level)
@@ -83,7 +86,6 @@ namespace cfgo
         {
             std::lock_guard lock(m_mutex);
             m_read_timeout = timeout;
-            m_read_closer.set_timeout(std::chrono::milliseconds {m_read_timeout});
         }
 
         void CfgoSrc::set_read_try(gint32 tries, guint64 delay_init, guint32 delay_step, guint32 delay_level)
@@ -120,6 +122,7 @@ namespace cfgo
             {
                 return;
             }
+            spdlog::trace("_detach");
             m_detached = true;
             for (auto && session : m_sessions)
             {
@@ -167,12 +170,14 @@ namespace cfgo
 
         void CfgoSrc::start()
         {
-            std::lock_guard lock(m_mutex);   
-            if (m_state != INITED)
             {
-                return;
+                std::lock_guard lock(m_mutex);   
+                if (m_state != INITED)
+                {
+                    return;
+                }
+                m_state = RUNNING;
             }
-            m_state = RUNNING;
             asio::co_spawn(
                 asio::get_associated_executor(m_client->execution_context()),
                 [weak_self = weak_from_this()]() -> asio::awaitable<void> {
@@ -288,33 +293,31 @@ namespace cfgo
             do
             {
                 TryOption try_option;
+                guint64 read_timeout;
                 {
-                    std::lock_guard lock(m_loop_mutex);
+                    std::lock_guard lock(m_mutex);
                     try_option = m_read_try_option;
+                    read_timeout = m_read_timeout;
                 }
                 auto msg_ptr = co_await async_retry<Track::MsgPtr>(
+                    std::chrono::milliseconds {read_timeout},
                     try_option,
-                    [self = shared_from_this(), track = session.m_track, msg_type](auto try_times) -> asio::awaitable<Track::MsgPtr> {                        
-                        {
-                            std::lock_guard lock(self->m_loop_mutex);
-                            self->_reset_read_closer();
-                        }
+                    [self = shared_from_this(), track = session.m_track, msg_type](auto try_times, auto timeout_closer) -> asio::awaitable<Track::MsgPtr> {                        
                         if (try_times > 1)
                         {
-                            spdlog::debug("Read {} data timeout after {}. Tring the {} time.", msg_type, self->m_sub_closer.get_timeout(), Nth{try_times});
+                            spdlog::debug("Read {} data timeout after {} ms. Tring the {} time.", msg_type, std::chrono::duration_cast<std::chrono::milliseconds>(timeout_closer.get_timeout()), Nth{try_times});
                         }
-                        Track::MsgPtr msg_ptr = std::move(co_await track->await_msg(msg_type, self->m_read_closer));
-                        spdlog::trace("async_retry: {} bytes when receive {} data", msg_ptr ? msg_ptr->size() : 0, msg_type);
+                        Track::MsgPtr msg_ptr = std::move(co_await track->await_msg(msg_type, timeout_closer));
                         co_return msg_ptr;
                     },
-                    [self = shared_from_this()](const Track::MsgPtr & msg) -> bool {
-                        return !msg && self->m_read_closer.is_timeout();
+                    [](const Track::MsgPtr & msg) -> bool {
+                        return !msg;
                     },
                     m_close_ch
                 );
-                if (!msg_ptr || m_read_closer.is_closed())
+                if (!msg_ptr || m_close_ch.is_closed())
                 {
-                    if (m_read_closer.is_timeout())
+                    if (!m_close_ch.is_closed())
                     {
                         auto error = steal_shared_g_error(create_gerror_timeout(
                             fmt::format("Timeout to read subsrcibed track {} data", (msg_type == Track::MsgType::RTP ? "rtp" : "rtcp"))
@@ -389,34 +392,33 @@ namespace cfgo
             {
                 spdlog::debug("Subscribing...");
                 TryOption sub_try_option;
+                guint64 sub_timeout;
                 {
-                    std::lock_guard lock(m_loop_mutex);
+                    std::lock_guard lock(m_mutex);
+                    sub_timeout = m_sub_timeout;
                     sub_try_option = m_sub_try_option;
                 }
                 auto sub = co_await async_retry<SubPtr>(
+                    std::chrono::milliseconds {sub_timeout},
                     sub_try_option, 
-                    [this](auto try_times) -> asio::awaitable<SubPtr> {
-                        {
-                            std::lock_guard lock(m_loop_mutex);
-                            _reset_sub_closer();
-                        }
+                    [this](auto try_times, auto timeout_closer) -> asio::awaitable<SubPtr> {
                         if (try_times > 1)
                         {
-                            spdlog::debug("Subscribing timeout after {}. Tring the {} time.", m_sub_closer.get_timeout(), Nth{try_times});
+                            spdlog::debug("Subscribing timeout after {}. Tring the {} time.", timeout_closer.get_timeout(), Nth{try_times});
                         }
                         spdlog::trace("Arg pattern: {}", m_pattern);
                         spdlog::trace("Arg req_types: {}", m_req_types);
-                        auto sub = co_await m_client->subscribe(m_pattern, m_req_types, m_sub_closer);
+                        auto sub = co_await m_client->subscribe(m_pattern, m_req_types, timeout_closer);
                         co_return sub;
                     },
                     [this](const SubPtr & sub) -> bool {
-                        return !sub && m_sub_closer.is_timeout();
+                        return !sub;
                     },
                     m_close_ch
                 );
                 if (!sub)
                 {
-                    if (m_close_ch.is_timeout() || m_sub_closer.is_timeout())
+                    if (!m_close_ch.is_closed())
                     {
                         spdlog::debug("Subscribed timeout.");
                         _safe_use_owner<void>([](auto owner) {

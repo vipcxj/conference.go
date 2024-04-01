@@ -44,39 +44,24 @@ namespace cfgo
             std::mutex mutex;
             bool running;
             cfgo::gst::CfgoSrc::Ptr task;
+
+            GstCfgoSrcPrivateState()
+            {
+                spdlog::debug("new GstCfgoSrcPrivateState.");
+            }
+
+            ~GstCfgoSrcPrivateState()
+            {
+                spdlog::debug("delete GstCfgoSrcPrivateState.");
+            }
         };
     } // namespace gst
     
 } // namespace cfgo
 
-class PrivateStateUPtr : public std::unique_ptr<cfgo::gst::GstCfgoSrcPrivateState>
-{
-private:
-    using PT = std::unique_ptr<cfgo::gst::GstCfgoSrcPrivateState>;
-public:
-    PrivateStateUPtr(typename PT::pointer pt);
-    ~PrivateStateUPtr();
-};
-
-PrivateStateUPtr::PrivateStateUPtr(typename PT::pointer pt): PT(pt)
-{
-    if (pt)
-    {
-        spdlog::debug("private instance created.");
-    }
-}
-
-PrivateStateUPtr::~PrivateStateUPtr()
-{
-    if (PT::get())
-    {
-        spdlog::debug("private instance destroied.");
-    }
-}
-
 struct _GstCfgoSrcPrivate
 {
-    PrivateStateUPtr state;
+    cfgo::gst::GstCfgoSrcPrivateState * state;
     GstElement * rtpsrc;
     GstElement * rtcpsrc;
 };
@@ -297,7 +282,7 @@ static void
 gst_cfgosrc_init(GstCfgoSrc *cfgosrc)
 {
     cfgosrc->priv = (GstCfgoSrcPrivate *)gst_cfgosrc_get_instance_private(cfgosrc);
-    GST_CFGOSRC_PVS(cfgosrc).reset(new cfgo::gst::GstCfgoSrcPrivateState());
+    GST_CFGOSRC_PVS(cfgosrc) = new cfgo::gst::GstCfgoSrcPrivateState();
     auto rtpsrc = gst_element_factory_make("appsrc", "rtpsrc");
     if (!rtpsrc)
     {
@@ -339,7 +324,7 @@ void _gst_cfgosrc_prepare(GstCfgoSrc *cfgosrc, bool reset_task)
             if (!GST_CFGOSRC_PVS(cfgosrc)->task || reset_task)
             {
                 GST_DEBUG_OBJECT(cfgosrc, "%s", "Creating the task.");
-                spdlog::debug("cfgosrc created.");
+                spdlog::debug("cfgosrc created with sub timeout {} and read timeout {}.", cfgosrc->sub_timeout, cfgosrc->read_timeout);
                 GST_CFGOSRC_PVS(cfgosrc)->task = cfgo::gst::CfgoSrc::create(
                     cfgosrc->client_handle, 
                     cfgosrc->pattern, cfgosrc->req_types, 
@@ -733,6 +718,11 @@ void gst_cfgosrc_finalize(GObject *object)
     GstCfgoSrc *cfgosrc = GST_CFGOSRC(object);
 
     GST_DEBUG_OBJECT(cfgosrc, "%s", "finalize");
+    if (GST_CFGOSRC_PVS(cfgosrc))
+    {
+        delete(GST_CFGOSRC_PVS(cfgosrc));
+    }
+    
     if (cfgosrc->client_handle > 0)
     {
         cfgo_client_unref(cfgosrc->client_handle);

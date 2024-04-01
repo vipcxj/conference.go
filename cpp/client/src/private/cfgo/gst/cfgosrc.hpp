@@ -19,7 +19,11 @@ namespace cfgo
             using PT = std::shared_ptr<CfgoSrc>;
         public:
             CfgoSrcSPtr(CfgoSrc * pt = nullptr);
+            CfgoSrcSPtr(const CfgoSrcSPtr &);
+            CfgoSrcSPtr(CfgoSrcSPtr &&);
             virtual ~CfgoSrcSPtr();
+            CfgoSrcSPtr & operator=(const CfgoSrcSPtr &);
+            CfgoSrcSPtr & operator=(CfgoSrcSPtr &&);
         };
 
         class CfgoSrc : public std::enable_shared_from_this<CfgoSrc>
@@ -47,12 +51,9 @@ namespace cfgo
             close_chan m_close_ch;
             guint64 m_sub_timeout;
             TryOption m_sub_try_option;
-            close_chan m_sub_closer;
             guint64 m_read_timeout;
             TryOption m_read_try_option;
-            close_chan m_read_closer;
             std::mutex m_mutex;
-            std::mutex m_loop_mutex;
             GstCfgoSrc * m_owner;
             bool m_detached;
             GstElement * m_rtp_bin;

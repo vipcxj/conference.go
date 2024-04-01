@@ -879,8 +879,20 @@ namespace cfgo
     }
 
     template<typename T>
-    auto async_retry(const TryOption & option, std::function<asio::awaitable<T>(int)> func, std::function<bool(const T &)> retry_checker, close_chan close_ch) -> asio::awaitable<cancelable<T>>
+    auto async_retry(
+        std::chrono::nanoseconds timeout,
+        const TryOption & option, 
+        std::function<asio::awaitable<T>(int, close_chan)> func, 
+        std::function<bool(const T &)> retry_checker, 
+        close_chan close_ch,
+        const std::string & timeout_reason = ""
+    ) -> asio::awaitable<cancelable<T>>
     {
+        if (!is_valid_close_chan(close_ch))
+        {
+            throw cpptrace::runtime_error("The input close_ch arg must be a valid closer.");
+        }
+        
         auto tried = option.m_tries, tries = option.m_tries;
         auto delay_init = option.m_delay_init;
         auto delay_step = option.m_delay_step;
@@ -888,8 +900,10 @@ namespace cfgo
         std::uint32_t delay_current_level = 0;
         do
         {
-            auto res = co_await func(tries - tried + 1);
-            if (retry_checker(res))
+            close_chan timeout_closer = close_ch.create_child();
+            timeout_closer.set_timeout(timeout, std::string(timeout_reason));
+            auto res = co_await func(tries - tried + 1, timeout_closer);
+            if (retry_checker(res) && timeout_closer.is_timeout())
             {
                 if (tried == 0)
                 {
