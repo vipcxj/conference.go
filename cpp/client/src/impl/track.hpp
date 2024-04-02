@@ -29,6 +29,19 @@ namespace cfgo
         {
             using Ptr = std::shared_ptr<Track>;
             using MsgBuffer = boost::circular_buffer<std::pair<int, cfgo::Track::MsgPtr>>;
+
+            struct Statistics
+            {
+                std::uint64_t m_rtp_drops_bytes = 0;
+                std::uint32_t m_rtp_drops_packets = 0;
+                std::uint64_t m_rtp_receives_bytes = 0;
+                std::uint32_t m_rtp_receives_packets = 0;
+                std::uint64_t m_rtcp_drops_bytes = 0;
+                std::uint32_t m_rtcp_drops_packets = 0;
+                std::uint64_t m_rtcp_receives_bytes = 0;
+                std::uint32_t m_rtcp_receives_packets = 0;
+            };
+            
             std::string type;
             std::string pubId;
             std::string globalId;
@@ -43,6 +56,7 @@ namespace cfgo
             MsgBuffer m_rtp_cache;
             MsgBuffer m_rtcp_cache;
             uint32_t m_seq;
+            Statistics m_statistics;
             std::shared_ptr<Client> m_client;
             asiochan::channel<void, 1> m_msg_notify;
             asiochan::channel<void, 1> m_open_notify;
@@ -65,6 +79,24 @@ namespace cfgo
             auto await_msg(cfgo::Track::MsgType msg_type, close_chan close_ch) -> asio::awaitable<cfgo::Track::MsgPtr>;
             void bind_client(std::shared_ptr<Client> client);
             void * get_gst_caps(int pt) const;
+            std::uint64_t get_rtp_drops_bytes() const noexcept;
+            std::uint32_t get_rtp_drops_packets() const noexcept;
+            std::uint64_t get_rtp_receives_bytes() const noexcept;
+            std::uint32_t get_rtp_receives_packets() const noexcept;
+            float get_rtp_drop_bytes_rate() const noexcept;
+            float get_rtp_drop_packets_rate() const noexcept;
+            std::uint32_t get_rtp_packet_mean_size() const noexcept;
+            void reset_rtp_data() noexcept;
+            std::uint64_t get_rtcp_drops_bytes() const noexcept;
+            std::uint32_t get_rtcp_drops_packets() const noexcept;
+            std::uint64_t get_rtcp_receives_bytes() const noexcept;
+            std::uint32_t get_rtcp_receives_packets() const noexcept;
+            float get_rtcp_drop_bytes_rate() const noexcept;
+            float get_rtcp_drop_packets_rate() const noexcept;
+            std::uint32_t get_rtcp_packet_mean_size() const noexcept;
+            void reset_rtcp_data() noexcept;
+            float get_drop_bytes_rate() const noexcept;
+            float get_drop_packets_rate() const noexcept;
         };
     } // namespace impl
     

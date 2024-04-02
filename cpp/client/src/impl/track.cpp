@@ -177,7 +177,8 @@ namespace cfgo
         }
 
         void Track::on_track_msg(rtc::binary data) {
-            MsgBuffer & cache = rtc::IsRtcp(data) ? m_rtcp_cache : m_rtp_cache;
+            bool is_rtcp = rtc::IsRtcp(data);
+            MsgBuffer & cache = is_rtcp ? m_rtcp_cache : m_rtp_cache;
             std::lock_guard g(m_lock);
             if (m_seq == 0xffffffff)
             {
@@ -191,6 +192,26 @@ namespace cfgo
                     v.first -= offset;
                 }
                 m_seq -= offset;
+            }
+            if (is_rtcp)
+            {
+                m_statistics.m_rtcp_receives_bytes += data.size();
+                ++m_statistics.m_rtcp_receives_packets;
+                if (cache.full())
+                {
+                    m_statistics.m_rtcp_drops_bytes += data.size();
+                    ++m_statistics.m_rtcp_drops_packets;
+                }
+            }
+            else
+            {
+                m_statistics.m_rtp_receives_bytes += data.size();
+                ++m_statistics.m_rtp_receives_packets;
+                if (cache.full())
+                {
+                    m_statistics.m_rtp_drops_bytes += data.size();
+                    ++m_statistics.m_rtp_drops_packets;
+                }
             }
             cache.push_back(std::make_pair(m_seq++, std::make_unique<rtc::binary>(std::move(data))));
             std::ignore = m_msg_notify.try_write();
@@ -422,6 +443,178 @@ namespace cfgo
 #else
             throw cpptrace::logic_error("The gstreamer support is disabled, so to_gst_caps method is not supported. Please enable gstreamer support by set cmake GSTREAMER_SUPPORT option to ON.");
 #endif
+        }
+
+        std::uint64_t Track::get_rtp_drops_bytes() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            return m_statistics.m_rtp_drops_bytes;
+        }
+
+        std::uint32_t Track::get_rtp_drops_packets() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            return m_statistics.m_rtp_drops_packets;
+        }
+
+        std::uint64_t Track::get_rtp_receives_bytes() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            return m_statistics.m_rtp_receives_bytes;
+        }
+
+        std::uint32_t Track::get_rtp_receives_packets() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            return m_statistics.m_rtp_receives_packets;
+        }
+
+        float Track::get_rtp_drop_bytes_rate() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            if (m_statistics.m_rtp_receives_bytes > 0)
+            {
+                return 1.0f * m_statistics.m_rtp_drops_bytes / m_statistics.m_rtp_receives_bytes;
+            }
+            else
+            {
+                return 0.0f;
+            }
+        }
+
+        float Track::get_rtp_drop_packets_rate() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            if (m_statistics.m_rtp_receives_packets > 0)
+            {
+                return 1.0f * m_statistics.m_rtp_drops_packets / m_statistics.m_rtp_receives_packets;
+            }
+            else
+            {
+                return 0.0f;
+            }
+        }
+
+        std::uint32_t Track::get_rtp_packet_mean_size() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            if (m_statistics.m_rtp_receives_packets > 0)
+            {
+                return static_cast<std::uint32_t>(m_statistics.m_rtp_receives_bytes / m_statistics.m_rtp_receives_packets);
+            }
+            else
+            {
+                return 0;
+            }
+        }
+
+        void Track::reset_rtp_data() noexcept
+        {
+            std::lock_guard g(m_lock);
+            m_statistics.m_rtp_drops_bytes = 0;
+            m_statistics.m_rtp_drops_packets = 0;
+            m_statistics.m_rtp_receives_bytes = 0;
+            m_statistics.m_rtp_receives_packets = 0;
+        }
+
+        std::uint64_t Track::get_rtcp_drops_bytes() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            return m_statistics.m_rtcp_drops_bytes;
+        }
+
+        std::uint32_t Track::get_rtcp_drops_packets() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            return m_statistics.m_rtcp_drops_packets;
+        }
+
+        std::uint64_t Track::get_rtcp_receives_bytes() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            return m_statistics.m_rtcp_receives_bytes;
+        }
+
+        std::uint32_t Track::get_rtcp_receives_packets() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            return m_statistics.m_rtcp_receives_packets;
+        }
+
+        float Track::get_rtcp_drop_bytes_rate() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            if (m_statistics.m_rtcp_receives_bytes > 0)
+            {
+                return 1.0f * m_statistics.m_rtcp_drops_bytes / m_statistics.m_rtcp_receives_bytes;
+            }
+            else
+            {
+                return 0.0f;
+            }
+        }
+
+        float Track::get_rtcp_drop_packets_rate() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            if (m_statistics.m_rtcp_receives_packets > 0)
+            {
+                return 1.0f * m_statistics.m_rtcp_drops_packets / m_statistics.m_rtcp_receives_packets;
+            }
+            else
+            {
+                return 0.0f;
+            }
+        }
+
+        std::uint32_t Track::get_rtcp_packet_mean_size() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            if (m_statistics.m_rtcp_receives_packets > 0)
+            {
+                return static_cast<std::uint32_t>(m_statistics.m_rtcp_receives_bytes / m_statistics.m_rtcp_receives_packets);
+            }
+            else
+            {
+                return 0;
+            }
+        }
+
+        void Track::reset_rtcp_data() noexcept
+        {
+            std::lock_guard g(m_lock);
+            m_statistics.m_rtcp_drops_bytes = 0;
+            m_statistics.m_rtcp_drops_packets = 0;
+            m_statistics.m_rtcp_receives_bytes = 0;
+            m_statistics.m_rtcp_receives_packets = 0;
+        }
+
+        float Track::get_drop_bytes_rate() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            if (m_statistics.m_rtp_receives_bytes > 0 || m_statistics.m_rtcp_receives_bytes)
+            {
+                return 1.0f * (m_statistics.m_rtp_drops_bytes + m_statistics.m_rtcp_drops_bytes) 
+                    / (m_statistics.m_rtp_receives_bytes + m_statistics.m_rtcp_receives_bytes);
+            }
+            else
+            {
+                return 0.0f;
+            }
+        }
+
+        float Track::get_drop_packets_rate() const noexcept
+        {
+            std::lock_guard g(m_lock);
+            if (m_statistics.m_rtp_receives_packets > 0 || m_statistics.m_rtcp_receives_packets)
+            {
+                return 1.0f * (m_statistics.m_rtp_drops_packets + m_statistics.m_rtcp_drops_packets) 
+                    / (m_statistics.m_rtp_receives_packets + m_statistics.m_rtcp_receives_packets);
+            }
+            else
+            {
+                return 0.0f;
+            }
         }
     } // namespace impl
     

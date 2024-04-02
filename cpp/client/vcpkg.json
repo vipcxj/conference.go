@@ -29,6 +29,9 @@
     "boost-lexical-cast",
     "gtest",
     "poco",
-    "libunwind"
+    {
+      "name": "libunwind",
+      "platform": "linux"
+    }
   ]
 }

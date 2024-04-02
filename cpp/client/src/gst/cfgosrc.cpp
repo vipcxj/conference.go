@@ -263,6 +263,7 @@ namespace cfgo
         GstCaps * request_pt_map(GstElement *src, guint session_id, guint pt, CfgoSrc *self)
         {
             spdlog::debug("[session {}] reqiest pt {}", session_id, pt);
+            std::lock_guard lock(self->m_mutex);
             auto & session = self->m_sessions[session_id];
             return (GstCaps *) session.m_track->get_gst_caps(pt);
         }
@@ -329,101 +330,127 @@ namespace cfgo
             spdlog::debug("Start the {} data task of session {}.", msg_type, session.m_id);
             do
             {
-                TryOption try_option;
-                guint64 read_timeout;
+                assert (msg_type != Track::MsgType::ALL);
+                if (msg_type == Track::MsgType::RTP)
                 {
-                    std::lock_guard lock(m_mutex);
-                    try_option = m_read_try_option;
-                    read_timeout = m_read_timeout;
+                    co_await chan_read_or_throw<void>(m_rtp_need_data_ch, m_close_ch);
                 }
-                auto self = shared_from_this();
-                auto track = session.m_track;
-                auto read_task = [self, track, msg_type](auto try_times, auto timeout_closer) -> asio::awaitable<Track::MsgPtr>
+                else
                 {
-                    if (try_times > 1)
+                    co_await chan_read_or_throw<void>(m_rtcp_need_data_ch, m_close_ch);
+                }
+                do
+                {   
+                    TryOption try_option;
+                    guint64 read_timeout;
                     {
-                        spdlog::debug("Read {} data timeout after {} ms. Tring the {} time.", msg_type, std::chrono::duration_cast<std::chrono::milliseconds>(timeout_closer.get_timeout()), Nth{try_times});
+                        std::lock_guard lock(m_mutex);
+                        try_option = m_read_try_option;
+                        read_timeout = m_read_timeout;
                     }
-                    Track::MsgPtr msg_ptr = std::move(co_await track->await_msg(msg_type, timeout_closer));
-                    co_return msg_ptr;
-                };
-                auto msg_ptr = co_await async_retry<Track::MsgPtr>(
-                    std::chrono::milliseconds {read_timeout},
-                    try_option,
-                    read_task,
-                    [](const Track::MsgPtr & msg) -> bool {
-                        return !msg;
-                    },
-                    m_close_ch
-                );
-                if (!msg_ptr || m_close_ch.is_closed())
-                {
-                    if (!m_close_ch.is_closed())
+                    auto self = shared_from_this();
+                    auto track = session.m_track;
+                    auto read_task = [self, track, msg_type](auto try_times, auto timeout_closer) -> asio::awaitable<Track::MsgPtr>
                     {
-                        auto error = steal_shared_g_error(create_gerror_timeout(
-                            fmt::format("Timeout to read subsrcibed track {} data", (msg_type == Track::MsgType::RTP ? "rtp" : "rtcp"))
-                        ));
+                        if (try_times > 1)
+                        {
+                            spdlog::debug("Read {} data timeout after {} ms. Tring the {} time.", msg_type, std::chrono::duration_cast<std::chrono::milliseconds>(timeout_closer.get_timeout()), Nth{try_times});
+                        }
+                        Track::MsgPtr msg_ptr = std::move(co_await track->await_msg(msg_type, timeout_closer));
+                        co_return msg_ptr;
+                    };
+                    auto msg_ptr = co_await async_retry<Track::MsgPtr>(
+                        std::chrono::milliseconds {read_timeout},
+                        try_option,
+                        read_task,
+                        [](const Track::MsgPtr & msg) -> bool {
+                            return !msg;
+                        },
+                        m_close_ch
+                    );
+                    if (!msg_ptr || m_close_ch.is_closed())
+                    {
+                        if (!m_close_ch.is_closed())
+                        {
+                            auto error = steal_shared_g_error(create_gerror_timeout(
+                                fmt::format("Timeout to read subsrcibed track {} data", (msg_type == Track::MsgType::RTP ? "rtp" : "rtcp"))
+                            ));
+                            _safe_use_owner<void>([error](auto owner) {
+                                cfgo_error_submit(GST_ELEMENT(owner), error.get());
+                            });
+                        }
+                        co_return;
+                    }
+                    auto msg = std::move(msg_ptr.value());
+                    if (!msg)
+                    {
+                        spdlog::debug("It seems that the track is closed.");
+                        co_return;
+                    }
+                    
+                    spdlog::trace("Received {} bytes {} data.", msg->size(), msg_type);
+                    auto buffer = _safe_use_owner<GstBuffer *>([&msg](auto owner) {
+                        GstBuffer *buffer;
+                        buffer = gst_buffer_new_and_alloc(msg->size());
+                        auto clock = gst_element_get_clock(GST_ELEMENT(owner));
+                        if (!clock)
+                        {
+                            clock = gst_system_clock_obtain();
+                        }
+                        DEFER({
+                            gst_object_unref(clock);
+                        });
+                        auto time_now = gst_clock_get_time(clock);
+                        auto runing_time = time_now - gst_element_get_base_time(GST_ELEMENT(owner));
+                        GST_BUFFER_PTS(buffer) = GST_BUFFER_DTS(buffer) = runing_time;
+                        return buffer;
+                    });
+                    if (!buffer)
+                    {
+                        co_return;
+                    }
+                    GstMapInfo info = GST_MAP_INFO_INIT;
+                    if (!gst_buffer_map(buffer.value(), &info, GST_MAP_READWRITE))
+                    {
+                        auto error = steal_shared_g_error(create_gerror_general("Unable to map the buffer", true));
                         _safe_use_owner<void>([error](auto owner) {
                             cfgo_error_submit(GST_ELEMENT(owner), error.get());
                         });
-                    }
-                    co_return;
-                }
-                auto msg = std::move(msg_ptr.value());
-                if (!msg)
-                {
-                    spdlog::debug("It seems that the track is closed.");
-                    co_return;
-                }
-                
-                spdlog::trace("Received {} bytes {} data.", msg->size(), msg_type);
-                auto buffer = _safe_use_owner<GstBuffer *>([&msg](auto owner) {
-                    GstBuffer *buffer;
-                    buffer = gst_buffer_new_and_alloc(msg->size());
-                    auto clock = gst_element_get_clock(GST_ELEMENT(owner));
-                    if (!clock)
-                    {
-                        clock = gst_system_clock_obtain();
+                        co_return;
                     }
                     DEFER({
-                        gst_object_unref(clock);
+                        gst_buffer_unmap(buffer.value(), &info);
                     });
-                    auto time_now = gst_clock_get_time(clock);
-                    auto runing_time = time_now - gst_element_get_base_time(GST_ELEMENT(owner));
-                    GST_BUFFER_PTS(buffer) = GST_BUFFER_DTS(buffer) = runing_time;
-                    return buffer;
-                });
-                if (!buffer)
-                {
-                    co_return;
-                }
-                GstMapInfo info = GST_MAP_INFO_INIT;
-                if (!gst_buffer_map(buffer.value(), &info, GST_MAP_READWRITE))
-                {
-                    auto error = steal_shared_g_error(create_gerror_general("Unable to map the buffer", true));
-                    _safe_use_owner<void>([error](auto owner) {
-                        cfgo_error_submit(GST_ELEMENT(owner), error.get());
-                    });
-                    co_return;
-                }
-                DEFER({
-                    gst_buffer_unmap(buffer.value(), &info);
-                });
-                memcpy(info.data, msg->data(), msg->size());
-                if (!_safe_use_owner<void>([msg_type, buffer = buffer.value()](auto owner) {
-                    spdlog::trace("Push {} bytes {} buffer.", gst_buffer_get_size(buffer), msg_type);
+                    memcpy(info.data, msg->data(), msg->size());
+                    if (!_safe_use_owner<void>([msg_type, buffer = buffer.value()](auto owner) {
+                        spdlog::trace("Push {} bytes {} buffer.", gst_buffer_get_size(buffer), msg_type);
+                        if (msg_type == Track::MsgType::RTP)
+                        {
+                            push_rtp_buffer(owner, buffer);
+                        }
+                        else if (msg_type == Track::MsgType::RTCP)
+                        {
+                            push_rtcp_buffer(owner, buffer);
+                        }
+                    }))
+                    {
+                        co_return;
+                    }
                     if (msg_type == Track::MsgType::RTP)
                     {
-                        push_rtp_buffer(owner, buffer);
+                        if (m_rtp_enough_data_ch.try_read())
+                        {
+                            break;
+                        }
                     }
-                    else if (msg_type == Track::MsgType::RTCP)
+                    else
                     {
-                        push_rtcp_buffer(owner, buffer);
+                        if (m_rtcp_enough_data_ch.try_read())
+                        {
+                            break;
+                        }
                     }
-                }))
-                {
-                    co_return;
-                }
+                } while (true);
             } while (true);
         }
 

@@ -62,6 +62,26 @@ namespace cfgo
          * immediately return a msg or nullptr if no msg available.
         */
         MsgPtr receive_msg(MsgType msg_type);
+
+        std::uint64_t get_rtp_drops_bytes() const noexcept;
+        std::uint32_t get_rtp_drops_packets() const noexcept;
+        std::uint64_t get_rtp_receives_bytes() const noexcept;
+        std::uint32_t get_rtp_receives_packets() const noexcept;
+        float get_rtp_drop_bytes_rate() const noexcept;
+        float get_rtp_drop_packets_rate() const noexcept;
+        std::uint32_t get_rtp_packet_mean_size() const noexcept;
+        void reset_rtp_data() noexcept;
+        std::uint64_t get_rtcp_drops_bytes() const noexcept;
+        std::uint32_t get_rtcp_drops_packets() const noexcept;
+        std::uint64_t get_rtcp_receives_bytes() const noexcept;
+        std::uint32_t get_rtcp_receives_packets() const noexcept;
+        float get_rtcp_drop_bytes_rate() const noexcept;
+        float get_rtcp_drop_packets_rate() const noexcept;
+        std::uint32_t get_rtcp_packet_mean_size() const noexcept;
+        void reset_rtcp_data() noexcept;
+        float get_drop_bytes_rate() const noexcept;
+        float get_drop_packets_rate() const noexcept;
+
         friend class impl::Client;
     };
     

@@ -50,5 +50,77 @@ namespace cfgo
     {
         return impl()->get_gst_caps(pt);
     }
+    std::uint64_t Track::get_rtp_drops_bytes() const noexcept
+    {
+        return impl()->get_rtp_drops_bytes();
+    }
+    std::uint32_t Track::get_rtp_drops_packets() const noexcept
+    {
+        return impl()->get_rtp_drops_packets();
+    }
+    std::uint64_t Track::get_rtp_receives_bytes() const noexcept
+    {
+        return impl()->get_rtp_receives_bytes();
+    }
+    std::uint32_t Track::get_rtp_receives_packets() const noexcept
+    {
+        return impl()->get_rtp_receives_packets();
+    }
+    float Track::get_rtp_drop_bytes_rate() const noexcept
+    {
+        return impl()->get_rtp_drop_bytes_rate();
+    }
+    float Track::get_rtp_drop_packets_rate() const noexcept
+    {
+        return impl()->get_rtp_drop_packets_rate();
+    }
+    std::uint32_t Track::get_rtp_packet_mean_size() const noexcept
+    {
+        return impl()->get_rtp_packet_mean_size();
+    }
+    void Track::reset_rtp_data() noexcept
+    {
+        impl()->reset_rtp_data();
+    }
+    std::uint64_t Track::get_rtcp_drops_bytes() const noexcept
+    {
+        return impl()->get_rtcp_drops_bytes();
+    }
+    std::uint32_t Track::get_rtcp_drops_packets() const noexcept
+    {
+        return impl()->get_rtcp_drops_packets();
+    }
+    std::uint64_t Track::get_rtcp_receives_bytes() const noexcept
+    {
+        return impl()->get_rtcp_receives_bytes();
+    }
+    std::uint32_t Track::get_rtcp_receives_packets() const noexcept
+    {
+        return impl()->get_rtcp_receives_packets();
+    }
+    float Track::get_rtcp_drop_bytes_rate() const noexcept
+    {
+        return impl()->get_rtcp_drop_bytes_rate();
+    }
+    float Track::get_rtcp_drop_packets_rate() const noexcept
+    {
+        return impl()->get_rtcp_drop_packets_rate();
+    }
+    std::uint32_t Track::get_rtcp_packet_mean_size() const noexcept
+    {
+        return impl()->get_rtcp_packet_mean_size();
+    }
+    void Track::reset_rtcp_data() noexcept
+    {
+        impl()->reset_rtcp_data();
+    }
+    float Track::get_drop_bytes_rate() const noexcept
+    {
+        return impl()->get_drop_bytes_rate();
+    }
+    float Track::get_drop_packets_rate() const noexcept
+    {
+        return impl()->get_drop_packets_rate();
+    }
 
 } // namespace cfgo
