@@ -81,6 +81,36 @@ namespace cfgo
 {
     namespace gst
     {
+        gulong rtp_src_add_need_data_callback(GstCfgoSrc * parent, GCallback cb, void * user_data)
+        {
+            return g_signal_connect(parent->priv->rtpsrc, "need-data", G_CALLBACK(cb), user_data);
+        }
+
+        gulong rtp_src_add_enough_data_callback(GstCfgoSrc * parent, GCallback cb, void * user_data)
+        {
+            return g_signal_connect(parent->priv->rtpsrc, "enough-data", G_CALLBACK(cb), user_data);
+        }
+
+        gulong rtcp_src_add_need_data_callback(GstCfgoSrc * parent, GCallback cb, void * user_data)
+        {
+            return g_signal_connect(parent->priv->rtcpsrc, "need-data", G_CALLBACK(cb), user_data);
+        }
+
+        gulong rtcp_src_add_enough_data_callback(GstCfgoSrc * parent, GCallback cb, void * user_data)
+        {
+            return g_signal_connect(parent->priv->rtcpsrc, "enough-data", G_CALLBACK(cb), user_data);
+        }
+
+        void rtp_src_remove_callback(GstCfgoSrc * parent, gulong handle)
+        {
+            g_signal_handler_disconnect(parent->priv->rtpsrc, handle);
+        }
+
+        void rtcp_src_remove_callback(GstCfgoSrc * parent, gulong handle)
+        {
+            g_signal_handler_disconnect(parent->priv->rtcpsrc, handle);
+        }
+
         void link_rtp_src(GstCfgoSrc * parent, GstPad * pad)
         {
             auto src_pad = gst_element_get_static_pad(parent->priv->rtpsrc, "src");
@@ -330,6 +360,7 @@ void _gst_cfgosrc_prepare(GstCfgoSrc *cfgosrc, bool reset_task)
                     cfgosrc->pattern, cfgosrc->req_types, 
                     cfgosrc->sub_timeout, cfgosrc->read_timeout
                 );
+                spdlog::debug("task use_count: {}.", GST_CFGOSRC_PVS(cfgosrc)->task.use_count());
                 GST_DEBUG_OBJECT(cfgosrc, "%s", "Attaching the task.");
                 GST_CFGOSRC_PVS(cfgosrc)->task->attach(cfgosrc);
                 GST_DEBUG_OBJECT(cfgosrc, "%s", "Starting the task.");
@@ -707,7 +738,7 @@ void gst_cfgosrc_dispose(GObject *object)
         {
             GST_CFGOSRC_PVS(cfgosrc)->task->detach();
             spdlog::debug("cfgosrc destroy.");
-            GST_CFGOSRC_PVS(cfgosrc)->task = nullptr;
+            GST_CFGOSRC_PVS(cfgosrc)->task.reset();
         }
     }
     G_OBJECT_CLASS(gst_cfgosrc_parent_class)->dispose(object);

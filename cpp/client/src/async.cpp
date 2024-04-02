@@ -190,12 +190,9 @@ namespace cfgo
             if (m_timeout != duration_t {0})
             {
                 m_timer->expires_after(m_timeout);
-                asio::co_spawn(executor, [weak_self = weak_from_this()]() mutable -> asio::awaitable<void> {
-                    if (auto self = weak_self.lock())
-                    {
-                        co_await self->timer_task();
-                    }
-                }, asio::detached);
+                asio::co_spawn(executor, fix_async_lambda([self = shared_from_this()]() -> asio::awaitable<void> {
+                    co_await self->timer_task();
+                }), asio::detached);
             }
         }
 
@@ -398,12 +395,9 @@ namespace cfgo
                 else if (old_timeout == duration_t {0})
                 {
                     m_timer->expires_after(dur);
-                    asio::co_spawn(m_timer->get_executor(), [weak_self = weak_from_this()]() mutable -> asio::awaitable<void> {
-                        if (auto self = weak_self.lock())
-                        {
-                            co_await self->timer_task();
-                        }
-                    }, asio::detached);
+                    asio::co_spawn(m_timer->get_executor(), fix_async_lambda([self = shared_from_this()]() -> asio::awaitable<void> {
+                        co_await self->timer_task();
+                    }), asio::detached);
                 }
                 else
                 {

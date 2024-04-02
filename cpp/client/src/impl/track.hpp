@@ -9,6 +9,7 @@
 #include <cstdint>
 #include "cfgo/config/configuration.h"
 #include "cfgo/track.hpp"
+#include "cfgo/async.hpp"
 #include "impl/client.hpp"
 #include "boost/circular_buffer.hpp"
 #ifdef CFGO_SUPPORT_GSTREAMER

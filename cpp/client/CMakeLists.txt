@@ -132,6 +132,8 @@ find_package(sioclient CONFIG REQUIRED)
 find_package(LibDataChannel CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
+pkg_check_modules(libunwind REQUIRED IMPORTED_TARGET GLOBAL libunwind)
+
 #list(APPEND CMAKE_INSTALL_RPATH [=[$ORIGIN/../lib]=])
 
 function(link_gstreamer target)
@@ -258,6 +260,7 @@ if(GSTREAMER_SUPPORT)
             $<TARGET_FILE_DIR:test-gst>
         )
     endif(WIN32)
+    target_link_libraries(test-gst PRIVATE PkgConfig::libunwind)
 endif()
 
 add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")

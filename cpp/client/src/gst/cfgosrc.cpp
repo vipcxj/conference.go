@@ -15,10 +15,7 @@ namespace cfgo
     namespace gst
     {
         CfgoSrcSPtr::CfgoSrcSPtr(CfgoSrc * pt): PT(pt) {
-            if (pt)
-            {
-                spdlog::debug("CfgoSrcSPtr create.");
-            }
+            spdlog::debug("CfgoSrcSPtr create with {:p}.", fmt::ptr(pt));
         };
         CfgoSrcSPtr::CfgoSrcSPtr(const CfgoSrcSPtr & other): PT(other) {
             spdlog::debug("CfgoSrcSPtr copy.");
@@ -27,10 +24,7 @@ namespace cfgo
             spdlog::debug("CfgoSrcSPtr move.");
         }
         CfgoSrcSPtr::~CfgoSrcSPtr() {
-            if (get())
-            {
-                spdlog::debug("CfgoSrcSPtr destroy.");
-            }
+            spdlog::debug("CfgoSrcSPtr destroy with {:p}.", fmt::ptr(get()));
         };
         CfgoSrcSPtr & CfgoSrcSPtr::operator=(const CfgoSrcSPtr & other)
         {
@@ -51,6 +45,7 @@ namespace cfgo
             m_sub_timeout(sub_timeout), 
             m_read_timeout(read_timeout)
         {
+            spdlog::trace("cfgosrc created");
             cfgo_pattern_parse(pattern_json, m_pattern);
             cfgo_req_types_parse(req_types_str, m_req_types);
         }
@@ -138,6 +133,22 @@ namespace cfgo
                 }
             }
             m_sessions.clear();
+            if (m_rtpsrc_enough_data)
+            {
+                rtp_src_remove_callback(m_owner, m_rtpsrc_enough_data);
+            }
+            if (m_rtpsrc_need_data)
+            {
+                rtp_src_remove_callback(m_owner, m_rtpsrc_need_data);
+            }
+            if (m_rtcpsrc_enough_data)
+            {
+                rtcp_src_remove_callback(m_owner, m_rtcpsrc_enough_data);
+            }
+            if (m_rtcpsrc_need_data)
+            {
+                rtcp_src_remove_callback(m_owner, m_rtcpsrc_need_data);
+            }
             if (m_rtp_bin)
             {
                 if (m_request_pt_map)
@@ -178,23 +189,21 @@ namespace cfgo
                 }
                 m_state = RUNNING;
             }
+            auto weak_self = weak_from_this();
             asio::co_spawn(
                 asio::get_associated_executor(m_client->execution_context()),
-                [weak_self = weak_from_this()]() -> asio::awaitable<void> {
-                    if (auto self = weak_self.lock())
+                fix_async_lambda([self = shared_from_this()]() -> asio::awaitable<void> {
+                    try
                     {
-                        try
-                        {
-                            co_await self->_loop();
-                            self->stop();
-                            spdlog::debug("Exit loop.");
-                        }
-                        catch(...)
-                        {
-                            spdlog::debug("Exit loop because {}", what());
-                        }
+                        co_await self->_loop();
+                        self->stop();
+                        spdlog::debug("Exit loop.");
                     }
-                },
+                    catch(...)
+                    {
+                        spdlog::debug("Exit loop because {}", what());
+                    }
+                }),
                 asio::detached
             );
             spdlog::debug("started.");
@@ -227,6 +236,30 @@ namespace cfgo
             m_close_ch.close("the method cfgosrc::stop called.");
         }
 
+        void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)
+        {
+            spdlog::debug("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
+            std::ignore = self->m_rtp_need_data_ch.try_write();
+        }
+
+        void rtpsrc_enough_data(GstElement * appsrc, CfgoSrc *self)
+        {
+            spdlog::debug("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
+            std::ignore = self->m_rtp_enough_data_ch.try_write();
+        }
+
+        void rtcpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)
+        {
+            spdlog::debug("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
+            std::ignore = self->m_rtcp_need_data_ch.try_write();
+        }
+
+        void rtcpsrc_enough_data(GstElement * appsrc, CfgoSrc *self)
+        {
+            spdlog::debug("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
+            std::ignore = self->m_rtcp_enough_data_ch.try_write();
+        }
+
         GstCaps * request_pt_map(GstElement *src, guint session_id, guint pt, CfgoSrc *self)
         {
             spdlog::debug("[session {}] reqiest pt {}", session_id, pt);
@@ -252,6 +285,10 @@ namespace cfgo
             {
                 throw cpptrace::runtime_error("Unable to create rtpbin.");
             }
+            m_rtpsrc_enough_data = rtp_src_add_enough_data_callback(owner, G_CALLBACK(rtpsrc_enough_data), this);
+            m_rtpsrc_need_data = rtp_src_add_need_data_callback(owner, G_CALLBACK(rtpsrc_need_data), this);
+            m_rtcpsrc_enough_data = rtcp_src_add_enough_data_callback(owner, G_CALLBACK(rtcpsrc_enough_data), this);
+            m_rtcpsrc_need_data = rtcp_src_add_need_data_callback(owner, G_CALLBACK(rtcpsrc_need_data), this);
             m_request_pt_map = g_signal_connect(m_rtp_bin, "request-pt-map", G_CALLBACK(request_pt_map), this);
             m_pad_added_handler = g_signal_connect(m_rtp_bin, "pad-added", G_CALLBACK(pad_added_handler), this);
             m_pad_removed_handler = g_signal_connect(m_rtp_bin, "pad-removed", G_CALLBACK(pad_removed_handler), this);
@@ -299,17 +336,21 @@ namespace cfgo
                     try_option = m_read_try_option;
                     read_timeout = m_read_timeout;
                 }
+                auto self = shared_from_this();
+                auto track = session.m_track;
+                auto read_task = [self, track, msg_type](auto try_times, auto timeout_closer) -> asio::awaitable<Track::MsgPtr>
+                {
+                    if (try_times > 1)
+                    {
+                        spdlog::debug("Read {} data timeout after {} ms. Tring the {} time.", msg_type, std::chrono::duration_cast<std::chrono::milliseconds>(timeout_closer.get_timeout()), Nth{try_times});
+                    }
+                    Track::MsgPtr msg_ptr = std::move(co_await track->await_msg(msg_type, timeout_closer));
+                    co_return msg_ptr;
+                };
                 auto msg_ptr = co_await async_retry<Track::MsgPtr>(
                     std::chrono::milliseconds {read_timeout},
                     try_option,
-                    [self = shared_from_this(), track = session.m_track, msg_type](auto try_times, auto timeout_closer) -> asio::awaitable<Track::MsgPtr> {                        
-                        if (try_times > 1)
-                        {
-                            spdlog::debug("Read {} data timeout after {} ms. Tring the {} time.", msg_type, std::chrono::duration_cast<std::chrono::milliseconds>(timeout_closer.get_timeout()), Nth{try_times});
-                        }
-                        Track::MsgPtr msg_ptr = std::move(co_await track->await_msg(msg_type, timeout_closer));
-                        co_return msg_ptr;
-                    },
+                    read_task,
                     [](const Track::MsgPtr & msg) -> bool {
                         return !msg;
                     },
@@ -336,7 +377,7 @@ namespace cfgo
                 }
                 
                 spdlog::trace("Received {} bytes {} data.", msg->size(), msg_type);
-                auto buffer = _safe_use_owner<GstBuffer *>([&](auto owner) {
+                auto buffer = _safe_use_owner<GstBuffer *>([&msg](auto owner) {
                     GstBuffer *buffer;
                     buffer = gst_buffer_new_and_alloc(msg->size());
                     auto clock = gst_element_get_clock(GST_ELEMENT(owner));
@@ -398,20 +439,23 @@ namespace cfgo
                     sub_timeout = m_sub_timeout;
                     sub_try_option = m_sub_try_option;
                 }
+                auto self = shared_from_this();
+                auto sub_task = [self](auto try_times, auto timeout_closer) -> asio::awaitable<SubPtr>
+                {
+                    if (try_times > 1)
+                    {
+                        spdlog::debug("Subscribing timeout after {}. Tring the {} time.", timeout_closer.get_timeout(), Nth{try_times});
+                    }
+                    spdlog::trace("Arg pattern: {}", self->m_pattern);
+                    spdlog::trace("Arg req_types: {}", self->m_req_types);
+                    auto sub = co_await self->m_client->subscribe(self->m_pattern, self->m_req_types, timeout_closer);
+                    co_return sub;
+                };
                 auto sub = co_await async_retry<SubPtr>(
                     std::chrono::milliseconds {sub_timeout},
                     sub_try_option, 
-                    [this](auto try_times, auto timeout_closer) -> asio::awaitable<SubPtr> {
-                        if (try_times > 1)
-                        {
-                            spdlog::debug("Subscribing timeout after {}. Tring the {} time.", timeout_closer.get_timeout(), Nth{try_times});
-                        }
-                        spdlog::trace("Arg pattern: {}", m_pattern);
-                        spdlog::trace("Arg req_types: {}", m_req_types);
-                        auto sub = co_await m_client->subscribe(m_pattern, m_req_types, timeout_closer);
-                        co_return sub;
-                    },
-                    [this](const SubPtr & sub) -> bool {
+                    sub_task,
+                    [](const SubPtr & sub) -> bool {
                         return !sub;
                     },
                     m_close_ch
@@ -439,18 +483,12 @@ namespace cfgo
                     {
                         co_return;
                     }
-                    tasks.add_task([weak_self = weak_from_this(), session = session.value()](auto closer) -> asio::awaitable<void> {
-                        if (auto self = weak_self.lock())
-                        {
-                            co_await self->_post_buffer(session, Track::MsgType::RTP);
-                        }
-                    });
-                    tasks.add_task([weak_self = weak_from_this(), session = session.value()](auto closer) -> asio::awaitable<void> {
-                        if (auto self = weak_self.lock())
-                        {
-                            co_await self->_post_buffer(session, Track::MsgType::RTCP);
-                        }
-                    });
+                    tasks.add_task(fix_async_lambda([self = shared_from_this(), session = session.value()](close_chan closer) -> asio::awaitable<void> {
+                        co_await self->_post_buffer(session, Track::MsgType::RTP);
+                    }));
+                    tasks.add_task(fix_async_lambda([self = shared_from_this(), session = session.value()](close_chan closer) -> asio::awaitable<void> {
+                        co_await self->_post_buffer(session, Track::MsgType::RTCP);
+                    }));
                 }
                 try
                 {

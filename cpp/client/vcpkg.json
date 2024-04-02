@@ -28,6 +28,7 @@
     "socket-io-client",
     "boost-lexical-cast",
     "gtest",
-    "poco"
+    "poco",
+    "libunwind"
   ]
 }

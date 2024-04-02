@@ -22,6 +22,18 @@ namespace cfgo
     extern close_chan INVALID_CLOSE_CHAN;
     using duration_t = std::chrono::steady_clock::duration;
 
+    template <typename F, typename ...Args>
+    auto invoke_async_lambda(F f, Args ...args)
+        -> decltype(f(args...))
+    { co_return co_await f(args...); }
+
+    template <typename F>
+    auto fix_async_lambda(F f) {
+        return [f](auto &&...args) {
+            return invoke_async_lambda(f, std::forward<decltype(args)>(args)...);
+        };
+    }
+
     namespace detail
     {
         class CloseSignalState;
@@ -121,8 +133,8 @@ namespace cfgo
 
     public:
         using value_t = T;
-        cancelable(const T & value): m_value(value) {}
-        cancelable(T && value): m_value(std::move(value)) {}
+        explicit cancelable(const T & value): m_value(value) {}
+        explicit cancelable(T && value): m_value(std::move(value)) {}
         cancelable(): m_value(false) {}
 
         auto value() & -> T & {
@@ -176,7 +188,7 @@ namespace cfgo
         bool m_canceled;
 
     public:
-        cancelable(bool value): m_value(value), m_canceled(false) {}
+        explicit cancelable(bool value): m_value(value), m_canceled(false) {}
         cancelable(): m_value(false), m_canceled(true) {}
 
         bool value() const {
@@ -239,7 +251,7 @@ namespace cfgo
         std::variant<TS...> m_value;
     public:
         using PC = cancelable<std::variant<TS...>>;
-        select_result(std::variant<TS...> v): m_value(v) {}
+        explicit select_result(std::variant<TS...> v): m_value(v) {}
 
         template <typename T>
         static constexpr bool is_alternative = (std::same_as<T, TS> or ...);
@@ -752,7 +764,6 @@ namespace cfgo
                         {
                             throw CancelError(true);
                         }
-                        auto alt = res.alternative();
                         co_return select_result<typename First_Op::result_type, typename Ops::result_type...>(magic::shift_variant(std::move(res).to_variant()));
                     }
                 }
@@ -833,8 +844,7 @@ namespace cfgo
             }
             else
             {
-                auto && v = co_await ch.read();
-                co_return v;
+                co_return co_await ch.read();
             }
         }
     }
@@ -882,17 +892,16 @@ namespace cfgo
     auto async_retry(
         std::chrono::nanoseconds timeout,
         const TryOption & option, 
-        std::function<asio::awaitable<T>(int, close_chan)> func, 
+        std::function<asio::awaitable<T>(int, close_chan)> && func, 
         std::function<bool(const T &)> retry_checker, 
         close_chan close_ch,
-        const std::string & timeout_reason = ""
+        std::string timeout_reason = ""
     ) -> asio::awaitable<cancelable<T>>
     {
         if (!is_valid_close_chan(close_ch))
         {
             throw cpptrace::runtime_error("The input close_ch arg must be a valid closer.");
         }
-        
         auto tried = option.m_tries, tries = option.m_tries;
         auto delay_init = option.m_delay_init;
         auto delay_step = option.m_delay_step;
@@ -1004,7 +1013,7 @@ namespace cfgo
                 {
                     asio::co_spawn(
                         executor,
-                        [i, close_ch = m_close_ch, data_ch = m_data_ch, task]() mutable -> asio::awaitable<T>
+                        fix_async_lambda([i, close_ch = m_close_ch, data_ch = m_data_ch, task]() mutable -> asio::awaitable<T>
                         {
                             std::exception_ptr except = nullptr;
                             try
@@ -1058,7 +1067,7 @@ namespace cfgo
                                 spdlog::trace("except writed without closer");
                             }
                             spdlog::trace("task exit.");
-                        },
+                        }),
                         asio::detached
                     );
                     ++i;
@@ -1126,7 +1135,7 @@ namespace cfgo
             {
                 result.push_back(*m_result[i]);
             }
-            return std::move(result);
+            return result;
         }
 
     public:
@@ -1139,7 +1148,7 @@ namespace cfgo
     {
         using PT = AsyncTasksBase<void, void>;
     protected:
-        auto _sync() -> asio::awaitable<void>
+        auto _sync() -> asio::awaitable<void> override
         {
             auto n = PT::m_tasks.size();
             for (size_t i = 0; i < n; i++)
@@ -1162,7 +1171,7 @@ namespace cfgo
             co_return;
         }
 
-        void _collect_result()
+        void _collect_result() override
         {}
 
     public:
@@ -1178,7 +1187,7 @@ namespace cfgo
         std::optional<T> m_result;
         std::vector<std::exception_ptr> m_excepts;
     protected:
-        auto _sync() -> asio::awaitable<void>
+        auto _sync() -> asio::awaitable<void> override
         {
             auto n = PT::m_tasks.size();
             m_excepts = std::vector<std::exception_ptr>(n, nullptr);
@@ -1234,7 +1243,7 @@ namespace cfgo
             co_return;
         }
 
-        auto _collect_result() -> T
+        auto _collect_result() -> T override
         {
             return *m_result;
         }
@@ -1251,7 +1260,7 @@ namespace cfgo
     private:
         std::vector<std::exception_ptr> m_excepts;
     protected:
-        auto _sync() -> asio::awaitable<void>
+        auto _sync() -> asio::awaitable<void> override
         {
             auto n = PT::m_tasks.size();
             m_excepts = std::vector<std::exception_ptr>(n, nullptr);
@@ -1306,7 +1315,7 @@ namespace cfgo
             co_return;
         }
 
-        void _collect_result()
+        void _collect_result() override
         {}
 
     public:

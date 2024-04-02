@@ -1,4 +1,5 @@
 #include "impl/track.hpp"
+#include "cfgo/defer.hpp"
 #include "cpptrace/cpptrace.hpp"
 #include "spdlog/spdlog.h"
 #ifdef CFGO_SUPPORT_GSTREAMER
@@ -274,14 +275,6 @@ namespace cfgo
 
         auto Track::await_msg(cfgo::Track::MsgType msg_type, close_chan close_ch) -> asio::awaitable<cfgo::Track::MsgPtr>
         {
-            auto self = weak_from_this().lock();
-            if (!self)
-            {
-                spdlog::warn("lose this when calling await_msg");
-                cpptrace::generate_trace().print_with_snippets(std::cout, cpptrace::isatty(cpptrace::stdout_fileno));
-                co_return nullptr;
-            }
-            
             if (!m_inited)
             {
                 throw cpptrace::logic_error("Before call await_msg, call prepare_track at first.");
@@ -289,13 +282,13 @@ namespace cfgo
             auto msg_ptr = receive_msg(msg_type);
             if (msg_ptr)
             {
-                spdlog::trace("await_msg: {} bytes", msg_ptr->size());
                 co_return std::move(msg_ptr);
             }
             if (is_valid_close_chan(close_ch) && close_ch.is_closed())
             {
                 co_return nullptr;
             }
+
             if (!co_await await_open_or_closed(close_ch))
             {
                 co_return nullptr;
@@ -338,10 +331,9 @@ namespace cfgo
                     }
                 }
 
-                auto msg_ptr = receive_msg(msg_type);
+                msg_ptr = receive_msg(msg_type);
                 if (msg_ptr)
                 {
-                    spdlog::trace("await_msg: {} bytes", msg_ptr->size());
                     co_return std::move(msg_ptr);
                 }
                 if (track->isClosed())

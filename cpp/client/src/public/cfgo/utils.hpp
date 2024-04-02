@@ -1,4 +1,3 @@
-#pragma once
 #ifndef _CFGO_UTILS_H_
 #define _CFGO_UTILS_H_
 #include <string>
@@ -91,9 +90,9 @@ namespace cfgo
     class ImplBy
     {
     public:
-        ImplBy(impl_ptr<T> impl) : mImpl(std::move(impl)) {}
+        explicit ImplBy(impl_ptr<T> impl) : mImpl(std::move(impl)) {}
         template <typename... Args>
-        ImplBy(Args... args) : mImpl(std::make_shared<T>(std::forward<Args>(args)...)) {}
+        explicit ImplBy(Args... args) : mImpl(std::make_shared<T>(std::forward<Args>(args)...)) {}
         ImplBy(ImplBy<T> &&cc) { *this = std::move(cc); }
         ImplBy(const ImplBy<T> &) = delete;
 

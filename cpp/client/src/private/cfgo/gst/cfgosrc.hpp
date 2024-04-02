@@ -49,6 +49,10 @@ namespace cfgo
             Pattern m_pattern;
             std::vector<std::string> m_req_types;
             close_chan m_close_ch;
+            asiochan::channel<void, 1> m_rtp_need_data_ch;
+            asiochan::channel<void, 1> m_rtp_enough_data_ch;
+            asiochan::channel<void, 1> m_rtcp_need_data_ch;
+            asiochan::channel<void, 1> m_rtcp_enough_data_ch;
             guint64 m_sub_timeout;
             TryOption m_sub_try_option;
             guint64 m_read_timeout;
@@ -57,6 +61,10 @@ namespace cfgo
             GstCfgoSrc * m_owner;
             bool m_detached;
             GstElement * m_rtp_bin;
+            gulong m_rtpsrc_need_data = 0;
+            gulong m_rtpsrc_enough_data = 0;
+            gulong m_rtcpsrc_need_data = 0;
+            gulong m_rtcpsrc_enough_data = 0;
             gulong m_request_pt_map = 0;
             gulong m_pad_added_handler = 0;
             gulong m_pad_removed_handler = 0;
@@ -103,7 +111,7 @@ namespace cfgo
             ~CfgoSrc();
 
             using UPtr = std::unique_ptr<CfgoSrc>;
-            using Ptr = CfgoSrcSPtr;
+            using Ptr = std::shared_ptr<CfgoSrc>;
             static auto create(
                 int client_handle, 
                 const char * pattern_json, 
@@ -122,6 +130,10 @@ namespace cfgo
             void resume();
             void stop();
 
+            friend void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self);
+            friend void rtpsrc_enough_data(GstElement * appsrc, CfgoSrc *self);
+            friend void rtcpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self);
+            friend void rtcpsrc_enough_data(GstElement * appsrc, CfgoSrc *self);
             friend GstCaps * request_pt_map(GstElement *src, guint session_id, guint pt, CfgoSrc *self);
             friend void pad_added_handler(GstElement *src, GstPad *new_pad, CfgoSrc *self);
             friend void pad_removed_handler(GstElement * src, GstPad * pad, CfgoSrc *self);

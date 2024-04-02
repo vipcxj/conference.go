@@ -381,7 +381,7 @@ CFGO_API int cfgo_client_subscribe(
         auto close_chan = close_chan_handle > 0 ? cfgo::get_close_chan(close_chan_handle) : nullptr;
         asio::co_spawn(
             asio::get_associated_executor(client->execution_context()),
-            [=]() -> asio::awaitable<void> {
+            cfgo::fix_async_lambda([=]() -> asio::awaitable<void> {
                 std::vector<std::string> arg_req_types;
                 cfgo::cfgo_req_types_parse(req_types, arg_req_types);
                 cfgo::Pattern p;
@@ -417,7 +417,7 @@ CFGO_API int cfgo_client_subscribe(
                         on_sub_callback(CFGO_ERR_FAILURE, user_data);
                     }
                 }
-            }, 
+            }), 
             asio::detached
         );
         return CFGO_ERR_SUCCESS;
