@@ -36,6 +36,8 @@ namespace cfgo
         CFGO_DECLARE_MAKE_SHARED(gst_element, GstElement);
         CFGO_DECLARE_MAKE_SHARED(gst_pad, GstPad);
         CFGO_DECLARE_STEAL_SHARED(g_error, GError);
+
+        std::string get_pad_full_name(GstPad * pad);
     } // namespace gst
 } // namespace cfgo
 

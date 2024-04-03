@@ -37,6 +37,118 @@ namespace cfgo
             return static_cast<CfgoSrcSPtr &>(PT::operator=(std::move(other)));
         }
 
+        CfgoSrc::Channel::~Channel()
+        {
+            if (m_pad)
+            {
+                gst_object_unref(m_pad);
+            }
+            if (m_processor)
+            {
+                gst_object_unref(m_processor);
+            }
+            if (!m_pads.empty())
+            {
+                spdlog::warn("m_pads should be empty when destructed.");
+            }
+            for (auto && pad : m_pads)
+            {
+                gst_object_unref(pad);
+            }
+            m_pads.clear();
+        }
+
+        bool CfgoSrc::Channel::match(GstPad * pad) const
+        {
+            if (m_pad == pad)
+            {
+                return true;
+            }
+            return std::find(m_pads.begin(), m_pads.end(), pad) != m_pads.end();
+        }
+
+        void CfgoSrc::Channel::install_ghost(GstCfgoSrcMode m_mode, GstCfgoSrc * owner, GstPad * pad, const std::string & ghost_name)
+        {
+            auto kclass = GST_ELEMENT_GET_CLASS(owner);
+            GstPadTemplate * templ = nullptr;
+            if (m_mode == GST_CFGO_SRC_MODE_RAW && ghost_name.starts_with("rtp_src_"))
+            {
+                templ = gst_element_class_get_pad_template(kclass, "rtp_src_%u_%u_%u");
+            }
+            else if (m_mode == GST_CFGO_SRC_MODE_PARSE && ghost_name.starts_with("parse_src_"))
+            {
+                templ = gst_element_class_get_pad_template(kclass, "parse_src_%u_%u_%u");
+                gst_object_ref(pad);
+                m_pads.push_back(pad);
+            }
+            else if (m_mode == GST_CFGO_SRC_MODE_DECODE && ghost_name.starts_with("decode_src_"))
+            {
+                templ = gst_element_class_get_pad_template(kclass, "decode_src_%u_%u_%u");
+                gst_object_ref(pad);
+                m_pads.push_back(pad);
+            }
+            auto gpad = gst_ghost_pad_new_from_template(ghost_name.c_str(), pad, templ);
+            g_object_set_data(G_OBJECT (pad), "GstCfgoSrc.ghostpad", gpad);
+            gst_pad_set_active(gpad, TRUE);
+            gst_pad_sticky_events_foreach(pad, copy_sticky_events, gpad);
+            gst_element_add_pad(GST_ELEMENT(owner), gpad);
+        }
+
+        void CfgoSrc::Channel::uninstall_ghost(GstCfgoSrc * owner, GstPad * pad, bool remove) {
+            auto gpad = g_object_get_data(G_OBJECT (pad), "GstCfgoSrc.ghostpad");
+            if (gpad)
+            {
+                gst_pad_set_active(GST_PAD(gpad), FALSE);
+                gst_element_remove_pad(GST_ELEMENT(owner), GST_PAD(gpad));
+                g_object_set_data(G_OBJECT (pad), "GstCfgoSrc.ghostpad", nullptr);
+            }
+            if (remove)
+            {
+                auto iter = std::begin(m_pads);
+                while (iter != std::end(m_pads))
+                {
+                    if (*iter == pad)
+                    {
+                        iter = m_pads.erase(iter);
+                        gst_object_unref(pad);
+                    }
+                    else
+                    {
+                        ++iter;
+                    }
+                }
+            }
+        }
+
+        auto CfgoSrc::Session::create_channel(CfgoSrc * parent, GstCfgoSrc * owner, guint ssrc, guint pt, GstPad * pad) -> Channel &
+        {
+            gst_object_ref(pad);
+            m_channels.push_back(
+                Channel{ .m_pad = pad, .m_sessid = m_id, .m_ssrc = ssrc, .m_pt = pt }
+            );
+            auto & channel = m_channels.back();
+            if (parent->m_mode == GST_CFGO_SRC_MODE_PARSE)
+            {
+                parent->_create_processor(owner, channel, "parsebin");
+            }
+            else if (parent->m_mode == GST_CFGO_SRC_MODE_DECODE)
+            {
+                parent->_create_processor(owner, channel, "decode");
+            }
+            return channel;
+        }
+
+        auto CfgoSrc::Session::find_channel(GstPad * pad) -> Channel &
+        {
+            auto iter = std::find_if(m_channels.begin(), m_channels.end(), [pad](const Channel & c) {
+                return c.match(pad);
+            });
+            if (iter != m_channels.end())
+            {
+                return *iter;
+            }
+            throw cpptrace::runtime_error(fmt::format("Unable to find the channel relate to {}", get_pad_full_name(pad)));
+        }
 
         CfgoSrc::CfgoSrc(int client_handle, const char * pattern_json, const char * req_types_str, guint64 sub_timeout, guint64 read_timeout):
             m_state(INITED),
@@ -108,6 +220,7 @@ namespace cfgo
             }
             m_detached = false;
             m_owner = owner;
+            m_mode = owner->mode;
             _create_rtp_bin(m_owner);
         }
 
@@ -167,6 +280,165 @@ namespace cfgo
                 m_rtp_bin = nullptr;
             }
             m_owner = nullptr;
+        }
+
+        static gboolean
+        copy_sticky_events (GstPad * pad, GstEvent ** event, gpointer user_data)
+        {
+            GstPad *gpad = GST_PAD_CAST (user_data);
+
+            GST_DEBUG_OBJECT (gpad, "store sticky event %" GST_PTR_FORMAT, *event);
+            gst_pad_store_sticky_event (gpad, *event);
+
+            return TRUE;
+        }
+
+        void CfgoSrc::_create_processor(GstCfgoSrc * owner, Channel & channel, const std::string & type)
+        {
+            auto processor_name = fmt::sprintf("%s_%u_%u_%u", type, channel.m_sessid, channel.m_ssrc, channel.m_pt);
+            auto processor = gst_element_factory_make(type.c_str(), processor_name.c_str());
+            if (!processor)
+            {
+                cfgo_error_submit_general(GST_ELEMENT(owner), ("Unable to create the " + type + " element: " + processor_name + ".").c_str(), TRUE, TRUE);
+                return;
+            }
+            g_signal_connect(processor, "pad-added", G_CALLBACK(pad_added_handler), this);
+            g_signal_connect(processor, "pad-removed", G_CALLBACK(pad_removed_handler), this);
+            auto sink_pad = gst_element_get_static_pad(processor, "sink");
+            DEFER({
+                g_object_unref(sink_pad);
+            });
+            if (GST_PAD_LINK_FAILED(gst_pad_link(channel.m_pad, sink_pad)))
+            {
+                auto msg = "Unable to link" + cfgo::gst::get_pad_full_name(channel.m_pad) + " to " + cfgo::gst::get_pad_full_name(sink_pad) + ".";
+                cfgo_error_submit_general(
+                    GST_ELEMENT(owner),
+                    msg.c_str(), 
+                    TRUE, TRUE
+                );
+                return;
+            }
+            gst_bin_add(GST_BIN(owner), processor);
+            gst_element_sync_state_with_parent(processor);
+            gst_object_ref(processor);
+            channel.m_processor = processor;
+        }
+
+        std::string get_ghost_pad_name(GstPad * pad)
+        {
+            if (g_str_has_prefix(GST_PAD_NAME(pad), "recv_rtp_src_"))
+            {
+                return std::string(GST_PAD_NAME(pad)).substr(5);
+            }
+            else if (g_str_has_prefix(GST_PAD_NAME(pad), "src_"))
+            {
+                guint pad_id;
+                if (sscanf(GST_PAD_NAME(pad), "src_%u", &pad_id) == 1)
+                {
+                    auto pad_owner = gst_pad_get_parent_element(pad);
+                    if (!pad_owner)
+                    {
+                        return "";
+                    }
+                    if (g_str_has_prefix(GST_ELEMENT_NAME(pad_owner), "parsebin_"))
+                    {
+                        guint sessid, ssrc, pt;
+                        if (sscanf(GST_ELEMENT_NAME(pad_owner), "parsebin_%u_%u_%u", &sessid, &ssrc, &pt) == 3)
+                        {
+                            auto _name = g_strdup_printf("parse_src_%u_%u_%u_%u", sessid, ssrc, pt, pad_id);
+                            auto result = std::string(_name);
+                            g_free(_name);
+                            return result;
+                        }
+                    }
+                    else if (g_str_has_prefix(GST_ELEMENT_NAME(pad_owner), "decodebin_"))
+                    {
+                        guint sessid, ssrc, pt;
+                        if (sscanf(GST_ELEMENT_NAME(pad_owner), "decodebin_%u_%u_%u", &sessid, &ssrc, &pt) == 3)
+                        {
+                            auto _name = g_strdup_printf("decode_src_%u_%u_%u_%u", sessid, ssrc, pt, pad_id);
+                            auto result = std::string(_name);
+                            g_free(_name);
+                            return result;
+                        }
+                    }
+                }
+            }
+            return "";
+        }
+
+        void CfgoSrc::_install_pad(GstPad * pad)
+        {
+            _safe_use_owner<void>([this, pad](GstCfgoSrc * owner) {
+                auto ghost_name = get_ghost_pad_name(pad);
+                if (ghost_name.starts_with("rtp_src_"))
+                {
+                    guint sessid, ssrc, pt;
+                    if (sscanf(GST_PAD_NAME(pad), "recv_rtp_src_%u_%u_%u", &sessid, &ssrc, &pt) == 3)
+                    {
+                        Session & session = m_sessions[sessid];
+                        auto & channel = session.create_channel(this, owner, ssrc, pt, pad);
+                        channel.install_ghost(m_mode, owner, pad, ghost_name);
+                    }
+                }
+                else if (ghost_name.starts_with("parse_src_"))
+                {
+                    guint sessid, ssrc, pt, srcid;
+                    if (sscanf(ghost_name.c_str(), "parse_src_%u_%u_%u_%u", &sessid, &ssrc, &pt, &srcid) == 4)
+                    {
+                        Session & session = m_sessions[sessid];
+                        auto & channel = session.find_channel(pad);
+                        channel.install_ghost(m_mode, owner, pad, ghost_name);
+                    }
+                }
+                else if (ghost_name.starts_with("decode_src_"))
+                {
+                    guint sessid, ssrc, pt, srcid;
+                    if (sscanf(ghost_name.c_str(), "decode_src_%u_%u_%u_%u", &sessid, &ssrc, &pt, &srcid) == 4)
+                    {
+                        Session & session = m_sessions[sessid];
+                        auto & channel = session.find_channel(pad);
+                        channel.install_ghost(m_mode, owner, pad, ghost_name);
+                    }
+                }
+            });
+        }
+
+        void CfgoSrc::_uninstall_pad(GstPad * pad)
+        {
+            _safe_use_owner<void>([this, pad](GstCfgoSrc * owner) {
+                auto ghost_name = get_ghost_pad_name(pad);
+                if (ghost_name.starts_with("rtp_src_"))
+                {
+                    guint sessid, ssrc, pt;
+                    if (sscanf(GST_PAD_NAME(pad), "recv_rtp_src_%u_%u_%u", &sessid, &ssrc, &pt) == 3)
+                    {
+                        Session & session = m_sessions[sessid];
+                        auto & channel = session.find_channel(pad);
+                        channel.uninstall_ghost(owner, pad);
+                    }
+                }
+                else if (ghost_name.starts_with("parse_src_"))
+                {
+                    guint sessid, ssrc, pt, srcid;
+                    if (sscanf(ghost_name.c_str(), "parse_src_%u_%u_%u_%u", &sessid, &ssrc, &pt, &srcid) == 4)
+                    {
+                        Session & session = m_sessions[sessid];
+                        auto & channel = session.find_channel(pad);
+                        channel.uninstall_ghost(owner, pad);
+                    }
+                }
+                else if (ghost_name.starts_with("decode_src_"))
+                {
+                    guint sessid, ssrc, pt, srcid;
+                    if (sscanf(ghost_name.c_str(), "decode_src_%u_%u_%u_%u", &sessid, &ssrc, &pt, &srcid) == 4)
+                    {
+                        Session & session = m_sessions[sessid];
+                        auto & channel = session.find_channel(pad);
+                        channel.uninstall_ghost(owner, pad);
+                    }
+                }
+            });
         }
 
         void CfgoSrc::detach()
@@ -271,11 +543,13 @@ namespace cfgo
         void pad_added_handler(GstElement *src, GstPad *new_pad, CfgoSrc *self)
         {
             spdlog::debug("[{}] add pad {}", GST_ELEMENT_NAME(src), GST_PAD_NAME(new_pad));
+            self->_install_pad(new_pad);
         }
 
         void pad_removed_handler(GstElement * src, GstPad * pad, CfgoSrc *self)
         {
             spdlog::debug("[{}] pad {} removed.", GST_ELEMENT_NAME(src), GST_PAD_NAME(pad));
+            self->_uninstall_pad(pad);
         }
 
         void CfgoSrc::_create_rtp_bin(GstCfgoSrc * owner)

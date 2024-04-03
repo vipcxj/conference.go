@@ -1,4 +1,5 @@
 #include "cfgo/gst/error.hpp"
+#include "cfgo/gst/utils.hpp"
 #include "cfgo/utils.hpp"
 #include <exception>
 #include <mutex>
@@ -181,6 +182,7 @@ namespace cfgo
     
 } // namespace cfgo
 
+
 const gchar * cfgo_error_get_trace (GError *error)
 {
     auto priv = cfgo_error_get_private(error);
@@ -211,6 +213,11 @@ void cfgo_error_set_timeout (GError ** error, const gchar * message, gboolean tr
     *error = cfgo::gst::create_gerror_timeout(message, trace);
 }
 
+void cfgo_error_set_general (GError ** error, const gchar * message, gboolean trace)
+{
+    *error = cfgo::gst::create_gerror_general(message, trace);
+}
+
 void cfgo_error_submit(GstElement * src, GError * error)
 {
     auto message = gst_message_new_error(GST_OBJECT(src), error, cfgo_error_get_trace(error));
@@ -225,4 +232,26 @@ void cfgo_error_submit(GstElement * src, GError * error)
     {
         gst_message_unref(message);
     }
+}
+
+void cfgo_error_submit_timeout (GstElement * src, const gchar * message, gboolean log, gboolean trace)
+{
+    if (log)
+    {
+        GST_ERROR_OBJECT(src, "%s", message);
+    }
+    using namespace cfgo::gst;
+    auto error = steal_shared_g_error(create_gerror_timeout(message, trace));
+    cfgo_error_submit(src, error.get());
+}
+
+void cfgo_error_submit_general (GstElement * src, const gchar * message, gboolean log, gboolean trace)
+{
+    if (log)
+    {
+        GST_ERROR_OBJECT(src, "%s", message);
+    }
+    using namespace cfgo::gst;
+    auto error = steal_shared_g_error(create_gerror_general(message, trace));
+    cfgo_error_submit(src, error.get());
 }

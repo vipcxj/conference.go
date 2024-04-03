@@ -16,6 +16,12 @@ typedef struct _GstCfgoSrc GstCfgoSrc;
 typedef struct _GstCfgoSrcClass GstCfgoSrcClass;
 typedef struct _GstCfgoSrcPrivate GstCfgoSrcPrivate;
 
+typedef enum {
+    GST_CFGO_SRC_MODE_RAW,
+    GST_CFGO_SRC_MODE_PARSE,
+    GST_CFGO_SRC_MODE_DECODE
+} GstCfgoSrcMode;
+
 struct _GstCfgoSrc
 {
     GstBin bin;
@@ -33,6 +39,7 @@ struct _GstCfgoSrc
     guint64 read_try_delay_init;
     guint32 read_try_delay_step;
     guint32 read_try_delay_level;
+    GstCfgoSrcMode mode;
 
     /*< private >*/
     GstCfgoSrcPrivate *priv;

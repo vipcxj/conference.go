@@ -64,6 +64,8 @@ struct _GstCfgoSrcPrivate
     cfgo::gst::GstCfgoSrcPrivateState * state;
     GstElement * rtpsrc;
     GstElement * rtcpsrc;
+    GstElement * parsebin;
+    GstElement * decodebin;
 };
 
 #define GST_CFGOSRC_PVS(cfgosrc) cfgosrc->priv->state
@@ -76,6 +78,99 @@ struct _GstCfgoSrcPrivate
 #define GST_CFGOSRC_LOCK_GUARD_VARNAME(x) GST_CFGOSRC_JOIN(x, __LINE__)
 #endif
 #define GST_CFGOSRC_LOCK_GUARD(cfgosrc) std::lock_guard GST_CFGOSRC_LOCK_GUARD_VARNAME(guard)(GST_CFGOSRC_PVS(cfgosrc)->mutex)
+
+static void gst_cfgosrc_set_property(GObject *object,
+                                     guint property_id, const GValue *value, GParamSpec *pspec);
+static void gst_cfgosrc_get_property(GObject *object,
+                                     guint property_id, GValue *value, GParamSpec *pspec);
+static void gst_cfgosrc_dispose(GObject *object);
+static void gst_cfgosrc_finalize(GObject *object);
+
+static GstPad *gst_cfgosrc_request_new_pad(GstElement *element,
+                                           GstPadTemplate *templ, const gchar *name);
+static void gst_cfgosrc_release_pad(GstElement *element, GstPad *pad);
+static GstStateChangeReturn
+gst_cfgosrc_change_state(GstElement *element, GstStateChange transition);
+
+#define DEFAULT_GST_CFGO_SRC_MODE GST_CFGO_SRC_MODE_RAW
+
+enum
+{
+    PROP_0,
+    PROP_CLIENT,
+    PROP_PATTERN,
+    PROP_REQ_TYPES,
+    PROP_SUB_TIMEOUT,
+    PROP_SUB_TRIES,
+    PROP_SUB_TRY_DELAY_INIT,
+    PROP_SUB_TRY_DELAY_STEP,
+    PROP_SUB_TRY_DELAY_LEVEL,
+    PROP_READ_TIMEOUT,
+    PROP_READ_TRIES,
+    PROP_READ_TRY_DELAY_INIT,
+    PROP_READ_TRY_DELAY_STEP,
+    PROP_READ_TRY_DELAY_LEVEL,
+    PROP_MODE
+};
+
+#define GST_CFGO_SRC_MODE_TYPE (gst_cfgo_src_mode_get_type())
+static GType
+gst_cfgo_src_mode_get_type (void)
+{
+  static GType mode_type = 0;
+  static const GEnumValue mode_types[] = {
+    {GST_CFGO_SRC_MODE_RAW, "raw", "raw"},
+    {GST_CFGO_SRC_MODE_PARSE, "parse", "parse"},
+    {GST_CFGO_SRC_MODE_DECODE, "decode", "decode"},
+    {0, NULL, NULL},
+  };
+
+  if (!mode_type) {
+    mode_type = g_enum_register_static ("GstCfgoSrcMode", mode_types);
+  }
+  return mode_type;
+}
+
+/* pad templates */
+
+static GstStaticPadTemplate gst_cfgosrc_rtp_src_template =
+    GST_STATIC_PAD_TEMPLATE("rtp_src_%u_%u_%u",
+                            GST_PAD_SRC,
+                            GST_PAD_SOMETIMES,
+                            GST_STATIC_CAPS("application/x-rtp"));
+
+static GstStaticPadTemplate gst_cfgosrc_parse_src_template =
+    GST_STATIC_PAD_TEMPLATE("parse_src_%u_%u_%u_%u",
+                            GST_PAD_SRC,
+                            GST_PAD_SOMETIMES,
+                            GST_CAPS_ANY);
+
+static GstStaticPadTemplate gst_cfgosrc_decode_src_template =
+    GST_STATIC_PAD_TEMPLATE("decode_src_%u_%u_%u_%u",
+                            GST_PAD_SRC,
+                            GST_PAD_SOMETIMES,
+                            GST_CAPS_ANY);
+
+/* class initialization */
+
+G_DEFINE_TYPE_WITH_CODE(GstCfgoSrc, gst_cfgosrc, GST_TYPE_BIN,
+    GST_DEBUG_CATEGORY_INIT(
+        gst_cfgosrc_debug_category, "cfgosrc", 0,
+        "debug category for cfgosrc element"
+    );
+    G_ADD_PRIVATE(GstCfgoSrc)
+);
+
+static gboolean
+copy_sticky_events (GstPad * pad, GstEvent ** event, gpointer user_data)
+{
+  GstPad *gpad = GST_PAD_CAST (user_data);
+
+  GST_DEBUG_OBJECT (gpad, "store sticky event %" GST_PTR_FORMAT, *event);
+  gst_pad_store_sticky_event (gpad, *event);
+
+  return TRUE;
+}
 
 namespace cfgo
 {
@@ -152,59 +247,63 @@ namespace cfgo
         {
             return gst_app_src_push_buffer(GST_APP_SRC(parent->priv->rtcpsrc), buffer);
         }
+
+        void src_install_pad(GstCfgoSrc * cfgosrc, GstPad * pad)
+        {
+            if (!g_str_has_prefix(GST_PAD_NAME(pad), "recv_rtp_src_"))
+            {
+                return;
+            }
+            auto kclass = GST_ELEMENT_GET_CLASS(cfgosrc);
+            GST_CFGOSRC_LOCK_GUARD(cfgosrc);
+            switch (cfgosrc->mode)
+            {
+            case GST_CFGO_SRC_MODE_RAW:
+            {
+                auto templ = gst_element_class_get_pad_template(kclass, "rtp_src_%u_%u_%u");
+                auto pad_name = g_strdup(GST_PAD_NAME(pad) + 5);
+                DEFER({
+                    g_free (pad_name);
+                });
+                auto gpad = gst_ghost_pad_new_from_template(pad_name, pad, templ);
+                g_object_set_data (G_OBJECT (pad), "GstCfgoSrc.ghostpad", gpad);
+                gst_pad_set_active (gpad, TRUE);
+                gst_pad_sticky_events_foreach (pad, copy_sticky_events, gpad);
+                gst_element_add_pad (GST_ELEMENT_CAST (cfgosrc), gpad);
+                break;
+            }
+            case GST_CFGO_SRC_MODE_PARSE:
+            {
+                auto parsebin = gst_element_factory_make("parsebin", "parsebin");
+                if (!parsebin)
+                {
+                    /* code */
+                }
+
+                auto sink_pad = gst_element_get_static_pad(parsebin, "sink");
+                DEFER({
+                    g_object_unref(sink_pad);
+                });
+                if (GST_PAD_LINK_FAILED(gst_pad_link(pad, sink_pad)))
+                {
+                    /* code */
+                }
+                break;
+            }
+            case GST_CFGO_SRC_MODE_DECODE:
+                break;
+            default:
+                break;
+            }
+        }
+
+        void src_uninstall_pad(GstCfgoSrc * cfgosrc, GstPad * pad)
+        {
+
+        }
     } // namespace gst
     
 } // namespace cfgo
-
-
-static void gst_cfgosrc_set_property(GObject *object,
-                                     guint property_id, const GValue *value, GParamSpec *pspec);
-static void gst_cfgosrc_get_property(GObject *object,
-                                     guint property_id, GValue *value, GParamSpec *pspec);
-static void gst_cfgosrc_dispose(GObject *object);
-static void gst_cfgosrc_finalize(GObject *object);
-
-static GstPad *gst_cfgosrc_request_new_pad(GstElement *element,
-                                           GstPadTemplate *templ, const gchar *name);
-static void gst_cfgosrc_release_pad(GstElement *element, GstPad *pad);
-static GstStateChangeReturn
-gst_cfgosrc_change_state(GstElement *element, GstStateChange transition);
-
-enum
-{
-    PROP_0,
-    PROP_CLIENT,
-    PROP_PATTERN,
-    PROP_REQ_TYPES,
-    PROP_SUB_TIMEOUT,
-    PROP_SUB_TRIES,
-    PROP_SUB_TRY_DELAY_INIT,
-    PROP_SUB_TRY_DELAY_STEP,
-    PROP_SUB_TRY_DELAY_LEVEL,
-    PROP_READ_TIMEOUT,
-    PROP_READ_TRIES,
-    PROP_READ_TRY_DELAY_INIT,
-    PROP_READ_TRY_DELAY_STEP,
-    PROP_READ_TRY_DELAY_LEVEL
-};
-
-/* pad templates */
-
-static GstStaticPadTemplate gst_cfgosrc_rtp_src_template =
-    GST_STATIC_PAD_TEMPLATE("rtp_src_%u_%u",
-                            GST_PAD_SRC,
-                            GST_PAD_SOMETIMES,
-                            GST_STATIC_CAPS("application/x-rtp"));
-
-/* class initialization */
-
-G_DEFINE_TYPE_WITH_CODE(GstCfgoSrc, gst_cfgosrc, GST_TYPE_BIN,
-    GST_DEBUG_CATEGORY_INIT(
-        gst_cfgosrc_debug_category, "cfgosrc", 0,
-        "debug category for cfgosrc element"
-    );
-    G_ADD_PRIVATE(GstCfgoSrc)
-);
 
 static void
 gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
@@ -304,6 +403,12 @@ gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
         g_param_spec_uint(
             "read-try-delay-level", "read-try-delay-level", "the max increase level of delay time before next reading data try.",
             0, 16, 0,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property (
+        gobject_class, PROP_MODE,
+        g_param_spec_enum (
+            "mode", "Expose Mode", "Control the exposed pad type", 
+            DEFAULT_GST_CFGO_SRC_MODE, GST_CFGO_SRC_MODE_TYPE, 
             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 }
 
@@ -485,6 +590,20 @@ bool gst_cfgosrc_set_uint64_property(const GValue * value, guint64 * target)
     }
 }
 
+bool gst_cfgosrc_set_enum_property(const GValue * value, gint * target)
+{
+    auto src = g_value_get_enum(value);
+    if (src == *target)
+    {
+        return false;
+    }
+    else
+    {
+        *target = src;
+        return true;
+    }
+}
+
 void gst_cfgosrc_set_property(GObject *object, guint property_id,
                               const GValue *value, GParamSpec *pspec)
 {
@@ -629,6 +748,17 @@ void gst_cfgosrc_set_property(GObject *object, guint property_id,
         }
         break;
     }
+    case PROP_MODE:
+    {
+        GST_CFGOSRC_LOCK_GUARD(cfgosrc);
+        if (gst_cfgosrc_set_enum_property(value, (gint *) &cfgosrc->mode))
+        {
+            auto smode = g_enum_to_string(GST_CFGO_SRC_MODE_TYPE, cfgosrc->mode);
+            GST_DEBUG_OBJECT(cfgosrc, "The mode argument was changed to %s\n", smode);
+            g_free(smode);
+        }
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -721,6 +851,12 @@ void gst_cfgosrc_get_property(GObject *object, guint property_id,
         g_value_set_uint(value, cfgosrc->read_try_delay_level);
         break;
     }
+    case PROP_MODE:
+    {
+        GST_CFGOSRC_LOCK_GUARD(cfgosrc);
+        g_value_set_enum(value, cfgosrc->mode);
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -808,6 +944,95 @@ gst_cfgosrc_change_state(GstElement *element, GstStateChange transition)
     }
 
     return ret;
+}
+
+void gst_cfgosrc_create_ghost_pad(GstCfgoSrc * cfgosrc, GstPad * pad)
+{
+    auto kclass = GST_ELEMENT_GET_CLASS(cfgosrc);
+    GstPadTemplate * templ = nullptr;
+    char * pad_name = nullptr;
+    if (g_str_has_prefix(GST_PAD_NAME(pad), "recv_rtp_src_"))
+    {
+        templ = gst_element_class_get_pad_template(kclass, "rtp_src_%u_%u_%u");
+        pad_name = g_strdup(GST_PAD_NAME(pad) + 5);
+    }
+    else if (g_str_has_prefix(GST_PAD_NAME(pad), "src_"))
+    {
+        auto pad_owner = gst_pad_get_parent_element(pad);
+        if (!pad_owner)
+        {
+            GST_WARNING_OBJECT(cfgosrc, "accept an unexpected pad: %s", cfgo::gst::get_pad_full_name(pad).c_str());
+            return;
+        }
+        if (g_str_equal(GST_ELEMENT_NAME(pad_owner), "parsebin"))
+        {
+            templ = gst_element_class_get_pad_template(kclass, "parse_src_%u_%u_%u_%u");
+            pad_name = g_strdup(GST_PAD_NAME(pad) + 5);
+        }
+        else if (g_str_equal(GST_ELEMENT_NAME(pad_owner), "decodebin"))
+        {
+            templ = gst_element_class_get_pad_template(kclass, "decode_src_%u_%u_%u_%u");
+        }
+        else
+        {
+            GST_WARNING_OBJECT(cfgosrc, "accept an unexpected pad: %s", cfgo::gst::get_pad_full_name(pad).c_str());
+            return;
+        }
+    }
+    else
+    {
+        GST_WARNING_OBJECT(cfgosrc, "accept an unexpected pad: %s", cfgo::gst::get_pad_full_name(pad).c_str());
+        return;
+    }
+    
+    DEFER({
+        g_free (pad_name);
+    });
+    auto gpad = gst_ghost_pad_new_from_template(pad_name, pad, templ);
+    g_object_set_data (G_OBJECT (pad), "GstCfgoSrc.ghostpad", gpad);
+    gst_pad_set_active (gpad, TRUE);
+    gst_pad_sticky_events_foreach (pad, copy_sticky_events, gpad);
+    gst_element_add_pad (GST_ELEMENT_CAST (cfgosrc), gpad);
+}
+
+void gst_cfgosrc_parsebin_pad_added_handler(GstElement *src, GstPad *new_pad, GstCfgoSrc *self)
+{
+
+}
+
+void gst_cfgosrc_parsebin_pad_removed_handler(GstElement *src, GstPad *new_pad, GstCfgoSrc *self)
+{
+
+}
+
+gboolean
+gst_cfgosrc_setup_parsebin(GstCfgoSrc * cfgosrc, GstPad * pad)
+{
+    auto parsebin = gst_element_factory_make("parsebin", "parsebin");
+    if (!parsebin)
+    {
+        cfgo_error_submit_general(GST_ELEMENT(cfgosrc), "Unable to create the parsebin element.", TRUE, TRUE);
+        return FALSE;
+    }
+    g_signal_connect(parsebin, "pad-added", G_CALLBACK(gst_cfgosrc_parsebin_pad_added_handler), cfgosrc);
+    g_signal_connect(parsebin, "pad-removed", G_CALLBACK(gst_cfgosrc_parsebin_pad_removed_handler), cfgosrc);
+    auto sink_pad = gst_element_get_static_pad(parsebin, "sink");
+    DEFER({
+        g_object_unref(sink_pad);
+    });
+    if (GST_PAD_LINK_FAILED(gst_pad_link(pad, sink_pad)))
+    {
+        auto msg = "Unable to link" + cfgo::gst::get_pad_full_name(pad) + " to " + cfgo::gst::get_pad_full_name(sink_pad) + ".";
+        cfgo_error_submit_general(
+            GST_ELEMENT(cfgosrc),
+            msg.c_str(), 
+            TRUE, TRUE
+        );
+        return FALSE;
+    }
+    gst_bin_add(GST_BIN(cfgosrc), parsebin);
+    gst_element_sync_state_with_parent(parsebin);
+    cfgosrc->priv->parsebin = parsebin;
 }
 
 static gboolean

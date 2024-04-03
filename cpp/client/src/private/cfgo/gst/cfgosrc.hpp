@@ -5,9 +5,9 @@
 #include "cfgo/track.hpp"
 #include "cfgo/async.hpp"
 #include "cfgo/spd_helper.hpp"
+#include "cfgo/gst/gstcfgosrc.h"
 #include "gst/gst.h"
-
-typedef struct _GstCfgoSrc GstCfgoSrc;
+#include <vector>
 
 namespace cfgo
 {
@@ -29,13 +29,31 @@ namespace cfgo
         class CfgoSrc : public std::enable_shared_from_this<CfgoSrc>
         {
         public:
+            struct Channel
+            {
+                GstPad * m_pad = nullptr;
+                guint m_sessid = 0;
+                guint m_ssrc = 0;
+                guint m_pt = 0;
+                GstElement * m_processor = nullptr;
+                std::vector<GstPad *> m_pads;
+
+                ~Channel();
+                bool match(GstPad * pad) const;
+                void install_ghost(GstCfgoSrcMode m_mode, GstCfgoSrc * owner, GstPad * pad, const std::string & ghost_name);
+                void uninstall_ghost(GstCfgoSrc * owner, GstPad * pad, bool remove = true);
+            };
             struct Session
             {
                 guint m_id;
                 TrackPtr m_track;
                 GstPad * m_rtp_pad;
                 GstPad * m_rtcp_pad;
+                std::vector<Channel> m_channels;
+                Channel & create_channel(CfgoSrc * parent, GstCfgoSrc * owner, guint ssrc, guint pt, GstPad * pad);
+                Channel & find_channel(GstPad * pad);
             };
+            
             enum State
             {
                 INITED,
@@ -45,6 +63,7 @@ namespace cfgo
             };
         private:
             State m_state;
+            GstCfgoSrcMode m_mode;
             Client::Ptr m_client;
             Pattern m_pattern;
             std::vector<std::string> m_req_types;
@@ -74,9 +93,12 @@ namespace cfgo
             void _reset_read_closer();
             void _create_rtp_bin(GstCfgoSrc * owner);
             Session _create_session(GstCfgoSrc * owner, TrackPtr track);
+            void _create_processor(GstCfgoSrc * owner, Channel & channel, const std::string & type);
             auto _loop() -> asio::awaitable<void>;
             auto _post_buffer(const Session & session, Track::MsgType msg_type) -> asio::awaitable<void>;
             void _detach();
+            void _install_pad(GstPad * pad);
+            void _uninstall_pad(GstPad * pad);
             template<typename T>
             cancelable<T> _safe_use_owner(std::function<T(GstCfgoSrc * owner)> func)
             {
