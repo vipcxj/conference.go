@@ -19,8 +19,6 @@ namespace cfgo
         void link_rtcp_src(GstCfgoSrc * parent, GstPad * pad);
         GstFlowReturn push_rtp_buffer(GstCfgoSrc * parent, GstBuffer * buffer);
         GstFlowReturn push_rtcp_buffer(GstCfgoSrc * parent, GstBuffer * buffer);
-        void src_install_pad(GstCfgoSrc * parent, GstPad * pad);
-        void src_uninstall_pad(GstCfgoSrc * parent, GstPad * pad);
     } // namespace gst
     
 } // namespace cfgo

@@ -35,10 +35,13 @@ namespace cfgo
                 guint m_sessid = 0;
                 guint m_ssrc = 0;
                 guint m_pt = 0;
+                gulong m_pad_added_handle = 0L;
+                gulong m_pad_removed_handle = 0L;
                 GstElement * m_processor = nullptr;
                 std::vector<GstPad *> m_pads;
 
                 ~Channel();
+                void init(CfgoSrc * parent, GstCfgoSrc * owner, guint sessid, guint ssrc, guint pt, GstPad * pad);
                 bool match(GstPad * pad) const;
                 void install_ghost(GstCfgoSrcMode m_mode, GstCfgoSrc * owner, GstPad * pad, const std::string & ghost_name);
                 void uninstall_ghost(GstCfgoSrc * owner, GstPad * pad, bool remove = true);
@@ -50,8 +53,12 @@ namespace cfgo
                 GstPad * m_rtp_pad;
                 GstPad * m_rtcp_pad;
                 std::vector<Channel> m_channels;
+                ~Session();
                 Channel & create_channel(CfgoSrc * parent, GstCfgoSrc * owner, guint ssrc, guint pt, GstPad * pad);
+                void destroy_channel(CfgoSrc * parent, GstCfgoSrc * owner, Channel & channel, bool remove = true);
                 Channel & find_channel(GstPad * pad);
+                void release_rtp_pad(GstElement * rtpbin);
+                void release_rtcp_pad(GstElement * rtpbin);
             };
             
             enum State
@@ -94,31 +101,47 @@ namespace cfgo
             void _create_rtp_bin(GstCfgoSrc * owner);
             Session _create_session(GstCfgoSrc * owner, TrackPtr track);
             void _create_processor(GstCfgoSrc * owner, Channel & channel, const std::string & type);
+            void _destroy_processor(GstCfgoSrc * owner, Channel & channel);
             auto _loop() -> asio::awaitable<void>;
             auto _post_buffer(const Session & session, Track::MsgType msg_type) -> asio::awaitable<void>;
             void _detach();
             void _install_pad(GstPad * pad);
             void _uninstall_pad(GstPad * pad);
             template<typename T>
-            cancelable<T> _safe_use_owner(std::function<T(GstCfgoSrc * owner)> func)
+            cancelable<T> _safe_use_owner(std::function<T(GstCfgoSrc * owner)> func, bool lock = true)
             {
                 if (m_detached)
                 {
                     return make_canceled<T>();
                 }
-                std::lock_guard lock(m_mutex);
-                if (m_detached)
+                if (lock)
                 {
-                    return make_canceled<T>();
-                }
-                if constexpr (std::is_void_v<T>)
-                {
-                    func(m_owner);
-                    return make_resolved();
+                    std::lock_guard lock(m_mutex);
+                    if (m_detached)
+                    {
+                        return make_canceled<T>();
+                    }
+                    if constexpr (std::is_void_v<T>)
+                    {
+                        func(m_owner);
+                        return make_resolved();
+                    }
+                    else
+                    {
+                        return make_resolved<T>(func(m_owner));
+                    }
                 }
                 else
                 {
-                    return make_resolved<T>(func(m_owner));
+                    if constexpr (std::is_void_v<T>)
+                    {
+                        func(m_owner);
+                        return make_resolved();
+                    }
+                    else
+                    {
+                        return make_resolved<T>(func(m_owner));
+                    }
                 }
             }
 
@@ -151,6 +174,7 @@ namespace cfgo
             void pause();
             void resume();
             void stop();
+            void switch_mode(GstCfgoSrcMode mode);
 
             friend void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self);
             friend void rtpsrc_enough_data(GstElement * appsrc, CfgoSrc *self);

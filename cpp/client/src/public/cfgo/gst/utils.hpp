@@ -3,6 +3,7 @@
 
 #include "gst/gst.h"
 #include <memory>
+#include <string>
 
 namespace cfgo
 {

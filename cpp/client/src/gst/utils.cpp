@@ -16,6 +16,7 @@ namespace cfgo
             {
                 res = res + GST_PAD_NAME(pad) + " of " + GST_ELEMENT_NAME(element);
                 gst_object_unref(element);
+                return res;
             }
             else
             {

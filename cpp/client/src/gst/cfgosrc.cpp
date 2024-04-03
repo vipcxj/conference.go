@@ -37,6 +37,29 @@ namespace cfgo
             return static_cast<CfgoSrcSPtr &>(PT::operator=(std::move(other)));
         }
 
+        static gboolean
+        copy_sticky_events (GstPad * pad, GstEvent ** event, gpointer user_data)
+        {
+            GstPad *gpad = GST_PAD_CAST (user_data);
+
+            GST_DEBUG_OBJECT (gpad, "store sticky event %" GST_PTR_FORMAT, *event);
+            gst_pad_store_sticky_event (gpad, *event);
+
+            return TRUE;
+        }
+
+        void pad_added_handler(GstElement *src, GstPad *new_pad, CfgoSrc *self)
+        {
+            spdlog::debug("[{}] add pad {}", GST_ELEMENT_NAME(src), GST_PAD_NAME(new_pad));
+            self->_install_pad(new_pad);
+        }
+
+        void pad_removed_handler(GstElement * src, GstPad * pad, CfgoSrc *self)
+        {
+            spdlog::debug("[{}] pad {} removed.", GST_ELEMENT_NAME(src), GST_PAD_NAME(pad));
+            self->_uninstall_pad(pad);
+        }
+
         CfgoSrc::Channel::~Channel()
         {
             if (m_pad)
@@ -56,6 +79,23 @@ namespace cfgo
                 gst_object_unref(pad);
             }
             m_pads.clear();
+        }
+
+        void CfgoSrc::Channel::init(CfgoSrc * parent, GstCfgoSrc * owner, guint sessid, guint ssrc, guint pt, GstPad * pad)
+        {
+            gst_object_ref(pad);
+            m_pad = pad;
+            m_sessid = sessid;
+            m_ssrc = ssrc;
+            m_pt = pt;
+            if (parent->m_mode == GST_CFGO_SRC_MODE_PARSE)
+            {
+                parent->_create_processor(owner, *this, "parsebin");
+            }
+            else if (parent->m_mode == GST_CFGO_SRC_MODE_DECODE)
+            {
+                parent->_create_processor(owner, *this, "decode");
+            }
         }
 
         bool CfgoSrc::Channel::match(GstPad * pad) const
@@ -87,11 +127,14 @@ namespace cfgo
                 gst_object_ref(pad);
                 m_pads.push_back(pad);
             }
-            auto gpad = gst_ghost_pad_new_from_template(ghost_name.c_str(), pad, templ);
-            g_object_set_data(G_OBJECT (pad), "GstCfgoSrc.ghostpad", gpad);
-            gst_pad_set_active(gpad, TRUE);
-            gst_pad_sticky_events_foreach(pad, copy_sticky_events, gpad);
-            gst_element_add_pad(GST_ELEMENT(owner), gpad);
+            if (templ)
+            {
+                auto gpad = gst_ghost_pad_new_from_template(ghost_name.c_str(), pad, templ);
+                g_object_set_data(G_OBJECT (pad), "GstCfgoSrc.ghostpad", gpad);
+                gst_pad_set_active(gpad, TRUE);
+                gst_pad_sticky_events_foreach(pad, copy_sticky_events, gpad);
+                gst_element_add_pad(GST_ELEMENT(owner), gpad);
+            }
         }
 
         void CfgoSrc::Channel::uninstall_ghost(GstCfgoSrc * owner, GstPad * pad, bool remove) {
@@ -120,22 +163,40 @@ namespace cfgo
             }
         }
 
+        CfgoSrc::Session::~Session()
+        {
+            if (m_rtp_pad)
+            {
+                spdlog::warn("m_rtp_pad must be nullptr when sesson destructed.");
+            }
+            if (m_rtcp_pad)
+            {
+                spdlog::warn("m_rtcp_pad must be nullptr when sesson destructed.");
+            }
+        }
+
         auto CfgoSrc::Session::create_channel(CfgoSrc * parent, GstCfgoSrc * owner, guint ssrc, guint pt, GstPad * pad) -> Channel &
         {
-            gst_object_ref(pad);
+            Channel channel {};
+            channel.init(parent, owner, m_id, ssrc, pt, pad);
             m_channels.push_back(
-                Channel{ .m_pad = pad, .m_sessid = m_id, .m_ssrc = ssrc, .m_pt = pt }
+                std::move(channel)
             );
-            auto & channel = m_channels.back();
-            if (parent->m_mode == GST_CFGO_SRC_MODE_PARSE)
+            return m_channels.back();
+        }
+
+        void CfgoSrc::Session::destroy_channel(CfgoSrc * parent, GstCfgoSrc * owner, Channel & channel, bool remove)
+        {
+            parent->_destroy_processor(owner, channel);
+            if (remove)
             {
-                parent->_create_processor(owner, channel, "parsebin");
+                m_channels.erase(
+                    std::remove_if(m_channels.begin(), m_channels.end(), [ssrc = channel.m_ssrc, pt = channel.m_pt](const Channel & c) {
+                        return c.m_ssrc == ssrc && c.m_pt == pt;
+                    }),
+                    m_channels.end()
+                );
             }
-            else if (parent->m_mode == GST_CFGO_SRC_MODE_DECODE)
-            {
-                parent->_create_processor(owner, channel, "decode");
-            }
-            return channel;
         }
 
         auto CfgoSrc::Session::find_channel(GstPad * pad) -> Channel &
@@ -148,6 +209,26 @@ namespace cfgo
                 return *iter;
             }
             throw cpptrace::runtime_error(fmt::format("Unable to find the channel relate to {}", get_pad_full_name(pad)));
+        }
+
+        void CfgoSrc::Session::release_rtp_pad(GstElement * rtpbin)
+        {
+            if (m_rtp_pad)
+            {
+                gst_element_release_request_pad(GST_ELEMENT(rtpbin), m_rtp_pad);
+                gst_object_unref(m_rtp_pad);   
+                m_rtp_pad = nullptr;    
+            }
+        }
+
+        void CfgoSrc::Session::release_rtcp_pad(GstElement * rtpbin)
+        {
+            if (m_rtcp_pad)
+            {
+                gst_element_release_request_pad(GST_ELEMENT(rtpbin), m_rtcp_pad);
+                gst_object_unref(m_rtcp_pad);   
+                m_rtcp_pad = nullptr;    
+            }
         }
 
         CfgoSrc::CfgoSrc(int client_handle, const char * pattern_json, const char * req_types_str, guint64 sub_timeout, guint64 read_timeout):
@@ -234,16 +315,17 @@ namespace cfgo
             m_detached = true;
             for (auto && session : m_sessions)
             {
-                if (session.m_rtp_pad)
+                for (auto && channel : session.m_channels)
                 {
-                    gst_element_release_request_pad(GST_ELEMENT(m_owner), session.m_rtp_pad);
-                    gst_object_unref(session.m_rtp_pad);       
+                    channel.uninstall_ghost(m_owner, channel.m_pad, false);
+                    for (auto && pad : channel.m_pads)
+                    {
+                        channel.uninstall_ghost(m_owner, pad, false);
+                    }
+                    session.destroy_channel(this, m_owner, channel, false);
                 }
-                if (session.m_rtcp_pad)
-                {
-                    gst_element_release_request_pad(GST_ELEMENT(m_owner), session.m_rtcp_pad);
-                    gst_object_unref(session.m_rtcp_pad);       
-                }
+                session.release_rtp_pad(m_rtp_bin);
+                session.release_rtcp_pad(m_rtp_bin);
             }
             m_sessions.clear();
             if (m_rtpsrc_enough_data)
@@ -282,17 +364,6 @@ namespace cfgo
             m_owner = nullptr;
         }
 
-        static gboolean
-        copy_sticky_events (GstPad * pad, GstEvent ** event, gpointer user_data)
-        {
-            GstPad *gpad = GST_PAD_CAST (user_data);
-
-            GST_DEBUG_OBJECT (gpad, "store sticky event %" GST_PTR_FORMAT, *event);
-            gst_pad_store_sticky_event (gpad, *event);
-
-            return TRUE;
-        }
-
         void CfgoSrc::_create_processor(GstCfgoSrc * owner, Channel & channel, const std::string & type)
         {
             auto processor_name = fmt::sprintf("%s_%u_%u_%u", type, channel.m_sessid, channel.m_ssrc, channel.m_pt);
@@ -302,8 +373,8 @@ namespace cfgo
                 cfgo_error_submit_general(GST_ELEMENT(owner), ("Unable to create the " + type + " element: " + processor_name + ".").c_str(), TRUE, TRUE);
                 return;
             }
-            g_signal_connect(processor, "pad-added", G_CALLBACK(pad_added_handler), this);
-            g_signal_connect(processor, "pad-removed", G_CALLBACK(pad_removed_handler), this);
+            channel.m_pad_added_handle = g_signal_connect(processor, "pad-added", G_CALLBACK(pad_added_handler), this);
+            channel.m_pad_removed_handle = g_signal_connect(processor, "pad-removed", G_CALLBACK(pad_removed_handler), this);
             auto sink_pad = gst_element_get_static_pad(processor, "sink");
             DEFER({
                 g_object_unref(sink_pad);
@@ -322,6 +393,29 @@ namespace cfgo
             gst_element_sync_state_with_parent(processor);
             gst_object_ref(processor);
             channel.m_processor = processor;
+        }
+
+        void CfgoSrc::_destroy_processor(GstCfgoSrc * owner, Channel & channel)
+        {
+            if (!channel.m_processor)
+            {
+                return;
+            }
+            
+            if (channel.m_pad_added_handle)
+            {
+                g_signal_handler_disconnect(channel.m_processor, channel.m_pad_added_handle);
+            }
+            if (channel.m_pad_removed_handle)
+            {
+                g_signal_handler_disconnect(channel.m_processor, channel.m_pad_removed_handle);
+            }
+            auto sink_pad = gst_element_get_static_pad(channel.m_processor, "sink");
+            gst_pad_unlink(channel.m_pad, sink_pad);
+            g_object_unref(sink_pad);
+            gst_bin_remove(GST_BIN(owner), channel.m_processor);
+            gst_object_unref(channel.m_processor);
+            channel.m_processor = nullptr;
         }
 
         std::string get_ghost_pad_name(GstPad * pad)
@@ -508,6 +602,39 @@ namespace cfgo
             m_close_ch.close("the method cfgosrc::stop called.");
         }
 
+        void CfgoSrc::switch_mode(GstCfgoSrcMode mode)
+        {
+            _safe_use_owner<void>([this, mode](GstCfgoSrc * owner) {
+                if (mode == m_mode)
+                {
+                    return;
+                }
+                for (auto && session : m_sessions)
+                {
+                    for (auto && channel : session.m_channels)
+                    {
+                        channel.uninstall_ghost(owner, channel.m_pad, false);
+                        for (auto && pad : channel.m_pads)
+                        {
+                            channel.uninstall_ghost(owner, pad, false);
+                        }
+                        channel.m_pads.clear();
+                        session.destroy_channel(this, owner, channel, false);
+                    }
+                }
+                m_mode = mode;
+                for (auto && session : m_sessions)
+                {
+                    for (auto && channel : session.m_channels)
+                    {
+                        channel.init(this, owner, session.m_id, channel.m_ssrc, channel.m_pt, channel.m_pad);
+                        gst_object_ref(channel.m_pad);
+                        channel.install_ghost(mode, owner, channel.m_pad, get_ghost_pad_name(channel.m_pad));
+                    }
+                }
+            });
+        }
+
         void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)
         {
             spdlog::debug("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
@@ -538,18 +665,6 @@ namespace cfgo
             std::lock_guard lock(self->m_mutex);
             auto & session = self->m_sessions[session_id];
             return (GstCaps *) session.m_track->get_gst_caps(pt);
-        }
-
-        void pad_added_handler(GstElement *src, GstPad *new_pad, CfgoSrc *self)
-        {
-            spdlog::debug("[{}] add pad {}", GST_ELEMENT_NAME(src), GST_PAD_NAME(new_pad));
-            self->_install_pad(new_pad);
-        }
-
-        void pad_removed_handler(GstElement * src, GstPad * pad, CfgoSrc *self)
-        {
-            spdlog::debug("[{}] pad {} removed.", GST_ELEMENT_NAME(src), GST_PAD_NAME(pad));
-            self->_uninstall_pad(pad);
         }
 
         void CfgoSrc::_create_rtp_bin(GstCfgoSrc * owner)
