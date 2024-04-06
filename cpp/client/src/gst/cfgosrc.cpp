@@ -14,29 +14,6 @@ namespace cfgo
 {
     namespace gst
     {
-        CfgoSrcSPtr::CfgoSrcSPtr(CfgoSrc * pt): PT(pt) {
-            spdlog::debug("CfgoSrcSPtr create with {:p}.", fmt::ptr(pt));
-        };
-        CfgoSrcSPtr::CfgoSrcSPtr(const CfgoSrcSPtr & other): PT(other) {
-            spdlog::debug("CfgoSrcSPtr copy.");
-        }
-        CfgoSrcSPtr::CfgoSrcSPtr(CfgoSrcSPtr && other): PT(std::move(other)) {
-            spdlog::debug("CfgoSrcSPtr move.");
-        }
-        CfgoSrcSPtr::~CfgoSrcSPtr() {
-            spdlog::debug("CfgoSrcSPtr destroy with {:p}.", fmt::ptr(get()));
-        };
-        CfgoSrcSPtr & CfgoSrcSPtr::operator=(const CfgoSrcSPtr & other)
-        {
-            spdlog::debug("CfgoSrcSPtr copy assign.");
-            return static_cast<CfgoSrcSPtr &>(PT::operator=(other));
-        }
-        CfgoSrcSPtr & CfgoSrcSPtr::operator=(CfgoSrcSPtr && other)
-        {
-            spdlog::debug("CfgoSrcSPtr move assign.");
-            return static_cast<CfgoSrcSPtr &>(PT::operator=(std::move(other)));
-        }
-
         static gboolean
         copy_sticky_events (GstPad * pad, GstEvent ** event, gpointer user_data)
         {
@@ -117,13 +94,13 @@ namespace cfgo
             }
             else if (m_mode == GST_CFGO_SRC_MODE_PARSE && ghost_name.starts_with("parse_src_"))
             {
-                templ = gst_element_class_get_pad_template(kclass, "parse_src_%u_%u_%u");
+                templ = gst_element_class_get_pad_template(kclass, "parse_src_%u_%u_%u_%u");
                 gst_object_ref(pad);
                 m_pads.push_back(pad);
             }
             else if (m_mode == GST_CFGO_SRC_MODE_DECODE && ghost_name.starts_with("decode_src_"))
             {
-                templ = gst_element_class_get_pad_template(kclass, "decode_src_%u_%u_%u");
+                templ = gst_element_class_get_pad_template(kclass, "decode_src_%u_%u_%u_%u");
                 gst_object_ref(pad);
                 m_pads.push_back(pad);
             }
@@ -175,10 +152,10 @@ namespace cfgo
             }
         }
 
-        auto CfgoSrc::Session::create_channel(CfgoSrc * parent, GstCfgoSrc * owner, guint ssrc, guint pt, GstPad * pad) -> Channel &
+        auto CfgoSrc::Session::create_channel(CfgoSrc * parent, GstCfgoSrc * owner, guint ssrc, guint pt, GstPad * pad) -> ChannelPtr
         {
-            Channel channel {};
-            channel.init(parent, owner, m_id, ssrc, pt, pad);
+            auto channel = std::make_shared<Channel>();
+            channel->init(parent, owner, m_id, ssrc, pt, pad);
             m_channels.push_back(
                 std::move(channel)
             );
@@ -191,24 +168,36 @@ namespace cfgo
             if (remove)
             {
                 m_channels.erase(
-                    std::remove_if(m_channels.begin(), m_channels.end(), [ssrc = channel.m_ssrc, pt = channel.m_pt](const Channel & c) {
-                        return c.m_ssrc == ssrc && c.m_pt == pt;
+                    std::remove_if(m_channels.begin(), m_channels.end(), [ssrc = channel.m_ssrc, pt = channel.m_pt](const ChannelPtr & c) {
+                        return c->m_ssrc == ssrc && c->m_pt == pt;
                     }),
                     m_channels.end()
                 );
             }
         }
 
-        auto CfgoSrc::Session::find_channel(GstPad * pad) -> Channel &
+        auto CfgoSrc::Session::find_channel(GstPad * pad) -> ChannelPtr
         {
-            auto iter = std::find_if(m_channels.begin(), m_channels.end(), [pad](const Channel & c) {
-                return c.match(pad);
+            auto iter = std::find_if(m_channels.begin(), m_channels.end(), [pad](const ChannelPtr & c) {
+                return c->match(pad);
             });
             if (iter != m_channels.end())
             {
                 return *iter;
             }
             throw cpptrace::runtime_error(fmt::format("Unable to find the channel relate to {}", get_pad_full_name(pad)));
+        }
+
+        auto CfgoSrc::Session::find_channel(guint ssrc, guint pt) -> ChannelPtr
+        {
+            auto iter = std::find_if(m_channels.begin(), m_channels.end(), [ssrc, pt](const ChannelPtr & c) {
+                return c->m_ssrc == ssrc && c->m_pt == pt;
+            });
+            if (iter != m_channels.end())
+            {
+                return *iter;
+            }
+            throw cpptrace::runtime_error(fmt::format("Unable to find the channel relate with ssrc {} and pt {}.", ssrc, pt));
         }
 
         void CfgoSrc::Session::release_rtp_pad(GstElement * rtpbin)
@@ -241,6 +230,11 @@ namespace cfgo
             spdlog::trace("cfgosrc created");
             cfgo_pattern_parse(pattern_json, m_pattern);
             cfgo_req_types_parse(req_types_str, m_req_types);
+            auto closer = m_client->get_closer();
+            if (is_valid_close_chan(closer))
+            {
+                m_close_ch = closer;
+            }
         }
 
         CfgoSrc::~CfgoSrc()
@@ -315,17 +309,17 @@ namespace cfgo
             m_detached = true;
             for (auto && session : m_sessions)
             {
-                for (auto && channel : session.m_channels)
+                for (auto && channel : session->m_channels)
                 {
-                    channel.uninstall_ghost(m_owner, channel.m_pad, false);
-                    for (auto && pad : channel.m_pads)
+                    channel->uninstall_ghost(m_owner, channel->m_pad, false);
+                    for (auto && pad : channel->m_pads)
                     {
-                        channel.uninstall_ghost(m_owner, pad, false);
+                        channel->uninstall_ghost(m_owner, pad, false);
                     }
-                    session.destroy_channel(this, m_owner, channel, false);
+                    session->destroy_channel(this, m_owner, *channel, false);
                 }
-                session.release_rtp_pad(m_rtp_bin);
-                session.release_rtcp_pad(m_rtp_bin);
+                session->release_rtp_pad(m_rtp_bin);
+                session->release_rtcp_pad(m_rtp_bin);
             }
             m_sessions.clear();
             if (m_rtpsrc_enough_data)
@@ -364,6 +358,20 @@ namespace cfgo
             m_owner = nullptr;
         }
 
+        GstElementSPtr CfgoSrc::_safe_get_owner()
+        {
+            if (m_detached)
+            {
+                return nullptr;
+            }
+            std::lock_guard lock(m_mutex);
+            if (m_detached)
+            {
+                return nullptr;
+            }
+            return make_shared_gst_element(GST_ELEMENT(m_owner));
+        }
+
         void CfgoSrc::_create_processor(GstCfgoSrc * owner, Channel & channel, const std::string & type)
         {
             auto processor_name = fmt::sprintf("%s_%u_%u_%u", type, channel.m_sessid, channel.m_ssrc, channel.m_pt);
@@ -373,6 +381,12 @@ namespace cfgo
                 cfgo_error_submit_general(GST_ELEMENT(owner), ("Unable to create the " + type + " element: " + processor_name + ".").c_str(), TRUE, TRUE);
                 return;
             }
+            if (!gst_bin_add(GST_BIN(owner), processor))
+            {
+                cfgo_error_submit_general(GST_ELEMENT(owner), ("Unable to add " + processor_name + " to " + GST_ELEMENT_NAME(owner) + ".").c_str(), TRUE, TRUE);
+                return;
+            }
+            ;
             channel.m_pad_added_handle = g_signal_connect(processor, "pad-added", G_CALLBACK(pad_added_handler), this);
             channel.m_pad_removed_handle = g_signal_connect(processor, "pad-removed", G_CALLBACK(pad_removed_handler), this);
             auto sink_pad = gst_element_get_static_pad(processor, "sink");
@@ -389,7 +403,6 @@ namespace cfgo
                 );
                 return;
             }
-            gst_bin_add(GST_BIN(owner), processor);
             gst_element_sync_state_with_parent(processor);
             gst_object_ref(processor);
             channel.m_processor = processor;
@@ -470,9 +483,9 @@ namespace cfgo
                     guint sessid, ssrc, pt;
                     if (sscanf(GST_PAD_NAME(pad), "recv_rtp_src_%u_%u_%u", &sessid, &ssrc, &pt) == 3)
                     {
-                        Session & session = m_sessions[sessid];
-                        auto & channel = session.create_channel(this, owner, ssrc, pt, pad);
-                        channel.install_ghost(m_mode, owner, pad, ghost_name);
+                        auto session = m_sessions[sessid];
+                        auto channel = session->create_channel(this, owner, ssrc, pt, pad);
+                        channel->install_ghost(m_mode, owner, pad, ghost_name);
                     }
                 }
                 else if (ghost_name.starts_with("parse_src_"))
@@ -480,9 +493,9 @@ namespace cfgo
                     guint sessid, ssrc, pt, srcid;
                     if (sscanf(ghost_name.c_str(), "parse_src_%u_%u_%u_%u", &sessid, &ssrc, &pt, &srcid) == 4)
                     {
-                        Session & session = m_sessions[sessid];
-                        auto & channel = session.find_channel(pad);
-                        channel.install_ghost(m_mode, owner, pad, ghost_name);
+                        auto session = m_sessions[sessid];
+                        auto channel = session->find_channel(ssrc, pt);
+                        channel->install_ghost(m_mode, owner, pad, ghost_name);
                     }
                 }
                 else if (ghost_name.starts_with("decode_src_"))
@@ -490,9 +503,9 @@ namespace cfgo
                     guint sessid, ssrc, pt, srcid;
                     if (sscanf(ghost_name.c_str(), "decode_src_%u_%u_%u_%u", &sessid, &ssrc, &pt, &srcid) == 4)
                     {
-                        Session & session = m_sessions[sessid];
-                        auto & channel = session.find_channel(pad);
-                        channel.install_ghost(m_mode, owner, pad, ghost_name);
+                        auto session = m_sessions[sessid];
+                        auto channel = session->find_channel(ssrc, pt);
+                        channel->install_ghost(m_mode, owner, pad, ghost_name);
                     }
                 }
             });
@@ -507,9 +520,9 @@ namespace cfgo
                     guint sessid, ssrc, pt;
                     if (sscanf(GST_PAD_NAME(pad), "recv_rtp_src_%u_%u_%u", &sessid, &ssrc, &pt) == 3)
                     {
-                        Session & session = m_sessions[sessid];
-                        auto & channel = session.find_channel(pad);
-                        channel.uninstall_ghost(owner, pad);
+                        auto session = m_sessions[sessid];
+                        auto channel = session->find_channel(ssrc, pt);
+                        channel->uninstall_ghost(owner, pad);
                     }
                 }
                 else if (ghost_name.starts_with("parse_src_"))
@@ -517,9 +530,9 @@ namespace cfgo
                     guint sessid, ssrc, pt, srcid;
                     if (sscanf(ghost_name.c_str(), "parse_src_%u_%u_%u_%u", &sessid, &ssrc, &pt, &srcid) == 4)
                     {
-                        Session & session = m_sessions[sessid];
-                        auto & channel = session.find_channel(pad);
-                        channel.uninstall_ghost(owner, pad);
+                        auto session = m_sessions[sessid];
+                        auto channel = session->find_channel(ssrc, pt);
+                        channel->uninstall_ghost(owner, pad);
                     }
                 }
                 else if (ghost_name.starts_with("decode_src_"))
@@ -527,9 +540,9 @@ namespace cfgo
                     guint sessid, ssrc, pt, srcid;
                     if (sscanf(ghost_name.c_str(), "decode_src_%u_%u_%u_%u", &sessid, &ssrc, &pt, &srcid) == 4)
                     {
-                        Session & session = m_sessions[sessid];
-                        auto & channel = session.find_channel(pad);
-                        channel.uninstall_ghost(owner, pad);
+                        auto session = m_sessions[sessid];
+                        auto channel = session->find_channel(ssrc, pt);
+                        channel->uninstall_ghost(owner, pad);
                     }
                 }
             });
@@ -548,7 +561,7 @@ namespace cfgo
         void CfgoSrc::start()
         {
             {
-                std::lock_guard lock(m_mutex);   
+                std::lock_guard lock(m_state_mutex);   
                 if (m_state != INITED)
                 {
                     return;
@@ -577,7 +590,7 @@ namespace cfgo
 
         void CfgoSrc::pause()
         {
-            std::lock_guard lock(m_mutex);  
+            std::lock_guard lock(m_state_mutex);  
             if (m_state == RUNNING)
             {
                 m_state = PAUSED;
@@ -587,7 +600,7 @@ namespace cfgo
 
         void CfgoSrc::resume()
         {
-            std::lock_guard lock(m_mutex);  
+            std::lock_guard lock(m_state_mutex);  
             if (m_state == PAUSED)
             {
                 m_state = RUNNING;
@@ -597,7 +610,7 @@ namespace cfgo
 
         void CfgoSrc::stop()
         {
-            std::lock_guard lock(m_mutex); 
+            std::lock_guard lock(m_state_mutex); 
             m_state = STOPED;
             m_close_ch.close("the method cfgosrc::stop called.");
         }
@@ -611,25 +624,25 @@ namespace cfgo
                 }
                 for (auto && session : m_sessions)
                 {
-                    for (auto && channel : session.m_channels)
+                    for (auto && channel : session->m_channels)
                     {
-                        channel.uninstall_ghost(owner, channel.m_pad, false);
-                        for (auto && pad : channel.m_pads)
+                        channel->uninstall_ghost(owner, channel->m_pad, false);
+                        for (auto && pad : channel->m_pads)
                         {
-                            channel.uninstall_ghost(owner, pad, false);
+                            channel->uninstall_ghost(owner, pad, false);
                         }
-                        channel.m_pads.clear();
-                        session.destroy_channel(this, owner, channel, false);
+                        channel->m_pads.clear();
+                        session->destroy_channel(this, owner, *channel, false);
                     }
                 }
                 m_mode = mode;
                 for (auto && session : m_sessions)
                 {
-                    for (auto && channel : session.m_channels)
+                    for (auto && channel : session->m_channels)
                     {
-                        channel.init(this, owner, session.m_id, channel.m_ssrc, channel.m_pt, channel.m_pad);
-                        gst_object_ref(channel.m_pad);
-                        channel.install_ghost(mode, owner, channel.m_pad, get_ghost_pad_name(channel.m_pad));
+                        channel->init(this, owner, session->m_id, channel->m_ssrc, channel->m_pt, channel->m_pad);
+                        gst_object_ref(channel->m_pad);
+                        channel->install_ghost(mode, owner, channel->m_pad, get_ghost_pad_name(channel->m_pad));
                     }
                 }
             });
@@ -638,25 +651,41 @@ namespace cfgo
         void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)
         {
             spdlog::debug("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
-            std::ignore = self->m_rtp_need_data_ch.try_write();
+            std::lock_guard lock(self->m_mutex);
+            for (auto && session : self->m_sessions)
+            {
+                std::ignore = session->m_rtp_need_data_ch.try_write();
+            }
         }
 
         void rtpsrc_enough_data(GstElement * appsrc, CfgoSrc *self)
         {
             spdlog::debug("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
-            std::ignore = self->m_rtp_enough_data_ch.try_write();
+            std::lock_guard lock(self->m_mutex);
+            for (auto && session : self->m_sessions)
+            {
+                std::ignore = session->m_rtp_enough_data_ch.try_write();
+            }
         }
 
         void rtcpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)
         {
             spdlog::debug("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
-            std::ignore = self->m_rtcp_need_data_ch.try_write();
+            std::lock_guard lock(self->m_mutex);
+            for (auto && session : self->m_sessions)
+            {
+                std::ignore = session->m_rtcp_need_data_ch.try_write();
+            }
         }
 
         void rtcpsrc_enough_data(GstElement * appsrc, CfgoSrc *self)
         {
             spdlog::debug("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
-            std::ignore = self->m_rtcp_enough_data_ch.try_write();
+            std::lock_guard lock(self->m_mutex);
+            for (auto && session : self->m_sessions)
+            {
+                std::ignore = session->m_rtcp_enough_data_ch.try_write();
+            }
         }
 
         GstCaps * request_pt_map(GstElement *src, guint session_id, guint pt, CfgoSrc *self)
@@ -664,7 +693,7 @@ namespace cfgo
             spdlog::debug("[session {}] reqiest pt {}", session_id, pt);
             std::lock_guard lock(self->m_mutex);
             auto & session = self->m_sessions[session_id];
-            return (GstCaps *) session.m_track->get_gst_caps(pt);
+            return (GstCaps *) session->m_track->get_gst_caps(pt);
         }
 
         void CfgoSrc::_create_rtp_bin(GstCfgoSrc * owner)
@@ -686,48 +715,39 @@ namespace cfgo
             gst_element_sync_state_with_parent(m_rtp_bin);
         }
 
-        auto CfgoSrc::_create_session(GstCfgoSrc * owner, TrackPtr track) -> Session
+        auto CfgoSrc::_create_session(GstCfgoSrc * owner, TrackPtr track) -> SessionPtr
         {
             auto i = m_sessions.size();
             spdlog::debug("Creating session {}.", i);
-            m_sessions.push_back(Session {});
-            Session & session = m_sessions.back();
-            session.m_id = i;
-            session.m_track = track;
+            SessionPtr session = std::make_shared<Session>();
+            session->m_id = i;
+            session->m_track = track;
             string rtp_pad_name = fmt::sprintf("recv_rtp_sink_%u", i);
             spdlog::debug("Requesting the rtp pad {}.", rtp_pad_name);
-            session.m_rtp_pad = gst_element_request_pad_simple(m_rtp_bin, rtp_pad_name.c_str());
-            if (!session.m_rtp_pad)
+            session->m_rtp_pad = gst_element_request_pad_simple(m_rtp_bin, rtp_pad_name.c_str());
+            if (!session->m_rtp_pad)
             {
                 throw cpptrace::runtime_error(fmt::format("Unable to request the pad {} from rtpbin.", rtp_pad_name));
             }
-            link_rtp_src(owner, session.m_rtp_pad);
+            link_rtp_src(owner, session->m_rtp_pad);
             string rtcp_pad_name = fmt::sprintf("recv_rtcp_sink_%u", i);
             spdlog::debug("Requesting the rtcp pad {}.", rtcp_pad_name);
-            session.m_rtcp_pad = gst_element_request_pad_simple(m_rtp_bin, rtcp_pad_name.c_str());
-            if (!session.m_rtcp_pad)
+            session->m_rtcp_pad = gst_element_request_pad_simple(m_rtp_bin, rtcp_pad_name.c_str());
+            if (!session->m_rtcp_pad)
             {
                 throw cpptrace::runtime_error(fmt::format("Unable to request the pad {} from rtpbin.", rtcp_pad_name));
             }
-            link_rtcp_src(owner, session.m_rtcp_pad);
+            link_rtcp_src(owner, session->m_rtcp_pad);
+            m_sessions.push_back(session);
             spdlog::debug("Session {} created.", i);
             return session;
         }
 
-        auto CfgoSrc::_post_buffer(const Session & session, Track::MsgType msg_type) -> asio::awaitable<void>
+        auto CfgoSrc::_post_buffer(Session & session, Track::MsgType msg_type) -> asio::awaitable<void>
         {
             spdlog::debug("Start the {} data task of session {}.", msg_type, session.m_id);
             do
             {
-                assert (msg_type != Track::MsgType::ALL);
-                if (msg_type == Track::MsgType::RTP)
-                {
-                    co_await chan_read_or_throw<void>(m_rtp_need_data_ch, m_close_ch);
-                }
-                else
-                {
-                    co_await chan_read_or_throw<void>(m_rtcp_need_data_ch, m_close_ch);
-                }
                 do
                 {   
                     TryOption try_option;
@@ -761,12 +781,13 @@ namespace cfgo
                     {
                         if (!m_close_ch.is_closed())
                         {
-                            auto error = steal_shared_g_error(create_gerror_timeout(
-                                fmt::format("Timeout to read subsrcibed track {} data", (msg_type == Track::MsgType::RTP ? "rtp" : "rtcp"))
-                            ));
-                            _safe_use_owner<void>([error](auto owner) {
-                                cfgo_error_submit(GST_ELEMENT(owner), error.get());
-                            });
+                            if (auto owner = _safe_get_owner())
+                            {
+                                auto error = steal_shared_g_error(create_gerror_timeout(
+                                    fmt::format("Timeout to read subsrcibed track {} data", (msg_type == Track::MsgType::RTP ? "rtp" : "rtcp"))
+                                ));
+                                cfgo_error_submit(owner.get(), error.get());
+                            }
                         }
                         co_return;
                     }
@@ -801,10 +822,11 @@ namespace cfgo
                     GstMapInfo info = GST_MAP_INFO_INIT;
                     if (!gst_buffer_map(buffer.value(), &info, GST_MAP_READWRITE))
                     {
-                        auto error = steal_shared_g_error(create_gerror_general("Unable to map the buffer", true));
-                        _safe_use_owner<void>([error](auto owner) {
-                            cfgo_error_submit(GST_ELEMENT(owner), error.get());
-                        });
+                        if (auto owner = _safe_get_owner())
+                        {
+                            auto error = steal_shared_g_error(create_gerror_general("Unable to map the buffer", true));
+                            cfgo_error_submit(owner.get(), error.get());
+                        }
                         co_return;
                     }
                     DEFER({
@@ -827,19 +849,28 @@ namespace cfgo
                     }
                     if (msg_type == Track::MsgType::RTP)
                     {
-                        if (m_rtp_enough_data_ch.try_read())
+                        if (session.m_rtp_enough_data_ch.try_read())
                         {
                             break;
                         }
                     }
                     else
                     {
-                        if (m_rtcp_enough_data_ch.try_read())
+                        if (session.m_rtcp_enough_data_ch.try_read())
                         {
                             break;
                         }
                     }
                 } while (true);
+                assert (msg_type != Track::MsgType::ALL);
+                if (msg_type == Track::MsgType::RTP)
+                {
+                    co_await chan_read_or_throw<void>(session.m_rtp_need_data_ch, m_close_ch);
+                }
+                else
+                {
+                    co_await chan_read_or_throw<void>(session.m_rtcp_need_data_ch, m_close_ch);
+                }
             } while (true);
         }
 
@@ -881,10 +912,11 @@ namespace cfgo
                     if (!m_close_ch.is_closed())
                     {
                         spdlog::debug("Subscribed timeout.");
-                        _safe_use_owner<void>([](auto owner) {
+                        if (auto owner = _safe_get_owner())
+                        {
                             auto error = steal_shared_g_error(create_gerror_timeout("Timeout to subscribing."));
-                            cfgo_error_submit(GST_ELEMENT(owner), error.get());
-                        });
+                            cfgo_error_submit(owner.get(), error.get());
+                        }
                     }
                     co_return;
                 }
@@ -892,18 +924,18 @@ namespace cfgo
                 cfgo::AsyncTasksAll<void> tasks(m_close_ch);
                 for (auto &track : sub.value()->tracks())
                 {
-                    auto session = _safe_use_owner<Session>([this, track](auto owner) {
+                    auto session = _safe_use_owner<SessionPtr>([this, track](auto owner) {
                         return _create_session(owner, track);
                     });
                     if (!session)
                     {
                         co_return;
                     }
-                    tasks.add_task(fix_async_lambda([self = shared_from_this(), session = session.value()](close_chan closer) -> asio::awaitable<void> {
-                        co_await self->_post_buffer(session, Track::MsgType::RTP);
+                    tasks.add_task(fix_async_lambda([self = shared_from_this(), session = session.value()](close_chan closer) mutable -> asio::awaitable<void> {
+                        co_await self->_post_buffer(*session, Track::MsgType::RTP);
                     }));
-                    tasks.add_task(fix_async_lambda([self = shared_from_this(), session = session.value()](close_chan closer) -> asio::awaitable<void> {
-                        co_await self->_post_buffer(session, Track::MsgType::RTCP);
+                    tasks.add_task(fix_async_lambda([self = shared_from_this(), session = session.value()](close_chan closer) mutable -> asio::awaitable<void> {
+                        co_await self->_post_buffer(*session, Track::MsgType::RTCP);
                     }));
                 }
                 try
@@ -914,13 +946,20 @@ namespace cfgo
                 {
                     spdlog::debug(fmt::format("The loop task is canceled because {}", e.what()));
                 }
+                if (auto owner = _safe_get_owner())
+                {
+                    spdlog::debug("Send eos event to the owner.");
+                    gst_element_send_event(owner.get(), gst_event_new_eos());
+                    spdlog::debug("after send eos event");
+                }
             }
             catch(...)
             {
-                _safe_use_owner<void>([](auto owner) {
+                if (auto owner = _safe_get_owner())
+                {
                     auto error = steal_shared_g_error(create_gerror_from_except(std::current_exception(), true));
-                    cfgo_error_submit(GST_ELEMENT(owner), error.get());
-                });
+                    cfgo_error_submit(owner.get(), error.get());
+                }
             }
             co_return;
         }

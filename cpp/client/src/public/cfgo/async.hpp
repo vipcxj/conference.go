@@ -1038,33 +1038,18 @@ namespace cfgo
                                 except = std::current_exception();                                 
                             }
                             bool closed = false;
-                            if (close_ch.is_closed())
-                            {
-                                closed = true;
-                            }
-                            else
+                            if (!close_ch.is_closed())
                             {
                                 if constexpr (std::is_void_v<T>)
                                 {
-                                    spdlog::trace("writing except");
                                     closed = !co_await chan_write<DataType>(data_ch, std::make_tuple(i, except), close_ch);
                                     spdlog::trace("except writed with closer {}", closed ? "closed" : "not closed");
                                 }
                                 else
                                 {
-                                    spdlog::trace("writing except");
                                     closed = !co_await chan_write<DataType>(data_ch, std::make_tuple(i, std::nullopt, except), close_ch);
                                     spdlog::trace("except writed with closer {}", closed ? "closed" : "not closed");
                                 }
-                            }
-                            if (closed)
-                            {
-                                spdlog::trace("writing except without closer");
-                                if constexpr (std::is_void_v<T>)
-                                    co_await data_ch.write(DataType{i, except});
-                                else
-                                    co_await data_ch.write(DataType{i, std::nullopt, except});
-                                spdlog::trace("except writed without closer");
                             }
                             spdlog::trace("task exit.");
                         }),

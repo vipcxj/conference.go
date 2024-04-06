@@ -6,25 +6,16 @@
 #include "cfgo/async.hpp"
 #include "cfgo/spd_helper.hpp"
 #include "cfgo/gst/gstcfgosrc.h"
+#include "cfgo/gst/utils.hpp"
 #include "gst/gst.h"
 #include <vector>
+#include <thread>
 
 namespace cfgo
 {
     namespace gst
     {
         class CfgoSrc;
-        class CfgoSrcSPtr : public std::shared_ptr<CfgoSrc>
-        {
-            using PT = std::shared_ptr<CfgoSrc>;
-        public:
-            CfgoSrcSPtr(CfgoSrc * pt = nullptr);
-            CfgoSrcSPtr(const CfgoSrcSPtr &);
-            CfgoSrcSPtr(CfgoSrcSPtr &&);
-            virtual ~CfgoSrcSPtr();
-            CfgoSrcSPtr & operator=(const CfgoSrcSPtr &);
-            CfgoSrcSPtr & operator=(CfgoSrcSPtr &&);
-        };
 
         class CfgoSrc : public std::enable_shared_from_this<CfgoSrc>
         {
@@ -46,20 +37,27 @@ namespace cfgo
                 void install_ghost(GstCfgoSrcMode m_mode, GstCfgoSrc * owner, GstPad * pad, const std::string & ghost_name);
                 void uninstall_ghost(GstCfgoSrc * owner, GstPad * pad, bool remove = true);
             };
+            using ChannelPtr = std::shared_ptr<Channel>;
             struct Session
             {
                 guint m_id;
                 TrackPtr m_track;
-                GstPad * m_rtp_pad;
-                GstPad * m_rtcp_pad;
-                std::vector<Channel> m_channels;
+                GstPad * m_rtp_pad = nullptr;
+                GstPad * m_rtcp_pad = nullptr;
+                asiochan::channel<void, 1> m_rtp_need_data_ch;
+                asiochan::channel<void, 1> m_rtp_enough_data_ch;
+                asiochan::channel<void, 1> m_rtcp_need_data_ch;
+                asiochan::channel<void, 1> m_rtcp_enough_data_ch;
+                std::vector<ChannelPtr> m_channels;
                 ~Session();
-                Channel & create_channel(CfgoSrc * parent, GstCfgoSrc * owner, guint ssrc, guint pt, GstPad * pad);
+                ChannelPtr create_channel(CfgoSrc * parent, GstCfgoSrc * owner, guint ssrc, guint pt, GstPad * pad);
                 void destroy_channel(CfgoSrc * parent, GstCfgoSrc * owner, Channel & channel, bool remove = true);
-                Channel & find_channel(GstPad * pad);
+                ChannelPtr find_channel(GstPad * pad);
+                ChannelPtr find_channel(guint ssrc, guint pt);
                 void release_rtp_pad(GstElement * rtpbin);
                 void release_rtcp_pad(GstElement * rtpbin);
             };
+            using SessionPtr = std::shared_ptr<Session>;
             
             enum State
             {
@@ -70,20 +68,17 @@ namespace cfgo
             };
         private:
             State m_state;
+            std::mutex m_state_mutex;
             GstCfgoSrcMode m_mode;
             Client::Ptr m_client;
             Pattern m_pattern;
             std::vector<std::string> m_req_types;
             close_chan m_close_ch;
-            asiochan::channel<void, 1> m_rtp_need_data_ch;
-            asiochan::channel<void, 1> m_rtp_enough_data_ch;
-            asiochan::channel<void, 1> m_rtcp_need_data_ch;
-            asiochan::channel<void, 1> m_rtcp_enough_data_ch;
             guint64 m_sub_timeout;
             TryOption m_sub_try_option;
             guint64 m_read_timeout;
             TryOption m_read_try_option;
-            std::mutex m_mutex;
+            std::recursive_mutex m_mutex;
             GstCfgoSrc * m_owner;
             bool m_detached;
             GstElement * m_rtp_bin;
@@ -94,19 +89,20 @@ namespace cfgo
             gulong m_request_pt_map = 0;
             gulong m_pad_added_handler = 0;
             gulong m_pad_removed_handler = 0;
-            std::vector<Session> m_sessions;
+            std::vector<SessionPtr> m_sessions;
 
             void _reset_sub_closer();
             void _reset_read_closer();
             void _create_rtp_bin(GstCfgoSrc * owner);
-            Session _create_session(GstCfgoSrc * owner, TrackPtr track);
+            SessionPtr _create_session(GstCfgoSrc * owner, TrackPtr track);
             void _create_processor(GstCfgoSrc * owner, Channel & channel, const std::string & type);
             void _destroy_processor(GstCfgoSrc * owner, Channel & channel);
             auto _loop() -> asio::awaitable<void>;
-            auto _post_buffer(const Session & session, Track::MsgType msg_type) -> asio::awaitable<void>;
+            auto _post_buffer(Session & session, Track::MsgType msg_type) -> asio::awaitable<void>;
             void _detach();
             void _install_pad(GstPad * pad);
             void _uninstall_pad(GstPad * pad);
+            GstElementSPtr _safe_get_owner();
             template<typename T>
             cancelable<T> _safe_use_owner(std::function<T(GstCfgoSrc * owner)> func, bool lock = true)
             {

@@ -124,6 +124,32 @@ namespace cfgo
                 else
                     co_return false;
             }
+
+            AsyncLink::AsyncLink(std::shared_ptr<Pipeline> pipeline, LinkPtr link, bool done): 
+                m_pipeline(pipeline), m_link(link), m_done(done)
+            {}
+
+            auto AsyncLink::await(close_chan closer) -> asio::awaitable<LinkPtr>
+            {
+               if (m_done)
+                {
+                    co_return m_link;
+                }
+                auto res = co_await m_link->wait_ready(closer);
+                if (!res)
+                {
+                    {
+                        std::lock_guard lock(m_pipeline->m_mutex);
+                        m_pipeline->remove_link(m_link, true);
+                    }
+                    co_return nullptr;
+                }
+                {
+                    std::lock_guard lock(m_pipeline->m_mutex);
+                    m_pipeline->add_link(m_link, true);
+                }
+                co_return m_link;
+            }
         } // namespace impl
     
     } // namespace gst

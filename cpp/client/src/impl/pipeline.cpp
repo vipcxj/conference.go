@@ -13,22 +13,137 @@ namespace cfgo
         namespace impl
         {
 
-            void pad_added_handler(GstElement *src, GstPad *new_pad, Pipeline *pipeline)
+            /**
+             * only support %u
+            */
+            bool match_pad_name(const std::string & name1, const std::string & name2)
             {
-                std::lock_guard lock(pipeline->m_mutex);
-                std::string node_name = GST_ELEMENT_NAME(src);
-                std::string pad_name = GST_PAD_NAME(new_pad);
-                auto link_iter = pipeline->find_pending_link(node_name, pad_name, Pipeline::ANY);
-                if (link_iter != pipeline->m_pending_links.end())
+
+                auto len1 = name1.length();
+                auto len2 = name2.length();
+                int f1 = 0, f2 = 0;
+                size_t i = 0, j = 0;
+                for (;i < len1 && j < len2;)
                 {
-                    auto link = *link_iter;
-                    if (src == link->src())
+                    auto c1 = name1[i];
+                    auto c2 = name2[j];
+                    if (f1 > 0)
                     {
-                        link->set_src_pad(new_pad);
+                        if (f1 == 1)
+                        {
+                            if (c1 != 'u')
+                            {
+                                spdlog::warn("Unsupport format. pad1: {}, pad2: {}.", name1, name2);
+                                return false;
+                            }
+                            else
+                            {
+                                f1 = 2;
+                            }
+                        }
+                        if (!std::isdigit(c2))
+                        {
+                            f1 = 0;
+                            ++i;
+                        }
+                        else
+                        {
+                            ++j;
+                        }
+                    }
+                    else if (f2 > 0)
+                    {
+                        if (f2 == 1)
+                        {
+                            if (c2 != 'u')
+                            {
+                                spdlog::warn("Unsupport format. pad1: {}, pad2: {}.", name1, name2);
+                                return false;
+                            }
+                            else
+                            {
+                                f2 = 2;
+                            }
+                        }
+                        if (!std::isdigit(c1))
+                        {
+                            f2 = 0;
+                            ++j;
+                        }
+                        else
+                        {
+                            ++i;
+                        }
                     }
                     else
                     {
-                        link->set_tgt_pad(new_pad);
+                        if (c1 != c2)
+                        {
+                            if (c1 == '%')
+                            {
+                                if (!std::isdigit(c2))
+                                {
+                                    return false;
+                                }
+                                f1 = 1;
+                            }
+                            else if (c2 == '%')
+                            {
+                                if (!std::isdigit(c1))
+                                {
+                                    return false;
+                                }
+                                f2 = 1;
+                            }
+                            else
+                            {
+                                return false;
+                            }
+                        }
+                        ++i;
+                        ++j;
+                    }
+                }
+                return (i == len1 && j == len2) || f1 > 0 || f2 > 0;
+            }
+
+            void pad_added_handler(GstElement *src, GstPad *new_pad, Pipeline *pipeline)
+            {
+                std::string node_name = GST_ELEMENT_NAME(src);
+                std::string pad_name = GST_PAD_NAME(new_pad);
+                {
+                    std::lock_guard lock(pipeline->m_mutex);
+                    pipeline->_add_pad(src, new_pad);
+                }
+                {
+                    std::lock_guard lock(pipeline->m_mutex);
+                    auto waiters_iter = pipeline->m_waiters.find(node_name);
+                    if (waiters_iter != pipeline->m_waiters.end())
+                    {
+                        for (auto && waiter_pair : waiters_iter->second)
+                        {
+                            if (match_pad_name(pad_name, waiter_pair.first))
+                            {
+                                std::ignore = waiter_pair.second.try_write(new_pad);
+                            }
+                        }
+                    }
+                }
+                {
+                    std::lock_guard lock(pipeline->m_mutex);
+
+                    auto link_iter = pipeline->find_pending_link(node_name, pad_name, Pipeline::ANY);
+                    if (link_iter != pipeline->m_pending_links.end())
+                    {
+                        auto link = *link_iter;
+                        if (src == link->src())
+                        {
+                            link->set_src_pad(new_pad);
+                        }
+                        else
+                        {
+                            link->set_tgt_pad(new_pad);
+                        }
                     }
                 }
             }
@@ -149,95 +264,79 @@ namespace cfgo
                 m_nodes.emplace(std::make_pair(name, element));
             }
 
-            /**
-             * only support %u
-            */
-            bool match_pad_name(const std::string & name1, const std::string & name2)
+            void Pipeline::_add_pad(GstElement *src, GstPad * pad)
             {
-
-                auto len1 = name1.length();
-                auto len2 = name2.length();
-                int f1 = 0, f2 = 0;
-                size_t i = 0, j = 0;
-                for (;i < len1 && j < len2; ++i, ++j)
+                if (!src)
                 {
-                    auto c1 = name1[i];
-                    auto c2 = name2[i];
-                    if (f1 > 0)
+                    src = gst_pad_get_parent_element(pad);
+                }
+                auto [pads_iter, _] = m_pads.try_emplace(GST_ELEMENT_NAME(src));
+                auto pad_iter = pads_iter->second.find(GST_PAD_NAME(pad));
+                gst_object_ref_sink(pad);
+                if (pad_iter != pads_iter->second.end())
+                {
+                    gst_object_unref(pad_iter->second);
+                    pad_iter->second = pad;
+                }
+                else
+                {
+                    pads_iter->second.insert(std::make_pair(GST_PAD_NAME(pad), pad));
+                }
+            }
+
+            void Pipeline::_remove_pad(GstElement *src, GstPad * pad)
+            {
+                if (!src)
+                {
+                    src = gst_pad_get_parent_element(pad);
+                }
+                auto pads_iter = m_pads.find(GST_ELEMENT_NAME(src));
+                if (pads_iter == m_pads.end())
+                {
+                    return;
+                }
+                auto pad_iter = pads_iter->second.find(GST_PAD_NAME(pad));
+                if (pad_iter == pads_iter->second.end())
+                {
+                    return;
+                }
+                gst_object_unref(pad_iter->second);
+                pads_iter->second.erase(pad_iter);
+            }
+
+            GstPad * Pipeline::_find_pad(const std::string & node_name, const std::string & pad_template, const std::set<GstPad *> excludes)
+            {
+                auto pads_iter = m_pads.find(node_name);
+                if (pads_iter == m_pads.end())
+                {
+                    return nullptr;
+                }
+                for (auto && [pad_name, pad] : pads_iter->second)
+                {
+                    if (match_pad_name(pad_name, pad_template) && !excludes.contains(pad))
                     {
-                        if (f1 == 1)
-                        {
-                            if (c1 != 'u')
-                            {
-                                spdlog::warn("Unsupport format. pad1: {}, pad2: {}.", name1, name2);
-                                return false;
-                            }
-                            else
-                            {
-                                f1 = 2;
-                            }
-                        }
-                        if (!std::isdigit(c2))
-                        {
-                            f1 = 0;
-                            ++i;
-                        }
-                        ++j;
-                    }
-                    else if (f2 > 0)
-                    {
-                        if (f2 == 1)
-                        {
-                            if (c2 != 'u')
-                            {
-                                spdlog::warn("Unsupport format. pad1: {}, pad2: {}.", name1, name2);
-                                return false;
-                            }
-                            else
-                            {
-                                f2 = 2;
-                            }
-                        }
-                        if (!std::isdigit(c1))
-                        {
-                            f2 = 0;
-                            ++j;
-                        }
-                        ++i;
-                    }
-                    else
-                    {
-                        if (c1 != c2)
-                        {
-                            if (c1 == '%')
-                            {
-                                if (!std::isdigit(c2))
-                                {
-                                    return false;
-                                }
-                                f1 = 1;
-                            }
-                            else if (c2 == '%')
-                            {
-                                if (!std::isdigit(c1))
-                                {
-                                    return false;
-                                }
-                                f2 = 1;
-                            }
-                            else
-                            {
-                                return false;
-                            }
-                        }
-                        ++i;
-                        ++j;
+                        return pad;
                     }
                 }
-                return i == len1 && j == len2;
+                return nullptr;
             }
 
-            [[nodiscard]] auto Pipeline::find_pending_link(const std::string & node, const std::string pad, EndpointType endpoint_type) const -> LinkList::const_iterator
+            auto Pipeline::_add_waiter(const std::string & node_name, const std::string & pad_name, Waiter waiter) -> WaiterList::iterator
+            {
+                auto [waiters_iter, _] = m_waiters.try_emplace(node_name);
+                return waiters_iter->second.insert(waiters_iter->second.end(), std::make_pair(pad_name, waiter));
+            }
+
+            void Pipeline::_remove_waiter(const std::string & node_name, const WaiterList::iterator & iter)
+            {
+                auto waiters_iter = m_waiters.find(node_name);
+                if (waiters_iter != m_waiters.end())
+                {
+                    waiters_iter->second.erase(iter);
+                }
+            }
+
+            [[nodiscard]] auto Pipeline::find_pending_link(const std::string & node, const std::string & pad, EndpointType endpoint_type) const -> LinkList::const_iterator
             {
                 return std::find_if(m_pending_links.begin(), m_pending_links.end(), [endpoint_type, &node, &pad](auto && link) {
                     if (endpoint_type == Pipeline::SRC)
@@ -248,7 +347,7 @@ namespace cfgo
                         return (node == GST_ELEMENT_NAME (link->src()) && match_pad_name(pad, link->src_pad_name())) || (node == GST_ELEMENT_NAME (link->tgt()) && match_pad_name(pad, link->tgt_pad_name()));     
                 });
             }
-            [[nodiscard]] auto Pipeline::find_pending_link(const std::string & node, const std::string pad, EndpointType endpoint_type) -> LinkList::iterator
+            [[nodiscard]] auto Pipeline::find_pending_link(const std::string & node, const std::string & pad, EndpointType endpoint_type) -> LinkList::iterator
             {
                 return std::find_if(m_pending_links.begin(), m_pending_links.end(), [endpoint_type, &node, &pad](auto && link) {
                     if (endpoint_type == Pipeline::SRC)
@@ -259,7 +358,7 @@ namespace cfgo
                         return (node == GST_ELEMENT_NAME (link->src()) && match_pad_name(pad, link->src_pad_name())) || (node == GST_ELEMENT_NAME (link->tgt()) && match_pad_name(pad, link->tgt_pad_name()));     
                 });
             }
-            [[nodiscard]] Pipeline::LinkPtr Pipeline::link_by_src(const std::string & node_name, const std::string pad_name) const
+            [[nodiscard]] Pipeline::LinkPtr Pipeline::link_by_src(const std::string & node_name, const std::string & pad_name) const
             {
                 auto iter0 = m_links_by_src.find(node_name);
                 if (iter0 != m_links_by_src.end())
@@ -338,12 +437,50 @@ namespace cfgo
                 return true;
             }
 
-            auto Pipeline::link(const std::string & src, const std::string & target, close_chan & close_chan) -> asio::awaitable<LinkPtr>
+            auto Pipeline::await_pad(const std::string & node, const std::string & pad_name, const std::set<GstPad *> & excludes, close_chan closer) -> asio::awaitable<GstPadSPtr>
+            {
+                Waiter waiter{};
+                GstPad * pad = nullptr;
+                {
+                    std::lock_guard lock(m_mutex);
+                    pad = _find_pad(node, pad_name, excludes);
+                    if (!pad)
+                    {
+                        auto [waiters_iter, _] = m_waiters.try_emplace(node);
+                        waiters_iter->second.push_back(std::make_pair(pad_name, waiter));
+                    }
+                }
+                if (pad)
+                {
+                    co_return make_shared_gst_pad(pad);
+                }
+                auto c_pad = co_await chan_read<GstPad *>(waiter, closer);
+                if (c_pad)
+                {
+                    co_return make_shared_gst_pad(c_pad.value());
+                }
+                else
+                {
+                    co_return nullptr;
+                }
+            }
+
+            bool link(const std::string & src, const std::string & target)
             {
                 throw cpptrace::runtime_error(NOT_IMPLEMENTED_YET);
             }
 
-            auto Pipeline::link(const std::string & src_name, const std::string & src_pad_name, const std::string & tgt_name, const std::string & tgt_pad_name, close_chan & close_ch) -> asio::awaitable<LinkPtr>
+            bool link(const std::string & src, const std::string & src_pad, const std::string & tgt, const std::string & tgt_pad)
+            {
+                throw cpptrace::runtime_error(NOT_IMPLEMENTED_YET);
+            }
+
+            auto Pipeline::link_async(const std::string & src, const std::string & target) -> AsyncLink::Ptr
+            {
+                throw cpptrace::runtime_error(NOT_IMPLEMENTED_YET);
+            }
+
+            auto Pipeline::link_async(const std::string & src_name, const std::string & src_pad_name, const std::string & tgt_name, const std::string & tgt_pad_name) -> AsyncLink::Ptr
             {
                 bool done = false;
                 LinkPtr _link = nullptr;
@@ -456,24 +593,7 @@ namespace cfgo
                         m_pending_links.push_back(_link);
                     }
                 }
-                if (done)
-                {
-                    co_return _link;
-                }
-                auto res = co_await _link->wait_ready(close_ch);
-                if (!res)
-                {
-                    {
-                        std::lock_guard lock(m_mutex);
-                        remove_link(_link, true);
-                    }
-                    co_return nullptr;
-                }
-                {
-                    std::lock_guard lock(m_mutex);
-                    add_link(_link, true);
-                }
-                co_return _link;
+                return AsyncLink::Ptr(new AsyncLink(shared_from_this(), _link, done));
             }
 
             GstElement * Pipeline::node(const std::string & name) const

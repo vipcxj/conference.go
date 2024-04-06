@@ -10,6 +10,48 @@
 
 #include <string>
 #include <cstdlib>
+#include <thread>
+#include <csignal>
+#include <set>
+
+volatile std::sig_atomic_t gCtrlCStatus = 0;
+
+void signal_handler(int signal)
+{
+    gCtrlCStatus = signal;
+}
+
+class ControlCHandler
+{
+private:
+    cfgo::close_chan m_closer;
+    std::thread m_t;
+public:
+    ControlCHandler(cfgo::close_chan closer);
+    ~ControlCHandler();
+};
+
+ControlCHandler::ControlCHandler(cfgo::close_chan closer): m_closer(closer)
+{
+    m_t = std::thread([closer = m_closer]() mutable {
+        while (true)
+        {
+            if (gCtrlCStatus)
+            {
+                closer.close();
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        spdlog::debug("ctl-c handler completed.");
+    });
+    m_t.detach();
+    std::signal(SIGINT, signal_handler);
+}
+
+ControlCHandler::~ControlCHandler()
+{}
+
 
 auto get_token() -> std::string {
     using namespace Poco::Net;
@@ -26,10 +68,10 @@ auto get_token() -> std::string {
     return std::string{ std::istreambuf_iterator<char>(rs), std::istreambuf_iterator<char>() };
 }
 
-auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token) -> asio::awaitable<void> {
+auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::close_chan closer) -> asio::awaitable<void> {
     using namespace cfgo;
     cfgo::Configuration conf { "http://localhost:8080", token };
-    auto client_ptr = std::make_shared<Client>(conf, exec_ctx);
+    auto client_ptr = std::make_shared<Client>(conf, exec_ctx, closer);
     gst::Pipeline pipeline("test pipeline", exec_ctx);
     pipeline.add_node("cfgosrc", "cfgosrc");
     g_object_set(
@@ -50,10 +92,23 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token) -> asio
                 }
             ]
         })",
+        "mode",
+        GST_CFGO_SRC_MODE_PARSE,
         NULL
     );
+    pipeline.add_node("mp4mux", "mp4mux");
+    pipeline.add_node("fakesink", "fakesink");
+    auto pad = co_await pipeline.await_pad("cfgosrc", "parse_src_%u_%u_%u_%u", {}, closer);
+    if (!pad)
+    {
+        co_return;
+    }
+    
+    auto async_link = pipeline.link_async("cfgosrc", "parse_src_%u_%u_%u_%u", "fakesink", "sink");
     pipeline.run();
-    co_await pipeline.await();
+    co_await async_link->await(closer);
+    spdlog::debug("linked.");
+    co_await pipeline.await(closer);
     co_return;
 }
 
@@ -80,13 +135,25 @@ int main(int argc, char **argv) {
     cpptrace::register_terminate_handler();
     gst_init(&argc, &argv);
     GST_PLUGIN_STATIC_REGISTER(cfgosrc);
-    spdlog::set_level(spdlog::level::trace);
+    spdlog::set_level(spdlog::level::debug);
     gst_debug_set_threshold_for_name("cfgosrc", GST_LEVEL_TRACE);
 
     debug_plugins();
+    cfgo::close_chan closer;
+
+    ControlCHandler ctrl_c_handler(closer);
 
     auto pool = std::make_shared<asio::thread_pool>();
     auto token = get_token();
-    auto f = asio::co_spawn(asio::get_associated_executor(pool), main_task(pool, token), asio::use_future);
-    f.get();
+    auto f = asio::co_spawn(asio::get_associated_executor(pool), main_task(pool, token, closer), asio::use_future);
+    try
+    {
+        f.get();
+    }
+    catch(...)
+    {
+        spdlog::error(cfgo::what());
+    }
+    spdlog::debug("main end");
+    return 0;
 }

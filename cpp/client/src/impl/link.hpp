@@ -72,6 +72,20 @@ namespace cfgo
                     return m_tgt_pad;
                 }
             };
+
+            class AsyncLink
+            {
+            public:
+                using Ptr = std::shared_ptr<AsyncLink>;
+                using LinkPtr = std::shared_ptr<Link>;
+            private:
+                bool m_done;
+                std::shared_ptr<Pipeline> m_pipeline;
+                LinkPtr m_link;
+            public:
+                AsyncLink(std::shared_ptr<Pipeline> pipeline, LinkPtr link, bool done);
+                auto await(close_chan closer) -> asio::awaitable<LinkPtr>;
+            };
         } // namespace impl
     } // namespace gst
     

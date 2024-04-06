@@ -53,6 +53,7 @@ namespace cfgo {
             Configuration m_config;
             std::unique_ptr<sio::client> m_client;
             std::shared_ptr<rtc::PeerConnection> m_peer;
+            close_chan m_closer;
             const std::string m_id;
             #ifdef CFGO_SUPPORT_GSTREAMER
             friend class Track;
@@ -60,8 +61,8 @@ namespace cfgo {
             #endif
         public:
             Client() = delete;
-            Client(const Configuration& config);
-            Client(const Configuration& config, const CtxPtr& io_ctx);
+            Client(const Configuration& config, close_chan closer);
+            Client(const Configuration& config, const CtxPtr& io_ctx, close_chan closer);
             Client(Client&&) = default;
             ~Client();
             Client(const Client&) = delete;
@@ -74,6 +75,7 @@ namespace cfgo {
             std::optional<rtc::Description> peer_local_desc() const;
             std::optional<rtc::Description> peer_remote_desc() const;
             CtxPtr execution_context() const noexcept;
+            close_chan get_closer() const noexcept;
         private:
             cfgo::AsyncMutex m_a_mutex;
             void update_gst_sdp();
@@ -96,7 +98,7 @@ namespace cfgo {
             const bool m_thread_safe;
             std::mutex m_mutex;
 
-            Client(const Configuration& config, const CtxPtr& io_ctx, bool thread_safe);
+            Client(const Configuration& config, const CtxPtr& io_ctx, close_chan closer, bool thread_safe);
             void lock();
             void unlock() noexcept;
         };

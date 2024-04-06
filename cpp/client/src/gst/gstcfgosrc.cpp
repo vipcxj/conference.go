@@ -24,6 +24,7 @@
 #include "cfgo/gst/error.hpp"
 #include "cfgo/gst/utils.hpp"
 #include "cfgo/async.hpp"
+#include "cfgo/fmt.hpp"
 #include "cfgo/capi.h"
 #include "cfgo/cbridge.hpp"
 #include "cfgo/client.hpp"
@@ -250,6 +251,10 @@ gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
        base_class_init if you intend to subclass this class. */
     gst_element_class_add_static_pad_template(element_class,
                                               &gst_cfgosrc_rtp_src_template);
+    gst_element_class_add_static_pad_template(element_class,
+                                              &gst_cfgosrc_parse_src_template);
+    gst_element_class_add_static_pad_template(element_class,
+                                              &gst_cfgosrc_decode_src_template);
 
     gst_element_class_set_static_metadata(GST_ELEMENT_CLASS(klass),
                                           "FIXME Long name", "Generic", "FIXME Description",
@@ -339,11 +344,11 @@ gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
             "read-try-delay-level", "read-try-delay-level", "the max increase level of delay time before next reading data try.",
             0, 16, 0,
             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-    g_object_class_install_property (
+    g_object_class_install_property(
         gobject_class, PROP_MODE,
         g_param_spec_enum (
-            "mode", "Expose Mode", "Control the exposed pad type", 
-            DEFAULT_GST_CFGO_SRC_MODE, GST_CFGO_SRC_MODE_TYPE, 
+            "mode", "mode", "Control the exposed pad type", 
+            GST_CFGO_SRC_MODE_TYPE, DEFAULT_GST_CFGO_SRC_MODE, 
             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 }
 
@@ -403,8 +408,6 @@ void _gst_cfgosrc_prepare(GstCfgoSrc *cfgosrc, bool reset_task)
                 spdlog::debug("task use_count: {}.", GST_CFGOSRC_PVS(cfgosrc)->task.use_count());
                 GST_DEBUG_OBJECT(cfgosrc, "%s", "Attaching the task.");
                 GST_CFGOSRC_PVS(cfgosrc)->task->attach(cfgosrc);
-                GST_DEBUG_OBJECT(cfgosrc, "%s", "Starting the task.");
-                GST_CFGOSRC_PVS(cfgosrc)->task->start();
             }
             else
             {
@@ -437,6 +440,8 @@ void gst_cfgosrc_start(GstCfgoSrc *cfgosrc)
     _gst_cfgosrc_prepare(cfgosrc, false);
     if (GST_CFGOSRC_PVS(cfgosrc)->task)
     {
+        GST_DEBUG_OBJECT(cfgosrc, "%s", "start task, if already started, no side effect");
+        GST_CFGOSRC_PVS(cfgosrc)->task->start();
         GST_DEBUG_OBJECT(cfgosrc, "%s", "resume task");
         GST_CFGOSRC_PVS(cfgosrc)->task->resume();
     }
@@ -449,11 +454,12 @@ void gst_cfgosrc_stop(GstCfgoSrc *cfgosrc)
     GST_CFGOSRC_PVS(cfgosrc)->running = false;
     if (GST_CFGOSRC_PVS(cfgosrc)->task)
     {
+        spdlog::debug("current thread id: {}", std::this_thread::get_id());
         GST_CFGOSRC_PVS(cfgosrc)->task->pause();
     }
 }
 
-bool gst_cfgosrc_set_string_property(const GValue *value, const gchar ** target)
+bool gst_cfgosrc_set_string_property(const GValue *value, gchar ** target)
 {
     const gchar * src = g_value_get_string(value);
     if (src == *target)
@@ -462,7 +468,7 @@ bool gst_cfgosrc_set_string_property(const GValue *value, const gchar ** target)
     }
     else if (src == nullptr)
     {
-        g_free(target);
+        g_free(*target);
         *target = nullptr;
         return true;
     }
@@ -477,7 +483,7 @@ bool gst_cfgosrc_set_string_property(const GValue *value, const gchar ** target)
     }
     else
     {
-        g_free(target);
+        g_free(*target);
         *target = g_strdup(src);
         return true;
     }
@@ -835,11 +841,11 @@ void gst_cfgosrc_finalize(GObject *object)
     }
     if (cfgosrc->pattern)
     {
-        g_free(&cfgosrc->pattern);
+        g_free(cfgosrc->pattern);
     }
     if (cfgosrc->req_types)
     {
-        g_free(&cfgosrc->req_types);
+        g_free(cfgosrc->req_types);
     }
     
     G_OBJECT_CLASS(gst_cfgosrc_parent_class)->finalize(object);

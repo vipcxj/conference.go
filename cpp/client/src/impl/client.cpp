@@ -25,18 +25,19 @@ namespace cfgo
     namespace impl
     {
 
-        Client::Client(const Configuration &config) : Client(config, std::make_shared<asio::io_context>(), true)
+        Client::Client(const Configuration &config, close_chan closer) : Client(config, std::make_shared<asio::io_context>(), closer, true)
         {
         }
 
-        Client::Client(const Configuration &config, const CtxPtr &io_ctx) : Client(config, io_ctx, config.m_thread_safe)
+        Client::Client(const Configuration &config, const CtxPtr &io_ctx, close_chan closer) : Client(config, io_ctx, closer, config.m_thread_safe)
         {
         }
 
         Client::Client(
-            const Configuration &config, const CtxPtr &io_ctx, bool thread_safe
+            const Configuration &config, const CtxPtr &io_ctx, close_chan closer, bool thread_safe
         ) : m_config(config),
             m_client(std::make_unique<sio::client>()),
+            m_closer(closer),
             m_peer(std::make_shared<::rtc::PeerConnection>(config.m_rtc_config)),
             m_id(boost::lexical_cast<std::string>(boost::uuids::random_generator()())),
             m_io_context(io_ctx),
@@ -74,6 +75,11 @@ namespace cfgo
         Client::CtxPtr Client::execution_context() const noexcept
         {
             return m_io_context;
+        }
+
+        close_chan Client::get_closer() const noexcept
+        {
+            return m_closer;
         }
 
         void Client::lock()
@@ -385,9 +391,15 @@ namespace cfgo
             spdlog::debug("peer state changed to {}", peer_state_to_str(state));
         }
 
-        auto Client::subscribe(Pattern pattern, std::vector<std::string> req_types, close_chan close_chan) -> asio::awaitable<cfgo::Subscribation::Ptr>
+        auto Client::subscribe(Pattern pattern, std::vector<std::string> req_types, close_chan close_ch) -> asio::awaitable<cfgo::Subscribation::Ptr>
         {
-            if (co_await m_a_mutex.accquire(close_chan))
+            auto closer = close_ch;
+            if (!is_valid_close_chan(closer) && is_valid_close_chan(m_closer))
+            {
+                closer = m_closer;
+            }
+            
+            if (co_await m_a_mutex.accquire(closer))
             {
                 DEFER({
                     spdlog::debug("release.");
@@ -454,7 +466,7 @@ namespace cfgo
                 msg_channer.prepare("sdp");
                 msg_channer.prepare("subscribed");
                 auto sub_msg = create_subscribe_message(pattern, req_types);
-                auto sub_res = co_await emit_with_ack("subscribe", create_subscribe_message(pattern, req_types), close_chan);
+                auto sub_res = co_await emit_with_ack("subscribe", create_subscribe_message(pattern, req_types), closer);
                 if (!sub_res)
                 {
                     spdlog::debug("timeout when waiting ack of subscribe msg.");
@@ -472,7 +484,7 @@ namespace cfgo
                     emit("subscribe", create_unsubscribe_message(std::move(sub_id)));
                 });
 
-                auto subed_msg = co_await wait_for_msg("subscribed", msg_channer, close_chan, [&sub_id](auto &&msg)
+                auto subed_msg = co_await wait_for_msg("subscribed", msg_channer, closer, [&sub_id](auto &&msg)
                 { 
                     return get_msg_base_field<std::string>(msg, "subId") == sub_id; 
                 });
@@ -523,7 +535,7 @@ namespace cfgo
                     m_peer->onTrack(nullptr);
                 });
 
-                auto sdp_msg = co_await wait_for_msg("sdp", msg_channer, close_chan, [sdp_id](auto &&msg)
+                auto sdp_msg = co_await wait_for_msg("sdp", msg_channer, closer, [sdp_id](auto &&msg)
                 {
                     return get_msg_base_field<std::int64_t>(msg, "mid") == sdp_id;
                 });
@@ -559,7 +571,7 @@ namespace cfgo
                 }
 
                 spdlog::debug("waiting peer state changed...");
-                auto &&state_res = co_await chan_read<rtc::PeerConnection::State>(peer_state_chan, close_chan);
+                auto &&state_res = co_await chan_read<rtc::PeerConnection::State>(peer_state_chan, closer);
                 if (!state_res)
                 {
                     spdlog::debug("timeout when waiting peer state.");
@@ -572,7 +584,7 @@ namespace cfgo
                     co_return nullptr;
                 }
 
-                auto &&res = co_await chan_read<void>(tracks_ch, close_chan);
+                auto &&res = co_await chan_read<void>(tracks_ch, closer);
                 if (!res)
                 {
                     co_return nullptr;
@@ -594,14 +606,19 @@ namespace cfgo
             }
         }
 
-        auto Client::unsubscribe(const std::string &sub_id, close_chan &close_chan) -> asio::awaitable<cancelable<void>>
+        auto Client::unsubscribe(const std::string &sub_id, close_chan &close_ch) -> asio::awaitable<cancelable<void>>
         {
-            if (co_await m_a_mutex.accquire(close_chan))
+            auto closer = close_ch;
+            if (!is_valid_close_chan(closer) && is_valid_close_chan(m_closer))
+            {
+                closer = m_closer;
+            }
+            if (co_await m_a_mutex.accquire(closer))
             {
                 DEFER({
                     m_a_mutex.release(asio::get_associated_executor(m_io_context));
                 });
-                auto res = co_await emit_with_ack("subscribe", create_unsubscribe_message(sub_id), close_chan);
+                auto res = co_await emit_with_ack("subscribe", create_unsubscribe_message(sub_id), closer);
                 if (!res)
                 {
                     co_return res;

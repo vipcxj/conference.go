@@ -29,8 +29,11 @@ namespace cfgo
             void stop();
             [[nodiscard]] auto await(close_chan & close_ch = INVALID_CLOSE_CHAN) -> asio::awaitable<bool>;
             void add_node(const std::string & name, const std::string & type);
-            [[nodiscard]] auto link(const std::string & src, const std::string & target, close_chan & close_ch = INVALID_CLOSE_CHAN) -> asio::awaitable<LinkPtr>;
-            [[nodiscard]] auto link(const std::string & src, const std::string & src_pad, const std::string & tgt, const std::string & tgt_pad, close_chan & close_ch = INVALID_CLOSE_CHAN) -> asio::awaitable<LinkPtr>;
+            [[nodiscard]] auto await_pad(const std::string & node, const std::string & pad, const std::set<GstPad *> & excludes, close_chan closer = INVALID_CLOSE_CHAN) -> asio::awaitable<GstPadSPtr>;
+            bool link(const std::string & src, const std::string & target);
+            bool link(const std::string & src, const std::string & src_pad, const std::string & tgt, const std::string & tgt_pad);
+            [[nodiscard]] auto link_async(const std::string & src, const std::string & target) -> AsyncLinkPtr;
+            [[nodiscard]] auto link_async(const std::string & src, const std::string & src_pad, const std::string & tgt, const std::string & tgt_pad) -> AsyncLinkPtr;
             [[nodiscard]] GstElementSPtr node(const std::string & name) const;
             [[nodiscard]] GstElementSPtr require_node(const std::string & name) const;
             [[nodiscard]] const char * name() const noexcept;

@@ -37,3 +37,4 @@ __debug_bin*
 build/
 vcpkg-configuration.json
 CMakePresets.json
+debug.env

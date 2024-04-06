@@ -5,8 +5,8 @@
 
 namespace cfgo
 {
-    Client::Client(const Configuration& config) : ImplBy<impl::Client>(config) {}
-    Client::Client(const Configuration& config, const CtxPtr& io_ctx) : ImplBy<impl::Client>(config, io_ctx) {}
+    Client::Client(const Configuration& config, close_chan closer) : ImplBy<impl::Client>(config, closer) {}
+    Client::Client(const Configuration& config, const CtxPtr& io_ctx, close_chan closer) : ImplBy<impl::Client>(config, io_ctx, closer) {}
 
     void Client::set_sio_logs_default() {
         impl()->set_sio_logs_default();
@@ -35,5 +35,10 @@ namespace cfgo
     Client::CtxPtr Client::execution_context() const noexcept
     {
         return impl()->execution_context();
+    }
+
+    close_chan Client::get_closer() const noexcept
+    {
+        return impl()->get_closer();
     }
 }

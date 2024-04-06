@@ -15,6 +15,8 @@
 #include "fmt/xchar.h"
 
 #include <concepts>
+#include <thread>
+#include <sstream>
 #include "cfgo/track.hpp"
 #include "cfgo/pattern.hpp"
 
@@ -90,6 +92,16 @@ struct fmt::formatter<cfgo::Pattern> : fmt::formatter<std::string>
         nlohmann::json j;
         cfgo::to_json(j, me);
         return fmt::format_to(ctx.out(), "\n{}\n", j.dump(2));
+    }
+};
+
+template<>
+struct fmt::formatter<std::thread::id> : fmt::formatter<std::string>
+{
+    auto format(const std::thread::id& me, fmt::format_context &ctx) const -> decltype(ctx.out()) {
+        std::stringstream ss;
+        ss << me;
+        return fmt::format_to(ctx.out(), "{}", ss.str());
     }
 };
 

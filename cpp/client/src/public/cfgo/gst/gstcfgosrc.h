@@ -27,8 +27,8 @@ struct _GstCfgoSrc
     GstBin bin;
 
     int client_handle;
-    const gchar *pattern;
-    const gchar *req_types;
+    gchar *pattern;
+    gchar *req_types;
     guint64 sub_timeout;
     gint32 sub_tries;
     guint64 sub_try_delay_init;

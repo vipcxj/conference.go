@@ -4,6 +4,8 @@
 #include "cfgo/utils.hpp"
 #include "cpptrace/cpptrace.hpp"
 
+#include <set>
+
 namespace cfgo
 {
     namespace gst
@@ -40,16 +42,31 @@ namespace cfgo
             return make_shared_gst_element(impl()->require_node(name));
         }
 
-        auto Pipeline::link(const std::string & src, const std::string & target, close_chan & close_ch) -> asio::awaitable<LinkPtr>
+        auto Pipeline::await_pad(const std::string & node, const std::string & pad, const std::set<GstPad *> & excludes, close_chan closer) -> asio::awaitable<GstPadSPtr>
         {
-            auto link_impl = co_await impl()->link(src, target, close_ch);
-            co_return std::shared_ptr<Link>(new Link(link_impl));
+            return impl()->await_pad(node, pad, excludes, closer);
         }
 
-        auto Pipeline::link(const std::string & src_name, const std::string & src_pad_name, const std::string & tgt_name, const std::string & tgt_pad_name, close_chan & close_ch) -> asio::awaitable<LinkPtr>
+        bool Pipeline::link(const std::string & src, const std::string & target)
         {
-            auto link_impl = co_await impl()->link(src_name, src_pad_name, tgt_name, tgt_pad_name, close_ch);
-            co_return std::shared_ptr<Link>(new Link(link_impl));
+            return impl()->link(src, target);
+        }
+
+        bool Pipeline::link(const std::string & src, const std::string & src_pad, const std::string & tgt, const std::string & tgt_pad)
+        {
+            return impl()->link(src, src_pad, tgt, tgt_pad);
+        }
+
+        auto Pipeline::link_async(const std::string & src, const std::string & target) -> AsyncLinkPtr
+        {
+            auto link_impl = impl()->link_async(src, target);
+            return std::make_shared<AsyncLink>(link_impl);
+        }
+
+        auto Pipeline::link_async(const std::string & src_name, const std::string & src_pad_name, const std::string & tgt_name, const std::string & tgt_pad_name) -> AsyncLinkPtr
+        {
+            auto link_impl = impl()->link_async(src_name, src_pad_name, tgt_name, tgt_pad_name);
+            return std::make_shared<AsyncLink>(link_impl);
         }
 
         const char * Pipeline::name() const noexcept
