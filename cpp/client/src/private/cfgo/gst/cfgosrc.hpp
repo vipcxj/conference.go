@@ -34,7 +34,7 @@ namespace cfgo
                 ~Channel();
                 void init(CfgoSrc * parent, GstCfgoSrc * owner, guint sessid, guint ssrc, guint pt, GstPad * pad);
                 bool match(GstPad * pad) const;
-                void install_ghost(GstCfgoSrcMode m_mode, GstCfgoSrc * owner, GstPad * pad, const std::string & ghost_name);
+                void install_ghost(CfgoSrc * parent, GstCfgoSrc * owner, GstPad * pad, const std::string & ghost_name);
                 void uninstall_ghost(GstCfgoSrc * owner, GstPad * pad, bool remove = true);
             };
             using ChannelPtr = std::shared_ptr<Channel>;
@@ -179,6 +179,7 @@ namespace cfgo
             friend GstCaps * request_pt_map(GstElement *src, guint session_id, guint pt, CfgoSrc *self);
             friend void pad_added_handler(GstElement *src, GstPad *new_pad, CfgoSrc *self);
             friend void pad_removed_handler(GstElement * src, GstPad * pad, CfgoSrc *self);
+            friend GstPadProbeReturn block_buffer_probe(GstPad * pad, GstPadProbeInfo * info, CfgoSrc * input);
         };
     } // namespace gst    
 } // namespace cfgo

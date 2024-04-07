@@ -4,16 +4,17 @@
 #include "gst/gst.h"
 #include <memory>
 #include <string>
+#include <functional>
 
 namespace cfgo
 {
+    #define CFGO_DECLARE_SHARED_PTR(T) using T ## SPtr = std::shared_ptr<T>
+
     #define CFGO_DECLARE_MAKE_SHARED(N, T) \
-        using T ## SPtr = std::shared_ptr<T>; \
-        T ## SPtr make_shared_ ## N(T *t);
+        T ## SPtr make_shared_ ## N(T *t)
 
     #define CFGO_DECLARE_STEAL_SHARED(N, T) \
-        using T ## SPtr = std::shared_ptr<T>; \
-        T ## SPtr steal_shared_ ## N(T *t);
+        T ## SPtr steal_shared_ ## N(T *t)
 
     #define CFGO_DEFINE_MAKE_SHARED(N, T, REF, UNREF) \
         T ## SPtr make_shared_ ## N(T *t) \
@@ -34,11 +35,22 @@ namespace cfgo
 
     namespace gst
     {
+        CFGO_DECLARE_SHARED_PTR(GstElement);
         CFGO_DECLARE_MAKE_SHARED(gst_element, GstElement);
+        CFGO_DECLARE_STEAL_SHARED(gst_element, GstElement);
+        CFGO_DECLARE_SHARED_PTR(GstPad);
         CFGO_DECLARE_MAKE_SHARED(gst_pad, GstPad);
+        CFGO_DECLARE_STEAL_SHARED(gst_pad, GstPad);
+        CFGO_DECLARE_SHARED_PTR(GstCaps);
+        CFGO_DECLARE_MAKE_SHARED(gst_caps, GstCaps);
+        CFGO_DECLARE_STEAL_SHARED(gst_caps, GstCaps);
+        CFGO_DECLARE_SHARED_PTR(GError);
         CFGO_DECLARE_STEAL_SHARED(g_error, GError);
 
         std::string get_pad_full_name(GstPad * pad);
+
+        bool caps_check_any(GstCaps * caps, std::function<bool(const GstStructure *)> checker);
+        bool caps_check_all(GstCaps * caps, std::function<bool(const GstStructure *)> checker);
     } // namespace gst
 } // namespace cfgo
 

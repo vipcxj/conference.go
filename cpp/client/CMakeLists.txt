@@ -132,6 +132,10 @@ find_package(sioclient CONFIG REQUIRED)
 find_package(LibDataChannel CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
+if(UNIX AND NOT APPLE)
+    set(LINUX TRUE)
+endif()
+
 if(LINUX)
     pkg_check_modules(libunwind REQUIRED IMPORTED_TARGET GLOBAL libunwind)
 endif()

@@ -144,13 +144,13 @@ static GstStaticPadTemplate gst_cfgosrc_parse_src_template =
     GST_STATIC_PAD_TEMPLATE("parse_src_%u_%u_%u_%u",
                             GST_PAD_SRC,
                             GST_PAD_SOMETIMES,
-                            GST_CAPS_ANY);
+                            GST_STATIC_CAPS_ANY);
 
 static GstStaticPadTemplate gst_cfgosrc_decode_src_template =
     GST_STATIC_PAD_TEMPLATE("decode_src_%u_%u_%u_%u",
                             GST_PAD_SRC,
                             GST_PAD_SOMETIMES,
-                            GST_CAPS_ANY);
+                            GST_STATIC_CAPS_ANY);
 
 /* class initialization */
 
@@ -454,7 +454,6 @@ void gst_cfgosrc_stop(GstCfgoSrc *cfgosrc)
     GST_CFGOSRC_PVS(cfgosrc)->running = false;
     if (GST_CFGOSRC_PVS(cfgosrc)->task)
     {
-        spdlog::debug("current thread id: {}", std::this_thread::get_id());
         GST_CFGOSRC_PVS(cfgosrc)->task->pause();
     }
 }

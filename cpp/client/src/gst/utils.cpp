@@ -5,7 +5,11 @@ namespace cfgo
     namespace gst
     {
         CFGO_DEFINE_MAKE_SHARED(gst_element, GstElement, gst_object_ref, gst_object_unref)
+        CFGO_DEFINE_STEAL_SHARED(gst_element, GstElement, g_object_unref)
         CFGO_DEFINE_MAKE_SHARED(gst_pad, GstPad, gst_object_ref, gst_object_unref)
+        CFGO_DEFINE_STEAL_SHARED(gst_pad, GstPad, g_object_unref)
+        CFGO_DEFINE_MAKE_SHARED(gst_caps, GstCaps, gst_caps_ref, gst_caps_unref)
+        CFGO_DEFINE_STEAL_SHARED(gst_caps, GstCaps, gst_caps_unref)
         CFGO_DEFINE_STEAL_SHARED(g_error, GError, g_error_free)
 
         std::string get_pad_full_name(GstPad * pad)
@@ -22,6 +26,48 @@ namespace cfgo
             {
                 return res + GST_PAD_NAME(pad);
             }
+        }
+
+        bool caps_check_any(GstCaps * caps, std::function<bool(const GstStructure *)> checker)
+        {
+            if (gst_caps_is_any(caps))
+            {
+                return true;
+            }
+            if (gst_caps_is_empty(caps))
+            {
+                return false;
+            }
+            for (guint i = 0; i < gst_caps_get_size(caps); ++i)
+            {
+                GstStructure *structure = gst_caps_get_structure(caps, i);
+                if (checker(structure))
+                {
+                    return true;
+                }                
+            }
+            return false;
+        }
+
+        bool caps_check_all(GstCaps * caps, std::function<bool(const GstStructure *)> checker)
+        {
+            if (gst_caps_is_any(caps))
+            {
+                return true;
+            }
+            if (gst_caps_is_empty(caps))
+            {
+                return false;
+            }
+            for (guint i = 0; i < gst_caps_get_size(caps); ++i)
+            {
+                GstStructure *structure = gst_caps_get_structure(caps, i);
+                if (!checker(structure))
+                {
+                    return false;
+                }                
+            }
+            return true;
         }
     } // namespace gst
     

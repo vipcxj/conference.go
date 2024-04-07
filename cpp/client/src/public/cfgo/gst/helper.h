@@ -16,6 +16,8 @@ CFGO_API void cfgo_gst_print_pad_templates_information (GstElementFactory * fact
 /* Shows the CURRENT capabilities of the requested pad in the given element */
 CFGO_API void cfgo_gst_print_pad_capabilities (GstElement *element, const gchar *pad_name);
 
+CFGO_API void cfgo_gst_release_pad(GstPad *pad, GstElement * owner);
+
 #ifdef __cplusplus
 }
 #endif

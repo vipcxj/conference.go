@@ -27,21 +27,21 @@ namespace cfgo
                 }
                 if (m_src_pad)
                 {
+                    gst_object_unref(m_src_pad);
                     if (auto temp = GST_PAD_PAD_TEMPLATE (m_src_pad); temp && GST_PAD_TEMPLATE_PRESENCE (temp) == GST_PAD_REQUEST)
                     {
                         gst_element_release_request_pad(m_src, m_src_pad);
                     }
-                    gst_object_unref(m_src_pad);
                     m_src_pad = nullptr;
                 }
                 m_src = nullptr;
                 if (m_tgt_pad)
                 {
+                    gst_object_unref(m_tgt_pad);
                     if (auto temp = GST_PAD_PAD_TEMPLATE (m_tgt_pad); temp && GST_PAD_TEMPLATE_PRESENCE (temp) == GST_PAD_REQUEST)
                     {
                         gst_element_release_request_pad(m_tgt, m_tgt_pad);
                     }
-                    gst_object_unref(m_tgt_pad);
                     m_tgt_pad = nullptr;
                 }
                 m_tgt = nullptr;
@@ -66,10 +66,6 @@ namespace cfgo
                 {
                     g_object_ref_sink(src_pad);
                     this->m_src_pad = src_pad;
-                    if (is_ready())
-                    {
-                        asio::co_spawn(asio::get_associated_executor(m_pipeline->exec_ctx()), m_ready.write(), asio::detached);
-                    }
                 }
             }
 
@@ -92,14 +88,15 @@ namespace cfgo
                 {
                     g_object_ref_sink(tgt_pad);
                     this->m_tgt_pad = tgt_pad;
-                    if (is_ready())
-                    {
-                        asio::co_spawn(asio::get_associated_executor(m_pipeline->exec_ctx()), m_ready.write(), asio::detached);
-                    }
                 }
             }
 
-            auto Link::wait_ready(cfgo::close_chan & close_ch) -> asio::awaitable<bool>
+            bool Link::notify_linked(bool linked)
+            {
+                return m_linked_ch.try_write(linked);
+            }
+
+            auto Link::wait_linked(cfgo::close_chan & close_ch) -> asio::awaitable<bool>
             {
                 if (co_await m_a_mutex.accquire(close_ch))
                 {
@@ -111,10 +108,10 @@ namespace cfgo
                     {
                         co_return true;
                     }
-                    auto res = co_await cfgo::chan_read<void>(m_ready, close_ch);
+                    auto res = co_await cfgo::chan_read<bool>(m_linked_ch, close_ch);
                     if (res)
                     {
-                        co_return true;
+                        co_return res.value();
                     }
                     else
                     {
@@ -135,18 +132,14 @@ namespace cfgo
                 {
                     co_return m_link;
                 }
-                auto res = co_await m_link->wait_ready(closer);
+                auto res = co_await m_link->wait_linked(closer);
                 if (!res)
                 {
                     {
                         std::lock_guard lock(m_pipeline->m_mutex);
-                        m_pipeline->remove_link(m_link, true);
+                        m_pipeline->_remove_link(m_link, true);
                     }
                     co_return nullptr;
-                }
-                {
-                    std::lock_guard lock(m_pipeline->m_mutex);
-                    m_pipeline->add_link(m_link, true);
                 }
                 co_return m_link;
             }

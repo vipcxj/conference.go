@@ -2,6 +2,7 @@
 #include "cfgo/gst/gstcfgosrc_private_api.hpp"
 #include "cfgo/gst/error.hpp"
 #include "cfgo/gst/utils.hpp"
+#include "cfgo/gst/helper.h"
 #include "cfgo/common.hpp"
 #include "cfgo/cfgo.hpp"
 #include "cfgo/defer.hpp"
@@ -84,21 +85,32 @@ namespace cfgo
             return std::find(m_pads.begin(), m_pads.end(), pad) != m_pads.end();
         }
 
-        void CfgoSrc::Channel::install_ghost(GstCfgoSrcMode m_mode, GstCfgoSrc * owner, GstPad * pad, const std::string & ghost_name)
+        GstPadProbeReturn
+        block_buffer_probe (GstPad * pad, GstPadProbeInfo * info, CfgoSrc * input)
+        {
+            auto blocker = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(pad), "GstCfgoSrc.blocker"));
+            gst_pad_remove_probe (pad, blocker);
+            input->_safe_use_owner<void>([input, pad](auto owner) {
+                input->_install_pad(pad);
+            });
+            return GST_PAD_PROBE_OK;
+        }
+
+        void CfgoSrc::Channel::install_ghost(CfgoSrc * parent, GstCfgoSrc * owner, GstPad * pad, const std::string & ghost_name)
         {
             auto kclass = GST_ELEMENT_GET_CLASS(owner);
             GstPadTemplate * templ = nullptr;
-            if (m_mode == GST_CFGO_SRC_MODE_RAW && ghost_name.starts_with("rtp_src_"))
+            if (parent->m_mode == GST_CFGO_SRC_MODE_RAW && ghost_name.starts_with("rtp_src_"))
             {
                 templ = gst_element_class_get_pad_template(kclass, "rtp_src_%u_%u_%u");
             }
-            else if (m_mode == GST_CFGO_SRC_MODE_PARSE && ghost_name.starts_with("parse_src_"))
+            else if (parent->m_mode == GST_CFGO_SRC_MODE_PARSE && ghost_name.starts_with("parse_src_"))
             {
                 templ = gst_element_class_get_pad_template(kclass, "parse_src_%u_%u_%u_%u");
                 gst_object_ref(pad);
                 m_pads.push_back(pad);
             }
-            else if (m_mode == GST_CFGO_SRC_MODE_DECODE && ghost_name.starts_with("decode_src_"))
+            else if (parent->m_mode == GST_CFGO_SRC_MODE_DECODE && ghost_name.starts_with("decode_src_"))
             {
                 templ = gst_element_class_get_pad_template(kclass, "decode_src_%u_%u_%u_%u");
                 gst_object_ref(pad);
@@ -106,11 +118,24 @@ namespace cfgo
             }
             if (templ)
             {
+                // if (gst_pad_has_current_caps(pad))
+                // {
                 auto gpad = gst_ghost_pad_new_from_template(ghost_name.c_str(), pad, templ);
                 g_object_set_data(G_OBJECT (pad), "GstCfgoSrc.ghostpad", gpad);
                 gst_pad_set_active(gpad, TRUE);
                 gst_pad_sticky_events_foreach(pad, copy_sticky_events, gpad);
                 gst_element_add_pad(GST_ELEMENT(owner), gpad);
+                // }
+                // else
+                // {
+                //     auto blocker = gst_pad_add_probe(
+                //         pad, 
+                //         (GstPadProbeType) (GST_PAD_PROBE_TYPE_BLOCK | GST_PAD_PROBE_TYPE_BUFFER), 
+                //         (GstPadProbeCallback) block_buffer_probe, 
+                //         parent, NULL
+                //     );
+                //     g_object_set_data(G_OBJECT (pad), "GstCfgoSrc.blocker", GINT_TO_POINTER(blocker));
+                // } 
             }
         }
 
@@ -204,8 +229,8 @@ namespace cfgo
         {
             if (m_rtp_pad)
             {
-                gst_element_release_request_pad(GST_ELEMENT(rtpbin), m_rtp_pad);
-                gst_object_unref(m_rtp_pad);   
+                gst_object_unref(m_rtp_pad);
+                gst_element_release_request_pad(GST_ELEMENT(rtpbin), m_rtp_pad);   
                 m_rtp_pad = nullptr;    
             }
         }
@@ -214,8 +239,8 @@ namespace cfgo
         {
             if (m_rtcp_pad)
             {
-                gst_element_release_request_pad(GST_ELEMENT(rtpbin), m_rtcp_pad);
-                gst_object_unref(m_rtcp_pad);   
+                gst_object_unref(m_rtcp_pad);
+                gst_element_release_request_pad(GST_ELEMENT(rtpbin), m_rtcp_pad);   
                 m_rtcp_pad = nullptr;    
             }
         }
@@ -485,7 +510,7 @@ namespace cfgo
                     {
                         auto session = m_sessions[sessid];
                         auto channel = session->create_channel(this, owner, ssrc, pt, pad);
-                        channel->install_ghost(m_mode, owner, pad, ghost_name);
+                        channel->install_ghost(this, owner, pad, ghost_name);
                     }
                 }
                 else if (ghost_name.starts_with("parse_src_"))
@@ -495,7 +520,7 @@ namespace cfgo
                     {
                         auto session = m_sessions[sessid];
                         auto channel = session->find_channel(ssrc, pt);
-                        channel->install_ghost(m_mode, owner, pad, ghost_name);
+                        channel->install_ghost(this, owner, pad, ghost_name);
                     }
                 }
                 else if (ghost_name.starts_with("decode_src_"))
@@ -505,7 +530,7 @@ namespace cfgo
                     {
                         auto session = m_sessions[sessid];
                         auto channel = session->find_channel(ssrc, pt);
-                        channel->install_ghost(m_mode, owner, pad, ghost_name);
+                        channel->install_ghost(this, owner, pad, ghost_name);
                     }
                 }
             });
@@ -642,7 +667,7 @@ namespace cfgo
                     {
                         channel->init(this, owner, session->m_id, channel->m_ssrc, channel->m_pt, channel->m_pad);
                         gst_object_ref(channel->m_pad);
-                        channel->install_ghost(mode, owner, channel->m_pad, get_ghost_pad_name(channel->m_pad));
+                        channel->install_ghost(this, owner, channel->m_pad, get_ghost_pad_name(channel->m_pad));
                     }
                 }
             });
@@ -650,7 +675,7 @@ namespace cfgo
 
         void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)
         {
-            spdlog::debug("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
+            spdlog::trace("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
             std::lock_guard lock(self->m_mutex);
             for (auto && session : self->m_sessions)
             {
@@ -660,7 +685,7 @@ namespace cfgo
 
         void rtpsrc_enough_data(GstElement * appsrc, CfgoSrc *self)
         {
-            spdlog::debug("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
+            spdlog::trace("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
             std::lock_guard lock(self->m_mutex);
             for (auto && session : self->m_sessions)
             {
@@ -907,7 +932,7 @@ namespace cfgo
                     },
                     m_close_ch
                 );
-                if (!sub)
+                if (!sub || !sub.value())
                 {
                     if (!m_close_ch.is_closed())
                     {
@@ -917,6 +942,10 @@ namespace cfgo
                             auto error = steal_shared_g_error(create_gerror_timeout("Timeout to subscribing."));
                             cfgo_error_submit(owner.get(), error.get());
                         }
+                    }
+                    else
+                    {
+                        spdlog::warn("Subscribing failed.");
                     }
                     co_return;
                 }

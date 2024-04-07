@@ -333,24 +333,24 @@ struct App
         }
         if (rtp_sink)
         {
-            gst_element_release_request_pad(rtpbin, rtp_sink);
             gst_object_unref(rtp_sink);
+            gst_element_release_request_pad(rtpbin, rtp_sink);
         }
         if (rtcp_sink)
         {
-            gst_element_release_request_pad(rtpbin, rtcp_sink);
             gst_object_unref(rtcp_sink);
+            gst_element_release_request_pad(rtpbin, rtcp_sink);
         }
         if (encode_video_sink)
         {
-            gst_element_release_request_pad(encodebin, encode_video_sink);
             gst_object_unref(encode_video_sink);
+            gst_element_release_request_pad(encodebin, encode_video_sink);
         }
         
         // if (mp4_video_sink)
         // {
-        //     gst_element_release_request_pad(mp4mux, mp4_video_sink);
         //     gst_object_unref(mp4_video_sink);
+        //     gst_element_release_request_pad(mp4mux, mp4_video_sink);
         // }
         
         if (m_pipeline)

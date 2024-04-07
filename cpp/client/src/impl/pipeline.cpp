@@ -3,6 +3,7 @@
 #include "spdlog/spdlog.h"
 #include "cfgo/defer.hpp"
 #include "cfgo/utils.hpp"
+#include "cfgo/gst/helper.h"
 #include <cctype>
 
 namespace cfgo
@@ -132,7 +133,7 @@ namespace cfgo
                 {
                     std::lock_guard lock(pipeline->m_mutex);
 
-                    auto link_iter = pipeline->find_pending_link(node_name, pad_name, Pipeline::ANY);
+                    auto link_iter = pipeline->_find_pending_link(node_name, pad_name, Pipeline::ANY);
                     if (link_iter != pipeline->m_pending_links.end())
                     {
                         auto link = *link_iter;
@@ -143,6 +144,11 @@ namespace cfgo
                         else
                         {
                             link->set_tgt_pad(new_pad);
+                        }
+                        if (link->is_ready())
+                        {
+                            bool linked = pipeline->_add_link(link, true);
+                            link->notify_linked(linked);
                         }
                     }
                 }
@@ -177,13 +183,21 @@ namespace cfgo
 
             Pipeline::~Pipeline()
             {
+                stop();
                 gst_bus_remove_watch(m_bus);
                 while (auto msg = m_msg_ch.try_read())
                 {
                     gst_message_unref(*msg);
                 }
                 gst_object_unref(m_bus);
-                stop();
+                for (auto && [node_name, pads] : m_pads)
+                {
+                    auto node = _require_node(node_name);
+                    for (auto && [pad_name, pad] : pads)
+                    {
+                        cfgo_gst_release_pad(pad, node);
+                    }
+                }
                 gst_object_unref(m_pipeline);
             }
 
@@ -233,6 +247,7 @@ namespace cfgo
                         );
                     }
                     case GST_MESSAGE_EOS:
+                        spdlog::debug("The pipeline accept eos message.");
                         co_return true;
                     default:
                         break;
@@ -242,11 +257,6 @@ namespace cfgo
 
             void Pipeline::add_node(const std::string & name, const std::string & type)
             {
-                std::lock_guard lock(m_mutex);
-                if (m_nodes.contains(name))
-                {
-                    throw cpptrace::runtime_error("The node " + name + " (" + type + ") has already exist in the pipeline " + this->name() + ".");
-                }
                 auto element = gst_element_factory_make(type.c_str(), name.c_str());
                 if (!element)
                 {
@@ -256,11 +266,16 @@ namespace cfgo
                 {
                     throw cpptrace::runtime_error("Unable add the " + type + " element with name " + name + " to the pipeline " + this->name() + ".");
                 }
+                gst_element_sync_state_with_parent(element);
                 if (g_signal_lookup("pad-added", G_OBJECT_TYPE (element)))
                 {
                     g_signal_connect(element, "pad-added", G_CALLBACK(pad_added_handler), this);
                 }
-                
+                std::lock_guard lock(m_mutex);
+                if (m_nodes.contains(name))
+                {
+                    throw cpptrace::runtime_error("The node " + name + " (" + type + ") has already exist in the pipeline " + this->name() + ".");
+                }   
                 m_nodes.emplace(std::make_pair(name, element));
             }
 
@@ -336,7 +351,7 @@ namespace cfgo
                 }
             }
 
-            [[nodiscard]] auto Pipeline::find_pending_link(const std::string & node, const std::string & pad, EndpointType endpoint_type) const -> LinkList::const_iterator
+            [[nodiscard]] auto Pipeline::_find_pending_link(const std::string & node, const std::string & pad, EndpointType endpoint_type) const -> LinkList::const_iterator
             {
                 return std::find_if(m_pending_links.begin(), m_pending_links.end(), [endpoint_type, &node, &pad](auto && link) {
                     if (endpoint_type == Pipeline::SRC)
@@ -347,7 +362,7 @@ namespace cfgo
                         return (node == GST_ELEMENT_NAME (link->src()) && match_pad_name(pad, link->src_pad_name())) || (node == GST_ELEMENT_NAME (link->tgt()) && match_pad_name(pad, link->tgt_pad_name()));     
                 });
             }
-            [[nodiscard]] auto Pipeline::find_pending_link(const std::string & node, const std::string & pad, EndpointType endpoint_type) -> LinkList::iterator
+            [[nodiscard]] auto Pipeline::_find_pending_link(const std::string & node, const std::string & pad, EndpointType endpoint_type) -> LinkList::iterator
             {
                 return std::find_if(m_pending_links.begin(), m_pending_links.end(), [endpoint_type, &node, &pad](auto && link) {
                     if (endpoint_type == Pipeline::SRC)
@@ -358,7 +373,7 @@ namespace cfgo
                         return (node == GST_ELEMENT_NAME (link->src()) && match_pad_name(pad, link->src_pad_name())) || (node == GST_ELEMENT_NAME (link->tgt()) && match_pad_name(pad, link->tgt_pad_name()));     
                 });
             }
-            [[nodiscard]] Pipeline::LinkPtr Pipeline::link_by_src(const std::string & node_name, const std::string & pad_name) const
+            [[nodiscard]] Pipeline::LinkPtr Pipeline::_link_by_src(const std::string & node_name, const std::string & pad_name) const
             {
                 auto iter0 = m_links_by_src.find(node_name);
                 if (iter0 != m_links_by_src.end())
@@ -369,14 +384,14 @@ namespace cfgo
                         return iter1->second;
                     }
                 }
-                auto iter = find_pending_link(node_name, pad_name, Pipeline::SRC);
+                auto iter = _find_pending_link(node_name, pad_name, Pipeline::SRC);
                 return iter != m_pending_links.end() ? *iter : nullptr;
             }
 
             #define CFGO_UNABLE_TO_LINK_MSG(SRC, SRC_PAD, TGT, TGT_PAD, MSG) \
                 "Unable to link from pad " + SRC_PAD + " of " + SRC + " to pad " + TGT_PAD + " of " + TGT + ". " + MSG
 
-            void Pipeline::add_link(const LinkPtr & link, bool clean_pending)
+            bool Pipeline::_add_link(const LinkPtr & link, bool clean_pending)
             {
                 if (!link->is_ready())
                 {
@@ -384,16 +399,15 @@ namespace cfgo
                 }
                 std::string src_name = GST_ELEMENT_NAME (link->src());
                 std::string src_pad_name = link->src_pad_name();
+
                 if (GST_PAD_LINK_FAILED (gst_pad_link(link->src_pad(), link->tgt_pad())))
                 {
-                    throw cpptrace::runtime_error(CFGO_UNABLE_TO_LINK_MSG(
-                        src_name, src_pad_name, GST_ELEMENT_NAME (link->tgt()), link->tgt_pad_name(), 
-                        "Link failed."
-                    ));
+                    _remove_link(link, false);
+                    return false;
                 }
                 if (clean_pending)
                 {
-                    auto iter = find_pending_link(src_name, src_pad_name, Pipeline::SRC);
+                    auto iter = _find_pending_link(src_name, src_pad_name, Pipeline::SRC);
                     if (iter != m_pending_links.end())
                     {
                         m_pending_links.erase(iter);
@@ -404,15 +418,16 @@ namespace cfgo
                     m_links_by_src[src_name] = std::unordered_map<std::string, LinkPtr>();
                 }
                 m_links_by_src[src_name][src_pad_name] = link;
+                return true;
             }
 
-            bool Pipeline::remove_link(const LinkPtr & link, bool clean_pending)
+            bool Pipeline::_remove_link(const LinkPtr & link, bool clean_pending)
             {
                 std::string src_name = GST_ELEMENT_NAME (link->src());
                 std::string src_pad_name = link->src_pad_name();
                 if (clean_pending)
                 {
-                    auto iter = find_pending_link(src_name, src_pad_name, Pipeline::SRC);
+                    auto iter = _find_pending_link(src_name, src_pad_name, Pipeline::SRC);
                     if (iter != m_pending_links.end())
                     {
                         m_pending_links.erase(iter);
@@ -437,17 +452,52 @@ namespace cfgo
                 return true;
             }
 
-            auto Pipeline::await_pad(const std::string & node, const std::string & pad_name, const std::set<GstPad *> & excludes, close_chan closer) -> asio::awaitable<GstPadSPtr>
+            auto Pipeline::await_pad(const std::string & node_name, const std::string & pad_name, const std::set<GstPad *> & excludes, close_chan closer) -> asio::awaitable<GstPadSPtr>
             {
                 Waiter waiter{};
                 GstPad * pad = nullptr;
                 {
-                    std::lock_guard lock(m_mutex);
-                    pad = _find_pad(node, pad_name, excludes);
+                    {
+                        std::lock_guard lock(m_mutex);
+                        pad = _find_pad(node_name, pad_name, excludes);
+                    }
                     if (!pad)
                     {
-                        auto [waiters_iter, _] = m_waiters.try_emplace(node);
-                        waiters_iter->second.push_back(std::make_pair(pad_name, waiter));
+                        auto node = this->require_node(node_name);
+                        pad = gst_element_get_static_pad(node, pad_name.c_str());
+                        if (pad && !excludes.contains(pad))
+                        {
+                            std::lock_guard lock(m_mutex);
+                            auto [pads_iter, _] = m_pads.try_emplace(node_name);
+                            pads_iter->second.insert(std::make_pair(GST_PAD_NAME(pad), pad));
+                        }
+                        else if (pad)
+                        {
+                            gst_object_unref(pad);
+                            co_return nullptr;
+                        }
+                        else
+                        {
+                            pad = gst_element_request_pad_simple(node, pad_name.c_str());
+                            if (pad && !excludes.contains(pad))
+                            {
+                                std::lock_guard lock(m_mutex);
+                                auto [pads_iter, _] = m_pads.try_emplace(node_name);
+                                pads_iter->second.insert(std::make_pair(GST_PAD_NAME(pad), pad));
+                            }
+                            else if (pad)
+                            {
+                                gst_object_unref(pad);
+                                gst_element_release_request_pad(node, pad);
+                                co_return nullptr;
+                            }
+                            else
+                            {
+                                std::lock_guard lock(m_mutex);
+                                auto [waiters_iter, _] = m_waiters.try_emplace(node_name);
+                                waiters_iter->second.push_back(std::make_pair(pad_name, waiter));
+                            }
+                        }
                     }
                 }
                 if (pad)
@@ -465,12 +515,12 @@ namespace cfgo
                 }
             }
 
-            bool link(const std::string & src, const std::string & target)
+            bool Pipeline::link(const std::string & src, const std::string & target)
             {
                 throw cpptrace::runtime_error(NOT_IMPLEMENTED_YET);
             }
 
-            bool link(const std::string & src, const std::string & src_pad, const std::string & tgt, const std::string & tgt_pad)
+            bool Pipeline::link(const std::string & src, const std::string & src_pad, const std::string & tgt, const std::string & tgt_pad)
             {
                 throw cpptrace::runtime_error(NOT_IMPLEMENTED_YET);
             }
@@ -485,13 +535,15 @@ namespace cfgo
                 bool done = false;
                 LinkPtr _link = nullptr;
                 {
-                    std::lock_guard lock(m_mutex);
-                    if (link_by_src(src_name, src_pad_name))
                     {
-                        throw cpptrace::runtime_error(CFGO_UNABLE_TO_LINK_MSG(
-                            src_name, src_pad_name, tgt_name, tgt_pad_name, 
-                            "Link already exist."
-                        ));
+                        std::lock_guard lock(m_mutex);
+                        if (_link_by_src(src_name, src_pad_name))
+                        {
+                            throw cpptrace::runtime_error(CFGO_UNABLE_TO_LINK_MSG(
+                                src_name, src_pad_name, tgt_name, tgt_pad_name, 
+                                "Link already exist."
+                            ));
+                        }
                     }
                     
                     auto src_node = this->require_node(src_name);
@@ -586,25 +638,30 @@ namespace cfgo
                     done = _link->is_ready();
                     if (done)
                     {
-                        add_link(_link, false);
+                        std::lock_guard lock(m_mutex);
+                        if (!_add_link(_link, false))
+                        {
+                            return nullptr;
+                        }
                     }
                     else
                     {
+                        std::lock_guard lock(m_mutex);
                         m_pending_links.push_back(_link);
                     }
                 }
                 return AsyncLink::Ptr(new AsyncLink(shared_from_this(), _link, done));
             }
 
-            GstElement * Pipeline::node(const std::string & name) const
+            GstElement * Pipeline::_node(const std::string & name) const
             {
                 auto && iter = m_nodes.find(name);
                 return iter != m_nodes.end() ? iter->second : nullptr;
             }
 
-            GstElement * Pipeline::require_node(const std::string & name) const
+            GstElement * Pipeline::_require_node(const std::string & name) const
             {
-                auto node = this->node(name);
+                auto node = this->_node(name);
                 if (!node)
                 {
                     throw cpptrace::runtime_error("Unable to find the node " + name + ".");
@@ -612,7 +669,17 @@ namespace cfgo
                 return node;
             }
 
+            GstElement * Pipeline::node(const std::string & name)
+            {
+                std::lock_guard lock(m_mutex);
+                return _node(name);
+            }
 
+            GstElement * Pipeline::require_node(const std::string & name)
+            {
+                std::lock_guard lock(m_mutex);
+                return _require_node(name);
+            }
         } // namespace impl
   
     } // namespace gst  

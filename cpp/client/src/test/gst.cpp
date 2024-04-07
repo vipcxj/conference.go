@@ -97,18 +97,75 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
         NULL
     );
     pipeline.add_node("mp4mux", "mp4mux");
-    pipeline.add_node("fakesink", "fakesink");
-    auto pad = co_await pipeline.await_pad("cfgosrc", "parse_src_%u_%u_%u_%u", {}, closer);
-    if (!pad)
+    pipeline.add_node("filesink", "filesink");
+    g_object_set(
+        pipeline.require_node("filesink").get(), 
+        "location", 
+        (cfgo::getexedir() / "out.mp4").c_str(), 
+        NULL
+    );
+    auto a_link_cfgosrc_mp4mux = pipeline.link_async("cfgosrc", "parse_src_%u_%u_%u_%u", "mp4mux", "video_%u");
+    if (!a_link_cfgosrc_mp4mux)
     {
+        spdlog::error("Unable to link from cfgosrc to mp4mux");
         co_return;
     }
-    
-    auto async_link = pipeline.link_async("cfgosrc", "parse_src_%u_%u_%u_%u", "fakesink", "sink");
+    auto a_link_mp4mux_fakesink = pipeline.link_async("mp4mux", "src", "filesink", "sink");
+    if (!a_link_mp4mux_fakesink)
+    {
+        spdlog::error("Unable to link from mp4mux to filesink");
+        co_return;
+    }
     pipeline.run();
-    co_await async_link->await(closer);
+    // auto pad_cfgosrc_parse = co_await pipeline.await_pad("cfgosrc", "parse_src_%u_%u_%u_%u", {}, closer);
+    // if (!pad_cfgosrc_parse)
+    // {
+    //     spdlog::error("Unable to got pad parse_src_%u_%u_%u_%u from cfgosrc.");
+    //     co_return;
+    // }
+    // if (auto caps = cfgo::gst::steal_shared_gst_caps(gst_pad_get_allowed_caps(pad_cfgosrc_parse.get())))
+    // {
+    //     cfgo_gst_print_caps(caps.get(), "");
+    //     if (cfgo::gst::caps_check_any(caps.get(), [](auto structure) -> bool {
+    //         return g_str_has_prefix(gst_structure_get_name(structure), "video/");
+    //     }))
+    //     {
+    //         spdlog::debug("Found pad {} with video data.", GST_PAD_NAME(pad_cfgosrc_parse.get()));
+    //         auto async_link = pipeline.link_async("cfgosrc", "parse_src_%u_%u_%u_%u", "mp4mux", "video_%u");
+    //         co_await async_link->await(closer);
+    //     }
+    //     else if (cfgo::gst::caps_check_any(caps.get(), [](auto structure) -> bool {
+    //         return g_str_has_prefix(gst_structure_get_name(structure), "audio/");
+    //     }))
+    //     {
+    //         spdlog::debug("Found pad {} with audio data.", GST_PAD_NAME(pad_cfgosrc_parse.get()));
+    //         auto async_link = pipeline.link_async("cfgosrc", "parse_src_%u_%u_%u_%u", "mp4mux", "audio_%u");
+    //         co_await async_link->await(closer);
+    //     }
+    //     else
+    //     {
+    //         spdlog::error("The pad {} which could not connect to mp4mux.", GST_PAD_NAME(pad_cfgosrc_parse.get()));
+    //     }
+    // }
+    // else
+    // {
+    //     spdlog::error("Unable to got caps of pad {} from cfgosrc.", GST_PAD_NAME(pad_cfgosrc_parse.get()));
+    //     co_return;
+    // }
+    auto link_cfgosrc_mp4mux = co_await a_link_cfgosrc_mp4mux->await(closer);
+    if (!link_cfgosrc_mp4mux)
+    {
+        spdlog::error("Unable to link from cfgosrc to mp4mux");
+        co_return;
+    }
+    auto link_mp4mux_fakesink = co_await a_link_mp4mux_fakesink->await(closer);
+    if (!link_mp4mux_fakesink)
+    {
+        spdlog::error("Unable to link from mp4mux to fakesink");
+        co_return;
+    }
     spdlog::debug("linked.");
-    co_await pipeline.await(closer);
+    co_await pipeline.await();
     co_return;
 }
 
@@ -145,15 +202,21 @@ int main(int argc, char **argv) {
 
     auto pool = std::make_shared<asio::thread_pool>();
     auto token = get_token();
-    auto f = asio::co_spawn(asio::get_associated_executor(pool), main_task(pool, token, closer), asio::use_future);
-    try
-    {
-        f.get();
-    }
-    catch(...)
-    {
-        spdlog::error(cfgo::what());
-    }
+    GMainLoop *loop = g_main_loop_new(NULL, TRUE);
+    auto f = asio::co_spawn(asio::get_associated_executor(pool), cfgo::fix_async_lambda([pool, token, closer]() mutable -> asio::awaitable<void> {
+        try
+        {
+            co_await main_task(pool, token, closer);
+        }
+        catch(...)
+        {
+            closer.close();
+            spdlog::error(cfgo::what());
+        }
+    }), asio::use_future);
+    g_main_loop_run(loop);
+    GST_DEBUG("stopping");
+    g_main_loop_unref(loop);
     spdlog::debug("main end");
     return 0;
 }

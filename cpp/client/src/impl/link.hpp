@@ -22,7 +22,7 @@ namespace cfgo
                 GstElement * m_tgt;
                 std::string m_tgt_pad_name;
                 GstPad * m_tgt_pad = nullptr;
-                asiochan::channel<void> m_ready;
+                asiochan::channel<bool, 1> m_linked_ch;
                 std::mutex m_mutex;
                 cfgo::AsyncMutex m_a_mutex;
                 Pipeline * m_pipeline;
@@ -40,7 +40,9 @@ namespace cfgo
                     return m_src_pad != nullptr && m_tgt_pad != nullptr;
                 }
 
-                auto wait_ready(cfgo::close_chan & close_ch = cfgo::INVALID_CLOSE_CHAN) -> asio::awaitable<bool>;
+                bool notify_linked(bool linked);
+
+                auto wait_linked(cfgo::close_chan & close_ch = cfgo::INVALID_CLOSE_CHAN) -> asio::awaitable<bool>;
 
                 inline GstElement * src() const noexcept
                 {

@@ -3,5 +3,6 @@
 
 #include "cfgo/gst/error.h"
 #include "cfgo/gst/gstcfgosrc.h"
+#include "cfgo/gst/helper.h"
 
 #endif
