@@ -156,6 +156,11 @@ namespace cfgo
 
             gboolean on_bus_message(GstBus *bus, GstMessage *message, Pipeline *pipeline) 
             {
+                if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_ERROR)
+                {
+                    spdlog::warn("got error");
+                }
+                
                 gst_message_ref(message);
                 pipeline->m_msg_ch.write(message);
                 return TRUE;
@@ -249,8 +254,6 @@ namespace cfgo
                     case GST_MESSAGE_EOS:
                         spdlog::debug("The pipeline accept eos message.");
                         co_return true;
-                    default:
-                        break;
                     }
                 } while (true);
             }

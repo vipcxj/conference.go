@@ -72,7 +72,7 @@ namespace cfgo
             }
             else if (parent->m_mode == GST_CFGO_SRC_MODE_DECODE)
             {
-                parent->_create_processor(owner, *this, "decode");
+                parent->_create_processor(owner, *this, "decodebin");
             }
         }
 
@@ -380,6 +380,10 @@ namespace cfgo
                 gst_bin_remove(GST_BIN(m_owner), m_rtp_bin);
                 m_rtp_bin = nullptr;
             }
+            if (m_decode_caps)
+            {
+                gst_caps_unref(m_decode_caps);
+            }
             m_owner = nullptr;
         }
 
@@ -411,7 +415,15 @@ namespace cfgo
                 cfgo_error_submit_general(GST_ELEMENT(owner), ("Unable to add " + processor_name + " to " + GST_ELEMENT_NAME(owner) + ".").c_str(), TRUE, TRUE);
                 return;
             }
-            ;
+            if (m_decode_caps && type == "decodebin")
+            {
+                g_object_set(
+                    processor,
+                    "caps",
+                    m_decode_caps,
+                    NULL
+                );
+            }
             channel.m_pad_added_handle = g_signal_connect(processor, "pad-added", G_CALLBACK(pad_added_handler), this);
             channel.m_pad_removed_handle = g_signal_connect(processor, "pad-removed", G_CALLBACK(pad_removed_handler), this);
             auto sink_pad = gst_element_get_static_pad(processor, "sink");
@@ -671,6 +683,31 @@ namespace cfgo
                     }
                 }
             });
+        }
+
+        void CfgoSrc::set_decode_caps(const GstCaps * caps)
+        {
+            std::lock_guard lock(m_mutex);
+            if (m_decode_caps)
+            {
+                gst_caps_unref(m_decode_caps);
+            }
+            m_decode_caps = gst_caps_copy(caps);
+            for (auto && session : m_sessions)
+            {
+                for (auto && channel : session->m_channels)
+                {
+                    if (channel->m_processor && g_str_has_prefix(GST_ELEMENT_NAME(channel->m_processor), "decodebin_"))
+                    {
+                        g_object_set(
+                            channel->m_processor,
+                            "caps",
+                            m_decode_caps,
+                            NULL
+                        );
+                    }
+                } 
+            }
         }
 
         void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)

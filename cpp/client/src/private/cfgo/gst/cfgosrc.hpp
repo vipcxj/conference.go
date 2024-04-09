@@ -79,9 +79,9 @@ namespace cfgo
             guint64 m_read_timeout;
             TryOption m_read_try_option;
             std::recursive_mutex m_mutex;
-            GstCfgoSrc * m_owner;
-            bool m_detached;
-            GstElement * m_rtp_bin;
+            GstCfgoSrc * m_owner = nullptr;
+            bool m_detached = false;
+            GstElement * m_rtp_bin = nullptr;
             gulong m_rtpsrc_need_data = 0;
             gulong m_rtpsrc_enough_data = 0;
             gulong m_rtcpsrc_need_data = 0;
@@ -90,6 +90,7 @@ namespace cfgo
             gulong m_pad_added_handler = 0;
             gulong m_pad_removed_handler = 0;
             std::vector<SessionPtr> m_sessions;
+            GstCaps * m_decode_caps = nullptr;
 
             void _reset_sub_closer();
             void _reset_read_closer();
@@ -171,6 +172,7 @@ namespace cfgo
             void resume();
             void stop();
             void switch_mode(GstCfgoSrcMode mode);
+            void set_decode_caps(const GstCaps * caps);
 
             friend void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self);
             friend void rtpsrc_enough_data(GstElement * appsrc, CfgoSrc *self);

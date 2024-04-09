@@ -27,21 +27,21 @@ namespace cfgo
                 }
                 if (m_src_pad)
                 {
-                    gst_object_unref(m_src_pad);
                     if (auto temp = GST_PAD_PAD_TEMPLATE (m_src_pad); temp && GST_PAD_TEMPLATE_PRESENCE (temp) == GST_PAD_REQUEST)
                     {
                         gst_element_release_request_pad(m_src, m_src_pad);
                     }
+                    gst_object_unref(m_src_pad);
                     m_src_pad = nullptr;
                 }
                 m_src = nullptr;
                 if (m_tgt_pad)
                 {
-                    gst_object_unref(m_tgt_pad);
                     if (auto temp = GST_PAD_PAD_TEMPLATE (m_tgt_pad); temp && GST_PAD_TEMPLATE_PRESENCE (temp) == GST_PAD_REQUEST)
                     {
                         gst_element_release_request_pad(m_tgt, m_tgt_pad);
                     }
+                    gst_object_unref(m_tgt_pad);
                     m_tgt_pad = nullptr;
                 }
                 m_tgt = nullptr;

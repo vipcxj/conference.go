@@ -111,7 +111,8 @@ enum
     PROP_READ_TRY_DELAY_INIT,
     PROP_READ_TRY_DELAY_STEP,
     PROP_READ_TRY_DELAY_LEVEL,
-    PROP_MODE
+    PROP_MODE,
+    PROP_DECODE_CAPS
 };
 
 #define GST_CFGO_SRC_MODE_TYPE (gst_cfgo_src_mode_get_type())
@@ -350,6 +351,12 @@ gst_cfgosrc_class_init(GstCfgoSrcClass *klass)
             "mode", "mode", "Control the exposed pad type", 
             GST_CFGO_SRC_MODE_TYPE, DEFAULT_GST_CFGO_SRC_MODE, 
             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_DECODE_CAPS,
+        g_param_spec_boxed ("decode-caps", "Decode Caps",
+            "The caps on which to stop decoding. (NULL = default)",
+            GST_TYPE_CAPS,
+            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 }
 
 
@@ -405,9 +412,12 @@ void _gst_cfgosrc_prepare(GstCfgoSrc *cfgosrc, bool reset_task)
                     cfgosrc->pattern, cfgosrc->req_types, 
                     cfgosrc->sub_timeout, cfgosrc->read_timeout
                 );
-                spdlog::debug("task use_count: {}.", GST_CFGOSRC_PVS(cfgosrc)->task.use_count());
                 GST_DEBUG_OBJECT(cfgosrc, "%s", "Attaching the task.");
                 GST_CFGOSRC_PVS(cfgosrc)->task->attach(cfgosrc);
+                if (cfgosrc->decode_caps)
+                {
+                    GST_CFGOSRC_PVS(cfgosrc)->task->set_decode_caps(cfgosrc->decode_caps);
+                }
             }
             else
             {
@@ -703,6 +713,40 @@ void gst_cfgosrc_set_property(GObject *object, guint property_id,
         }
         break;
     }
+    case PROP_DECODE_CAPS:
+    {
+        GST_CFGOSRC_LOCK_GUARD(cfgosrc);
+        GstCaps * caps = GST_CAPS(g_value_dup_boxed(value));
+        if (cfgosrc->decode_caps == nullptr && caps == nullptr)
+        {
+            gst_caps_unref(caps);
+            break;
+        }
+        else if (caps == nullptr)
+        {
+            gst_caps_unref(cfgosrc->decode_caps);
+            cfgosrc->decode_caps = nullptr;
+        }
+        else if (cfgosrc->decode_caps == nullptr)
+        {
+            cfgosrc->decode_caps = caps;
+        }
+        else if (gst_caps_is_strictly_equal(cfgosrc->decode_caps, caps))
+        {
+            gst_caps_unref(caps);
+            break;
+        }
+        else
+        {
+            gst_caps_unref(cfgosrc->decode_caps);
+            cfgosrc->decode_caps = caps;
+        }
+        if (GST_CFGOSRC_PVS(cfgosrc)->task)
+        {
+            GST_CFGOSRC_PVS(cfgosrc)->task->set_decode_caps(cfgosrc->decode_caps);
+        }
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -801,6 +845,12 @@ void gst_cfgosrc_get_property(GObject *object, guint property_id,
         g_value_set_enum(value, cfgosrc->mode);
         break;
     }
+    case PROP_DECODE_CAPS:
+    {
+        GST_CFGOSRC_LOCK_GUARD(cfgosrc);
+        g_value_set_boxed (value, cfgosrc->decode_caps);
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -846,6 +896,11 @@ void gst_cfgosrc_finalize(GObject *object)
     {
         g_free(cfgosrc->req_types);
     }
+    if (cfgosrc->decode_caps)
+    {
+        gst_caps_unref(cfgosrc->decode_caps);
+    }
+    
     
     G_OBJECT_CLASS(gst_cfgosrc_parent_class)->finalize(object);
 }

@@ -40,6 +40,7 @@ struct _GstCfgoSrc
     guint32 read_try_delay_step;
     guint32 read_try_delay_level;
     GstCfgoSrcMode mode;
+    GstCaps * decode_caps;
 
     /*< private >*/
     GstCfgoSrcPrivate *priv;

@@ -74,6 +74,7 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
     auto client_ptr = std::make_shared<Client>(conf, exec_ctx, closer);
     gst::Pipeline pipeline("test pipeline", exec_ctx);
     pipeline.add_node("cfgosrc", "cfgosrc");
+    auto decode_caps = gst_caps_from_string("video/x-raw(memory:CUDAMemory)");
     g_object_set(
         pipeline.require_node("cfgosrc").get(),
         "client",
@@ -93,30 +94,99 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
             ]
         })",
         "mode",
-        GST_CFGO_SRC_MODE_PARSE,
+        GST_CFGO_SRC_MODE_DECODE,
+        "decode_caps",
+        decode_caps,
         NULL
     );
-    pipeline.add_node("mp4mux", "mp4mux");
-    pipeline.add_node("filesink", "filesink");
+    gst_caps_unref(decode_caps);
+    pipeline.add_node("capsfilter", "capsfilter");
+    auto target_caps = gst_caps_from_string("video/x-raw(memory:CUDAMemory), format = (string) { RGB }, width = (int) 224, height = (int) 224");
     g_object_set(
-        pipeline.require_node("filesink").get(), 
-        "location", 
-        (cfgo::getexedir() / "out.mp4").c_str(), 
+        pipeline.require_node("capsfilter").get(),
+        "caps",
+        target_caps,
         NULL
     );
-    auto a_link_cfgosrc_mp4mux = pipeline.link_async("cfgosrc", "parse_src_%u_%u_%u_%u", "mp4mux", "video_%u");
-    if (!a_link_cfgosrc_mp4mux)
+    gst_caps_unref(target_caps);
+    pipeline.add_node("cudaconvertscale", "cudaconvertscale");
+    pipeline.add_node("appsink", "appsink");
+    auto a_link1 = pipeline.link_async("capsfilter", "src", "cudaconvertscale", "sink");
+    if (!a_link1)
     {
-        spdlog::error("Unable to link from cfgosrc to mp4mux");
+        spdlog::error("Unable to link from capsfilter to cudaconvertscale");
         co_return;
     }
-    auto a_link_mp4mux_fakesink = pipeline.link_async("mp4mux", "src", "filesink", "sink");
-    if (!a_link_mp4mux_fakesink)
+    auto a_link2 = pipeline.link_async("cudaconvertscale", "src", "appsink", "sink");
+    if (!a_link2)
     {
-        spdlog::error("Unable to link from mp4mux to filesink");
+        spdlog::error("Unable to link from cudaconvertscale to appsink");
+        co_return;
+    }
+    auto a_link0 = pipeline.link_async("cfgosrc", "decode_src_%u_%u_%u_%u", "capsfilter", "sink");
+    if (!a_link0)
+    {
+        spdlog::error("Unable to link from cfgosrc to capsfilter");
         co_return;
     }
     pipeline.run();
+    AsyncTasksAll<void> tasks(closer);
+    tasks.add_task(fix_async_lambda([a_link0, a_link1, a_link2](auto closer) -> asio::awaitable<void> {
+        auto link0 = co_await a_link0->await(closer);
+        if (!link0)
+        {
+            if (!closer.is_timeout())
+            {
+                spdlog::error("Unable to link from cfgosrc to capsfilter");
+            }
+            co_return;
+        }
+        auto link1 = co_await a_link1->await(closer);
+        if (!link1)
+        {
+            if (!closer.is_timeout())
+            {
+                spdlog::error("Unable to link from capsfilter to cudaconvertscale");
+            }
+            co_return;
+        }
+        auto link2 = co_await a_link2->await(closer);
+        if (!link2)
+        {
+            if (!closer.is_timeout())
+            {
+                spdlog::error("Unable to link from cudaconvertscale to appsink");
+            }
+            co_return;
+        }
+        spdlog::debug("linked.");
+    }));
+    tasks.add_task(fix_async_lambda([pipeline](auto closer) mutable -> asio::awaitable<void> {
+        co_await pipeline.await();
+    }));
+    co_await tasks.await();
+
+    // pipeline.add_node("mp4mux", "mp4mux");
+    // pipeline.add_node("filesink", "filesink");
+    // g_object_set(
+    //     pipeline.require_node("filesink").get(), 
+    //     "location", 
+    //     (cfgo::getexedir() / "out.mp4").c_str(), 
+    //     NULL
+    // );
+    // auto a_link_cfgosrc_mp4mux = pipeline.link_async("cfgosrc", "parse_src_%u_%u_%u_%u", "mp4mux", "video_%u");
+    // if (!a_link_cfgosrc_mp4mux)
+    // {
+    //     spdlog::error("Unable to link from cfgosrc to mp4mux");
+    //     co_return;
+    // }
+    // auto a_link_mp4mux_fakesink = pipeline.link_async("mp4mux", "src", "filesink", "sink");
+    // if (!a_link_mp4mux_fakesink)
+    // {
+    //     spdlog::error("Unable to link from mp4mux to filesink");
+    //     co_return;
+    // }
+    // pipeline.run();
     // auto pad_cfgosrc_parse = co_await pipeline.await_pad("cfgosrc", "parse_src_%u_%u_%u_%u", {}, closer);
     // if (!pad_cfgosrc_parse)
     // {
@@ -152,20 +222,18 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
     //     spdlog::error("Unable to got caps of pad {} from cfgosrc.", GST_PAD_NAME(pad_cfgosrc_parse.get()));
     //     co_return;
     // }
-    auto link_cfgosrc_mp4mux = co_await a_link_cfgosrc_mp4mux->await(closer);
-    if (!link_cfgosrc_mp4mux)
-    {
-        spdlog::error("Unable to link from cfgosrc to mp4mux");
-        co_return;
-    }
-    auto link_mp4mux_fakesink = co_await a_link_mp4mux_fakesink->await(closer);
-    if (!link_mp4mux_fakesink)
-    {
-        spdlog::error("Unable to link from mp4mux to fakesink");
-        co_return;
-    }
-    spdlog::debug("linked.");
-    co_await pipeline.await();
+    // auto link_cfgosrc_mp4mux = co_await a_link_cfgosrc_mp4mux->await(closer);
+    // if (!link_cfgosrc_mp4mux)
+    // {
+    //     spdlog::error("Unable to link from cfgosrc to mp4mux");
+    //     co_return;
+    // }
+    // auto link_mp4mux_fakesink = co_await a_link_mp4mux_fakesink->await(closer);
+    // if (!link_mp4mux_fakesink)
+    // {
+    //     spdlog::error("Unable to link from mp4mux to fakesink");
+    //     co_return;
+    // }
     co_return;
 }
 

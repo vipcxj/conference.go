@@ -112,7 +112,6 @@ CFGO_API void cfgo_gst_print_pad_capabilities(GstElement *element, const gchar *
 
 CFGO_API void cfgo_gst_release_pad(GstPad *pad, GstElement * owner)
 {
-    gst_object_unref(pad);
     GstPadTemplate * templ = GST_PAD_PAD_TEMPLATE (pad);
     if (templ && GST_PAD_TEMPLATE_PRESENCE (templ) == GST_PAD_REQUEST)
     {
@@ -130,4 +129,5 @@ CFGO_API void cfgo_gst_release_pad(GstPad *pad, GstElement * owner)
             }
         }
     }
+    gst_object_unref(pad);
 }

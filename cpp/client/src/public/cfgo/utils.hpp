@@ -94,7 +94,7 @@ namespace cfgo
         template <typename... Args>
         explicit ImplBy(Args... args) : mImpl(std::make_shared<T>(std::forward<Args>(args)...)) {}
         ImplBy(ImplBy<T> &&cc) { *this = std::move(cc); }
-        ImplBy(const ImplBy<T> &) = delete;
+        ImplBy(const ImplBy<T> &) = default;
 
         virtual ~ImplBy() = default;
 
@@ -103,7 +103,7 @@ namespace cfgo
             mImpl = std::move(cc.mImpl);
             return *this;
         };
-        ImplBy &operator=(const ImplBy<T> &) = delete;
+        ImplBy &operator=(const ImplBy<T> &) = default;
 
     protected:
         impl_ptr<T> & impl() noexcept { return mImpl; }

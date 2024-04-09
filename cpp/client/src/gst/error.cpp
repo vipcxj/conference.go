@@ -223,14 +223,14 @@ void cfgo_error_submit(GstElement * src, GError * error)
     auto message = gst_message_new_error(GST_OBJECT(src), error, cfgo_error_get_trace(error));
     if (!message || !gst_element_post_message(GST_ELEMENT(src), message))
     {
+        if (message)
+        {
+            gst_message_unref(message);
+        }
         spdlog::warn("Failed to post the error message to gst element {}. The error is \"{}\".", 
             GST_ELEMENT_NAME(src), 
             cfgo_error_get_message(error)
         );
-    }
-    if (message)
-    {
-        gst_message_unref(message);
     }
 }
 

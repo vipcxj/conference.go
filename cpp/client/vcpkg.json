@@ -13,6 +13,7 @@
     "boost-uuid",
     "boost-circular-buffer",
     "boost-algorithm",
+    "cuda",
     "fmt",
     "cpptrace",
     "spdlog",
