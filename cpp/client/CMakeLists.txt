@@ -14,6 +14,23 @@ else()
     set(SUPPORT_GSTREAMER 0)
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/scripts/cmake/NuGetTools/NuGetTools.cmake")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/nuget/packages")
+set(NUGET_PACKAGES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nuget/packages)
+nuget_initialize()
+set(ONNX_VERSION "1.17.1")
+nuget_add_dependencies(
+    PACKAGE Microsoft.ML.OnnxRuntime.Gpu VERSION ${ONNX_VERSION} CMAKE_PREFIX_PATHS "../../../cmake"
+)
+if(UNIX)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/nuget/packages/Microsoft.ML.OnnxRuntime.Gpu.Linux/runtimes/linux-x64/native/libonnxruntime.so.${ONNX_VERSION}")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -E create_symlink libonnxruntime.so "libonnxruntime.so.${ONNX_VERSION}"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/nuget/packages/Microsoft.ML.OnnxRuntime.Gpu.Linux/runtimes/linux-x64/native/"
+        )
+    endif()
+endif()
+
 
 set(SRC_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(H_IMPL "${SRC_PATH}/impl")
@@ -29,7 +46,9 @@ set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/subscribation.hpp"
     "${H_PUBLIC_PATH}/track.hpp"
     "${H_PUBLIC_PATH}/alias.hpp"
+    "${H_PUBLIC_PATH}/coroutine_concepts.hpp"
     "${H_PUBLIC_PATH}/async.hpp"
+    "${H_PUBLIC_PATH}/async_locker.hpp"
     "${H_PUBLIC_PATH}/defer.hpp"
     "${H_PUBLIC_PATH}/pattern.hpp"
     "${H_PUBLIC_PATH}/exports.h"
@@ -79,6 +98,7 @@ set(MY_SOURCES
     "${SRC_PATH}/track.cpp"
     "${SRC_PATH}/subscribation.cpp"
     "${SRC_PATH}/async.cpp"
+    "${SRC_PATH}/async_locker.cpp"
     "${SRC_PATH}/error.cpp"
     "${SRC_PATH}/sio_helper.cpp"
     "${SRC_PATH}/rtc_helper.cpp"
@@ -204,6 +224,8 @@ if(GSTREAMER_SUPPORT)
     link_gstreamer(cfgoclient)
 endif()
 
+subdirs(${SRC_PATH}/test/cuda)
+
 if(GSTREAMER_SUPPORT)
     add_library(cfgogst ${MY_GST_PLUGIN_SOURCES} ${MY_GST_PLUGIN_PUBLIC_HEADERS} ${MY_GST_PLUGIN_PRIVATE_HEADERS})
     target_compile_definitions(cfgogst PRIVATE BUILDING_CFGO)
@@ -214,19 +236,6 @@ if(GSTREAMER_SUPPORT)
     include_asiochan(cfgogst)
     link_gstreamer(cfgogst)
     link_common_libs(cfgogst)
-endif()
-
-add_executable(test1 "${SRC_PATH}/main.cpp" ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
-
-set_target_properties(test1 PROPERTIES DEBUG_POSTFIX "${CMAKE_DEBUG_POSTFIX}")
-
-
-target_include_directories(test1 PUBLIC ${H_PUBLIC})
-target_include_directories(test1 PRIVATE ${H_PRIVATE})
-if(TARGET LibDataChannel::LibDataChannel)
-    target_link_libraries(test1 PRIVATE LibDataChannel::LibDataChannel)
-else()
-    target_link_libraries(test1 PRIVATE LibDataChannel::LibDataChannelStatic)
 endif()
 
 include(CTest)
@@ -250,16 +259,27 @@ target_link_libraries(test-async PRIVATE GTest::gtest GTest::gtest_main GTest::g
 add_test(NAME test-async COMMAND test-async)
 
 if(GSTREAMER_SUPPORT)
+    find_package(CUDAToolkit)
+    find_package(cuda-api-wrappers CONFIG REQUIRED)
+    find_package(OpenCV CONFIG REQUIRED)
+
+    find_package(onnxruntime CONFIG REQUIRED COMPONENTS onnxruntime_providers_cuda OPTIONAL_COMPONENTS onnxruntime_providers_tensorrt)
+
     add_executable(test-gst "${MY_TEST_PATH}/gst.cpp")
     target_compile_definitions(test-gst PRIVATE BUILDING_CFGO)
-    target_include_directories(test-gst PRIVATE ${H_PUBLIC} ${H_PRIVATE} ${SRC_PATH})
+    target_include_directories(test-gst PRIVATE ${H_PUBLIC} ${H_PRIVATE} ${SRC_PATH} ${MY_TEST_PATH})
     target_link_libraries(test-gst PRIVATE cfgoclient cfgogst)
+    target_link_libraries(test-gst PRIVATE CUDA::cudart)
+    target_link_libraries(test-gst PRIVATE cfgo-cuda)
     fix_win_version_warn(cfgogst)
     link_gstreamer(test-gst)
     include_asiochan(test-gst)
     link_common_libs(test-gst)
     find_package(Poco REQUIRED COMPONENTS Net Foundation)
     target_link_libraries(test-gst PRIVATE Poco::Foundation Poco::Net)
+    target_link_libraries(test-gst PRIVATE opencv_ml opencv_dnn opencv_dpm opencv_hdf)
+    target_link_libraries(test-gst PRIVATE cuda-api-wrappers::runtime-and-driver)
+    target_link_libraries(test-gst PRIVATE onnxruntime::onnxruntime)
     if(WIN32)
         add_custom_command(TARGET test-gst POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory

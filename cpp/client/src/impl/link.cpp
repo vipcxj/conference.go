@@ -3,6 +3,8 @@
 #include "cfgo/defer.hpp"
 #include "cpptrace/cpptrace.hpp"
 
+#include <cassert>
+
 namespace cfgo
 {
     namespace gst
@@ -17,7 +19,12 @@ namespace cfgo
             m_pipeline(pipeline),
             m_src(src), m_src_pad_name(src_pad_name), m_src_pad(src_pad),
             m_tgt(tgt), m_tgt_pad_name(tgt_pad_name), m_tgt_pad(tgt_pad)
-            {}
+            {
+                assert(m_src);
+                assert(m_tgt);
+                gst_object_ref(m_src);
+                gst_object_ref(m_tgt);
+            }
 
             Link::~Link()
             {
@@ -34,6 +41,7 @@ namespace cfgo
                     gst_object_unref(m_src_pad);
                     m_src_pad = nullptr;
                 }
+                gst_object_unref(m_src);
                 m_src = nullptr;
                 if (m_tgt_pad)
                 {
@@ -44,6 +52,7 @@ namespace cfgo
                     gst_object_unref(m_tgt_pad);
                     m_tgt_pad = nullptr;
                 }
+                gst_object_unref(m_tgt);
                 m_tgt = nullptr;
             }
 

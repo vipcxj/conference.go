@@ -7,9 +7,39 @@ namespace cfgo
     {
         Link::Link(impl_ptr<impl::Link> impl):ImplBy(impl) {}
 
+        GstElement * Link::src() const noexcept
+        {
+            return impl()->src();
+        }
+
+        const std::string Link::src_name() const noexcept
+        {
+            return impl()->src_name();
+        }
+
+        GstPad * Link::src_pad() const noexcept
+        {
+            return impl()->src_pad();
+        }
+
         const std::string Link::src_pad_name() const noexcept
         {
             return impl()->src_pad_name();
+        }
+
+        GstElement * Link::tgt() const noexcept
+        {
+            return impl()->tgt();
+        }
+
+        const std::string Link::tgt_name() const noexcept
+        {
+            return impl()->tgt_name();
+        }
+
+        GstPad * Link::tgt_pad() const noexcept
+        {
+            return impl()->tgt_pad();
         }
 
         const std::string Link::tgt_pad_name() const noexcept
@@ -30,6 +60,26 @@ namespace cfgo
             {
                 co_return nullptr;
             }
+        }
+
+        GstElement * AsyncLink::src() const noexcept
+        {
+            return impl()->src();
+        }
+
+        const std::string AsyncLink::src_name() const noexcept
+        {
+            return impl()->src_name();
+        }
+
+        GstElement * AsyncLink::tgt() const noexcept
+        {
+            return impl()->tgt();
+        }
+
+        const std::string AsyncLink::tgt_name() const noexcept
+        {
+            return impl()->tgt_name();
         }
     } // namespace gst
 } // namespace cfgo

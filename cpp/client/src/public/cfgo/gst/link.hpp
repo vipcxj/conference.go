@@ -5,6 +5,7 @@
 #include "cfgo/utils.hpp"
 #include "cfgo/async.hpp"
 #include "asio/awaitable.hpp"
+#include "gst/gst.h"
 
 namespace cfgo
 {
@@ -20,7 +21,13 @@ namespace cfgo
         {
         public:
             Link(impl_ptr<impl::Link> impl);
+            GstElement * src() const noexcept;
+            const std::string src_name() const noexcept;
+            GstPad * src_pad() const noexcept;
             const std::string src_pad_name() const noexcept;
+            GstElement * tgt() const noexcept;
+            const std::string tgt_name() const noexcept;
+            GstPad * tgt_pad() const noexcept;
             const std::string tgt_pad_name() const noexcept;
 
             friend class Pipeline;
@@ -33,6 +40,10 @@ namespace cfgo
         public:
             AsyncLink(impl_ptr<impl::AsyncLink> impl);
             auto await(const close_chan & closer = INVALID_CLOSE_CHAN) -> asio::awaitable<LinkPtr>;
+            GstElement * src() const noexcept;
+            const std::string src_name() const noexcept;
+            GstElement * tgt() const noexcept;
+            const std::string tgt_name() const noexcept;
         };
         using AsyncLinkPtr = std::shared_ptr<AsyncLink>;
     } // namespace gst

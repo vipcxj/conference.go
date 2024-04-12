@@ -38,3 +38,4 @@ build/
 vcpkg-configuration.json
 CMakePresets.json
 debug.env
+/cpp/client/nuget/packages

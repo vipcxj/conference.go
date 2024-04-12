@@ -49,9 +49,9 @@ namespace cfgo
                     return m_src;
                 }
 
-                inline const std::string src_pad_name() const noexcept
+                inline const std::string src_name() const noexcept
                 {
-                    return m_src_pad_name;
+                    return m_src ? GST_ELEMENT_NAME(m_src) : "";
                 }
 
                 inline GstPad * src_pad() const noexcept
@@ -59,19 +59,29 @@ namespace cfgo
                     return m_src_pad;
                 }
 
+                inline const std::string src_pad_name() const noexcept
+                {
+                    return m_src_pad_name;
+                }
+
                 inline GstElement * tgt() const noexcept
                 {
                     return m_tgt;
                 }
 
-                inline const std::string tgt_pad_name() const noexcept
+                inline const std::string tgt_name() const noexcept
                 {
-                    return m_tgt_pad_name;
+                    return m_tgt ? GST_ELEMENT_NAME(m_tgt) : "";
                 }
 
                 inline GstPad * tgt_pad() const noexcept
                 {
                     return m_tgt_pad;
+                }
+
+                inline const std::string tgt_pad_name() const noexcept
+                {
+                    return m_tgt_pad_name;
                 }
             };
 
@@ -87,6 +97,25 @@ namespace cfgo
             public:
                 AsyncLink(std::shared_ptr<Pipeline> pipeline, LinkPtr link, bool done);
                 auto await(close_chan closer) -> asio::awaitable<LinkPtr>;
+                inline GstElement * src() const noexcept
+                {
+                    return m_link->src();
+                }
+
+                inline const std::string src_name() const noexcept
+                {
+                    return m_link->src_name();
+                }
+
+                inline GstElement * tgt() const noexcept
+                {
+                    return m_link->tgt();
+                }
+
+                inline const std::string tgt_name() const noexcept
+                {
+                    return m_link->tgt_name();
+                }
             };
         } // namespace impl
     } // namespace gst

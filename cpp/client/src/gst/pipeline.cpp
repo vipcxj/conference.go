@@ -60,13 +60,13 @@ namespace cfgo
         auto Pipeline::link_async(const std::string & src, const std::string & target) -> AsyncLinkPtr
         {
             auto link_impl = impl()->link_async(src, target);
-            return std::make_shared<AsyncLink>(link_impl);
+            return link_impl ? std::make_shared<AsyncLink>(link_impl) : nullptr;
         }
 
         auto Pipeline::link_async(const std::string & src_name, const std::string & src_pad_name, const std::string & tgt_name, const std::string & tgt_pad_name) -> AsyncLinkPtr
         {
             auto link_impl = impl()->link_async(src_name, src_pad_name, tgt_name, tgt_pad_name);
-            return std::make_shared<AsyncLink>(link_impl);
+            return link_impl ? std::make_shared<AsyncLink>(link_impl) : nullptr;
         }
 
         const char * Pipeline::name() const noexcept

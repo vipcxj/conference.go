@@ -21,6 +21,9 @@ namespace cfgo
     using close_chan_ptr = std::shared_ptr<close_chan>;
     extern close_chan INVALID_CLOSE_CHAN;
     using duration_t = std::chrono::steady_clock::duration;
+    template<typename T>
+    using unique_chan = asiochan::channel<T, 1>;
+    using unique_void_chan = unique_chan<void>;
 
     template <typename F, typename ...Args>
     auto invoke_async_lambda(F f, Args ...args)

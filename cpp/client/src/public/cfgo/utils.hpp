@@ -92,18 +92,37 @@ namespace cfgo
     public:
         explicit ImplBy(impl_ptr<T> impl) : mImpl(std::move(impl)) {}
         template <typename... Args>
-        explicit ImplBy(Args... args) : mImpl(std::make_shared<T>(std::forward<Args>(args)...)) {}
-        ImplBy(ImplBy<T> &&cc) { *this = std::move(cc); }
+        explicit ImplBy(Args&&... args) : mImpl(std::make_shared<T>(std::forward<Args>(args)...)) {}
+        ImplBy(ImplBy<T> &&cc) = default;
         ImplBy(const ImplBy<T> &) = default;
 
         virtual ~ImplBy() = default;
 
-        ImplBy &operator=(ImplBy<T> &&cc)
-        {
-            mImpl = std::move(cc.mImpl);
-            return *this;
-        };
+        ImplBy &operator=(ImplBy<T> &&cc) = default;
         ImplBy &operator=(const ImplBy<T> &) = default;
+
+    protected:
+        impl_ptr<T> & impl() noexcept { return mImpl; }
+        const impl_ptr<T> & impl() const noexcept { return mImpl; }
+
+    private:
+        impl_ptr<T> mImpl;
+    };
+
+    template <typename T>
+    class UniqueImplBy
+    {
+    public:
+        explicit UniqueImplBy(impl_ptr<T> impl) : mImpl(std::move(impl)) {}
+        template <typename... Args>
+        explicit UniqueImplBy(Args&&... args) : mImpl(std::make_shared<T>(std::forward<Args>(args)...)) {}
+        UniqueImplBy(UniqueImplBy<T> &&cc) = default;
+        UniqueImplBy(const UniqueImplBy<T> &) = delete;
+
+        virtual ~UniqueImplBy() = default;
+
+        UniqueImplBy &operator=(UniqueImplBy<T> &&cc) = default;
+        UniqueImplBy &operator=(const UniqueImplBy<T> &) = delete;
 
     protected:
         impl_ptr<T> & impl() noexcept { return mImpl; }
