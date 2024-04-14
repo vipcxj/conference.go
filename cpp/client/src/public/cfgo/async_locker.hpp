@@ -206,7 +206,7 @@ namespace cfgo
                 if (idx == -1)
                 {
                     first.release();
-                    return;
+                    co_return;
                 }
             }
         }

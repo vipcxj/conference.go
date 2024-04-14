@@ -179,7 +179,7 @@ namespace cfgo
             else
             {
                 std::lock_guard lk(m_mutex);
-                auto req_iter = std::find(m_blocker_requests.begin(), m_blocker_requests.end(), [id](const BlockerRequest & request) {
+                auto req_iter = std::find_if(m_blocker_requests.begin(), m_blocker_requests.end(), [id](const BlockerRequest & request) -> bool {
                     return request.m_id == id;
                 });
                 if (req_iter != m_blocker_requests.end())
@@ -187,7 +187,7 @@ namespace cfgo
                     m_blocker_requests.erase(req_iter);
                     throw CancelError(closer);
                 }
-                auto iter = std::find(m_blockers.begin(), m_blockers.end(), [id](const BlockerInfo & info) {
+                auto iter = std::find_if(m_blockers.begin(), m_blockers.end(), [id](const BlockerInfo & info) -> bool {
                     return info.m_blocker->id() == id;
                 });
                 if (iter == m_blockers.end())
@@ -249,7 +249,7 @@ namespace cfgo
 
     auto AsyncBlocker::await_unblock() -> asio::awaitable<void>
     {
-        impl()->await_unblock();
+        return impl()->await_unblock();
     }
 
     void AsyncBlocker::unblock()
