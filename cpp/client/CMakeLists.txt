@@ -181,6 +181,7 @@ function(link_gstreamer target)
             PkgConfig::gstreamer-rtsp
             PkgConfig::gstreamer-tag
             PkgConfig::gstreamer-video
+            PkgConfig::gstreamer-cuda
         )
     endif()
 endfunction()

@@ -891,6 +891,23 @@ namespace cfgo
         }
     }
 
+    void chan_must_write(asiochan::writable_channel_type<void> auto & ch)
+    {
+        if (!ch.try_write())
+        {
+            throw cpptrace::runtime_error("Write chan failed. This should not happened.");
+        }
+    }
+
+    template<typename T>
+    void chan_must_write(asiochan::writable_channel_type<T> auto & ch, T && value)
+    {
+        if (!ch.try_write(std::forward<T>(value)))
+        {
+            throw cpptrace::runtime_error("Write chan failed. This should not happened.");
+        }
+    }
+
     template<typename T>
     auto async_retry(
         std::chrono::nanoseconds timeout,

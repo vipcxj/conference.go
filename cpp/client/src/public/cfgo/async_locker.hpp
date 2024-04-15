@@ -318,7 +318,10 @@ namespace cfgo
         struct Configure
         {
             duration_t block_timeout;
-            int batch;
+            int target_batch;
+            std::uint32_t min_batch = 1;
+
+            void validate() const;
         };
 
         AsyncBlockerManager(const Configure & configure);

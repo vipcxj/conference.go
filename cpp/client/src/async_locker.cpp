@@ -2,6 +2,8 @@
 #include "cfgo/async.hpp"
 #include <list>
 #include <memory>
+#include <algorithm>
+#include <limits>
 
 namespace cfgo
 {
@@ -85,7 +87,7 @@ namespace cfgo
             return m_id;
         }
 
-        class AsyncBlockerManager
+        class AsyncBlockerManager : public std::enable_shared_from_this<AsyncBlockerManager>
         {
         public:
             using ScheduleConfigure = cfgo::AsyncBlockerManager::Configure;
@@ -112,29 +114,31 @@ namespace cfgo
             auto lock(close_chan closer) -> asio::awaitable<void>;
             void unlock();
             auto add_blocker(int priority, close_chan closer) -> asio::awaitable<AsyncBlockerPtr>;
+            auto remove_blocker(std::uint32_t id, close_chan closer) -> asio::awaitable<void>;
         protected:
             auto _select_and_request_block(int n, close_chan closer) -> asio::awaitable<int>;
-            int _calc_batch() const noexcept
+            std::uint32_t _calc_batch() const noexcept
             {
-                int n = m_conf.batch;
-                if (n > 0)
+                std::uint32_t n;
+                if (m_conf.target_batch > 0)
                 {
-                    if (n > m_blockers.size())
+                    if (m_conf.target_batch > m_blockers.size())
                     {
-                        n = m_blockers.size();
+                        n = std::max(m_conf.min_batch, (std::uint32_t) m_blockers.size());
+                    }
+                    else
+                    {
+                        n = m_conf.target_batch;
                     }
                 }
-                else if (n < 0)
+                else if (m_conf.target_batch < 0)
                 {
-                    n += m_blockers.size();
-                    if (n <= 0)
-                    {
-                        n = 1;
-                    }
+                    int _n = m_conf.target_batch + m_blockers.size();
+                    n = (std::uint32_t) std::max(m_conf.target_batch + (std::int64_t) m_blockers.size(), (std::int64_t) m_conf.min_batch);
                 }
                 else
                 {
-                    n = 1;
+                    n = m_conf.min_batch;
                 }
                 return n;
             }
@@ -145,21 +149,28 @@ namespace cfgo
             std::uint32_t m_next_id = 0;
             std::uint32_t m_next_epoch = 0;
             bool m_locked = false;
+            unique_void_chan m_ready_ch;
             std::mutex m_mutex;
         };
         
         AsyncBlockerManager::AsyncBlockerManager(const ScheduleConfigure & configure): m_conf(configure) {}
         auto AsyncBlockerManager::add_blocker(int priority, close_chan closer) -> asio::awaitable<AsyncBlockerPtr>
         {
+            auto self = shared_from_this();
             AsyncBlockerPtr block_ptr = nullptr;
             std::uint32_t id;
             unique_chan<AsyncBlockerPtr> chan{};
             {
                 std::lock_guard lk(m_mutex);
+                bool not_enouth = _calc_batch() > m_blockers.size();
                 if (!m_locked)
                 {
                     block_ptr = std::make_shared<AsyncBlocker>(m_next_id++);
                     m_blockers.push_back({block_ptr, m_next_epoch++, priority, false, true});
+                    if (not_enouth && _calc_batch() <= m_blockers.size())
+                    {
+                        chan_must_write<void>(m_ready_ch);
+                    }
                 }
                 else
                 {
@@ -199,13 +210,95 @@ namespace cfgo
         }
         auto AsyncBlockerManager::lock(close_chan closer) -> asio::awaitable<void>
         {
-            int n = _calc_batch();
+            if (m_locked)
+            {
+                throw cpptrace::runtime_error("Already locked.");
+            }
+            auto self = shared_from_this();
+            std::uint32_t batch;
+            do
+            {
+                {
+                    std::lock_guard lk(m_mutex);
+                    batch = _calc_batch();
+                    if (batch <= m_blockers.size())
+                    {
+                        assert(batch > 0);
+                        if (m_locked)
+                        {
+                            throw cpptrace::runtime_error("Already locked.");
+                        }
+                        m_locked = true;
+                        break;
+                    }
+                }
+                co_await chan_read_or_throw<void>(m_ready_ch, closer);
+            } while (true);
+            try
+            {
+                AsyncTasksAll<void> tasks(closer);
+                {
+                    std::lock_guard lk(m_mutex);
+                    std::vector<std::reference_wrapper<BlockerInfo>> selects(m_blockers.begin(), m_blockers.end());
+                    std::sort(selects.begin(), selects.end(), [](const BlockerInfo & b1, const BlockerInfo & b2) -> bool {
+                        if (b1.m_epoch == b2.m_epoch)
+                        {
+                            if (b1.m_priority == b2.m_priority)
+                            {
+                                return b1.m_blocker->id() < b2.m_blocker->id();
+                            }
+                            else
+                            {
+                                return b1.m_priority > b2.m_priority;
+                            }
+                        }
+                        else
+                        {
+                            return b1.m_epoch < b2.m_epoch;
+                        }
+                    });
+                    BlockerInfo & blocker_with_max_epoch = *std::max_element(selects.begin(), selects.end(), [](const BlockerInfo & b1, const BlockerInfo & b2) -> bool {
+                        return b1.m_epoch < b2.m_epoch;
+                    });
+                    std::uint32_t max_epoch = blocker_with_max_epoch.m_epoch;
 
+                    std::uint32_t n = 0;
+                    for (std::uint32_t i = 0; i < selects.size(); ++i)
+                    {
+                        BlockerInfo & blocker = selects[i];
+                        if (blocker.m_epoch == max_epoch)
+                        {
+                            ++n;
+                        }
+                        if (n > batch)
+                        {
+                            break;
+                        }
+                        blocker.m_used = true;
+                        tasks.add_task(fix_async_lambda([blocker = blocker.m_blocker](auto closer) -> asio::awaitable<void> {
+                            if (!co_await blocker->request_block(closer))
+                            {
+                                throw CancelError(closer);   
+                            }
+                        }));
+                    }
+                }
+                co_await tasks.await();
+            }
+            catch(...)
+            {
+                unlock();
+                std::rethrow_exception(std::current_exception());
+            }
         }
         void AsyncBlockerManager::unlock()
         {
             {
                 std::lock_guard lk(m_mutex);
+                if (!m_locked)
+                {
+                    throw cpptrace::runtime_error("Not locked yet.");
+                }
                 m_locked = false;
                 for (auto && blocker : m_blockers)
                 {
@@ -231,7 +324,7 @@ namespace cfgo
                 {
                     auto block_ptr = std::make_shared<AsyncBlocker>(request.m_id);
                     m_blockers.push_back({block_ptr, m_next_epoch++, request.m_priority, false, true});
-                    request.m_chan.try_write(block_ptr);
+                    chan_must_write<AsyncBlockerPtr>(request.m_chan, block_ptr);
                 }
                 m_blocker_requests.clear();
             }
@@ -260,6 +353,18 @@ namespace cfgo
     std::uint32_t AsyncBlocker::id() const noexcept
     {
         return impl()->id();
+    }
+
+    void AsyncBlockerManager::Configure::validate() const
+    {
+        if (min_batch < 1 || (std::uint64_t) min_batch > (std::uint64_t) std::numeric_limits<std::int32_t>::max())
+        {
+            throw cpptrace::runtime_error(fmt::format("Invalid min_batch. The min_batch must be greater or equal than 1 and less or equal than {}.", std::numeric_limits<std::int32_t>::max()));
+        }
+        if (target_batch > 0 && target_batch < min_batch)
+        {
+            throw cpptrace::runtime_error("Invalid target_batch. The target_batch must greater than min_batch when it is positive.");
+        }
     }
 
     AsyncBlockerManager::AsyncBlockerManager(const Configure & configure): ImplBy(configure) {}
