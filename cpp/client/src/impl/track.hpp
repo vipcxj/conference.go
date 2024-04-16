@@ -28,7 +28,7 @@ namespace cfgo
         struct Track : public std::enable_shared_from_this<Track>
         {
             using Ptr = std::shared_ptr<Track>;
-            using MsgBuffer = boost::circular_buffer<std::pair<int, cfgo::Track::MsgPtr>>;
+            using MsgBuffer = boost::circular_buffer<std::pair<std::uint32_t, cfgo::Track::MsgPtr>>;
 
             struct Statistics
             {

@@ -10,6 +10,10 @@ namespace cfgo
         CFGO_DEFINE_STEAL_SHARED(gst_pad, GstPad, g_object_unref)
         CFGO_DEFINE_MAKE_SHARED(gst_caps, GstCaps, gst_caps_ref, gst_caps_unref)
         CFGO_DEFINE_STEAL_SHARED(gst_caps, GstCaps, gst_caps_unref)
+        CFGO_DEFINE_MAKE_SHARED(gst_sample, GstSample, gst_sample_ref, gst_sample_unref)
+        CFGO_DEFINE_STEAL_SHARED(gst_sample, GstSample, gst_sample_unref)
+        CFGO_DEFINE_MAKE_SHARED(gst_buffer, GstBuffer, gst_buffer_ref, gst_buffer_unref)
+        CFGO_DEFINE_STEAL_SHARED(gst_buffer, GstBuffer, gst_buffer_unref)
         CFGO_DEFINE_STEAL_SHARED(g_error, GError, g_error_free)
 
         std::string get_pad_full_name(GstPad * pad)

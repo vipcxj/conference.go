@@ -213,8 +213,8 @@ namespace cfgo
                     ++m_statistics.m_rtp_drops_packets;
                 }
             }
-            cache.push_back(std::make_pair(m_seq++, std::make_unique<rtc::binary>(std::move(data))));
-            std::ignore = m_msg_notify.try_write();
+            cache.push_back(std::make_pair(++m_seq, std::make_unique<rtc::binary>(std::move(data))));
+            chan_maybe_write(m_msg_notify);
         }
 
         void Track::on_track_open()

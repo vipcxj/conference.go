@@ -44,6 +44,12 @@ namespace cfgo
         CFGO_DECLARE_SHARED_PTR(GstCaps);
         CFGO_DECLARE_MAKE_SHARED(gst_caps, GstCaps);
         CFGO_DECLARE_STEAL_SHARED(gst_caps, GstCaps);
+        CFGO_DECLARE_SHARED_PTR(GstSample);
+        CFGO_DECLARE_MAKE_SHARED(gst_sample, GstSample);
+        CFGO_DECLARE_STEAL_SHARED(gst_sample, GstSample);
+        CFGO_DECLARE_SHARED_PTR(GstBuffer);
+        CFGO_DECLARE_MAKE_SHARED(gst_buffer, GstBuffer);
+        CFGO_DECLARE_STEAL_SHARED(gst_buffer, GstBuffer);
         CFGO_DECLARE_SHARED_PTR(GError);
         CFGO_DECLARE_STEAL_SHARED(g_error, GError);
 

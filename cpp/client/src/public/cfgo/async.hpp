@@ -891,7 +891,8 @@ namespace cfgo
         }
     }
 
-    void chan_must_write(asiochan::writable_channel_type<void> auto & ch)
+    template<asiochan::writable_channel_type<void> CH>
+    void chan_must_write(CH & ch)
     {
         if (!ch.try_write())
         {
@@ -899,13 +900,25 @@ namespace cfgo
         }
     }
 
-    template<typename T>
-    void chan_must_write(asiochan::writable_channel_type<T> auto & ch, T && value)
+    template<typename T, asiochan::writable_channel_type<std::decay_t<T>> CH>
+    void chan_must_write(CH & ch, T && value)
     {
         if (!ch.try_write(std::forward<T>(value)))
         {
             throw cpptrace::runtime_error("Write chan failed. This should not happened.");
         }
+    }
+
+    template<asiochan::writable_channel_type<void> CH>
+    void chan_maybe_write(CH & ch)
+    {
+        std::ignore = ch.try_write();
+    }
+
+    template<typename T, asiochan::writable_channel_type<std::decay_t<T>> CH>
+    void chan_maybe_write(CH & ch, T && value)
+    {
+        std::ignore = ch.try_write(std::forward<T>(value));
     }
 
     template<typename T>

@@ -8,6 +8,7 @@ set(WIN_TARGET_VER 0x0601)
 
 option(GSTREAMER_SUPPORT "gstreamer support")
 option(USE_GSTREAMER_FULL_STATIC "use gstreamer full static" ON)
+option(ENABLE_TEST "enable testing" ON)
 if(GSTREAMER_SUPPORT)
     set(SUPPORT_GSTREAMER 1)
 else()
@@ -49,6 +50,7 @@ set(MY_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/coroutine_concepts.hpp"
     "${H_PUBLIC_PATH}/async.hpp"
     "${H_PUBLIC_PATH}/async_locker.hpp"
+    "${H_PUBLIC_PATH}/basesink.hpp"
     "${H_PUBLIC_PATH}/defer.hpp"
     "${H_PUBLIC_PATH}/pattern.hpp"
     "${H_PUBLIC_PATH}/exports.h"
@@ -67,6 +69,7 @@ set(MY_GST_PLUGIN_PUBLIC_HEADERS
     "${H_PUBLIC_PATH}/gst/error.h"
     "${H_PUBLIC_PATH}/gst/error.hpp"
     "${H_PUBLIC_PATH}/gst/pipeline.hpp"
+    "${H_PUBLIC_PATH}/gst/appsink.hpp"
     "${H_PUBLIC_PATH}/gst/link.hpp"
     "${H_PUBLIC_PATH}/gst/gst.h"
     "${H_PUBLIC_PATH}/gst/gst.hpp"
@@ -99,6 +102,7 @@ set(MY_SOURCES
     "${SRC_PATH}/subscribation.cpp"
     "${SRC_PATH}/async.cpp"
     "${SRC_PATH}/async_locker.cpp"
+    "${SRC_PATH}/basesink.cpp"
     "${SRC_PATH}/error.cpp"
     "${SRC_PATH}/sio_helper.cpp"
     "${SRC_PATH}/rtc_helper.cpp"
@@ -114,6 +118,7 @@ set(MY_GST_PLUGIN_SOURCES
     "${SRC_PATH}/gst/error.cpp"
     "${SRC_PATH}/gst/cfgosrc.cpp"
     "${SRC_PATH}/gst/pipeline.cpp"
+    "${SRC_PATH}/gst/appsink.cpp"
     "${SRC_PATH}/gst/link.cpp"
     "${SRC_PATH}/gst/utils.cpp"
     "${SRC_PATH}/gst/helper.c"
@@ -122,26 +127,28 @@ set(MY_GST_PLUGIN_SOURCES
 )
 set(MY_TEST_PATH "${SRC_PATH}/test")
 
-find_package(PkgConfig)
-if(USE_GSTREAMER_FULL_STATIC)
-    pkg_search_module(gstreamer-full REQUIRED IMPORTED_TARGET gstreamer-full-1.0)
+if(GSTREAMER_SUPPORT)
+    find_package(PkgConfig)
+    if(USE_GSTREAMER_FULL_STATIC)
+        pkg_search_module(gstreamer-full REQUIRED IMPORTED_TARGET gstreamer-full-1.0)
+    endif()
+    #pkg_search_module(gstreamer-codecparsers REQUIRED IMPORTED_TARGET gstreamer-codecparsers-1.0)
+    pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0)
+    pkg_search_module(gstreamer-allocators REQUIRED IMPORTED_TARGET gstreamer-allocators-1.0)
+    pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
+    pkg_search_module(gstreamer-audio REQUIRED IMPORTED_TARGET gstreamer-audio-1.0)
+    pkg_search_module(gstreamer-base REQUIRED IMPORTED_TARGET gstreamer-base-1.0)
+    pkg_search_module(gstreamer-controller REQUIRED IMPORTED_TARGET gstreamer-controller-1.0)
+    pkg_search_module(gstreamer-cuda REQUIRED IMPORTED_TARGET gstreamer-cuda-1.0)
+    pkg_search_module(gstreamer-net REQUIRED IMPORTED_TARGET gstreamer-net-1.0)
+    pkg_search_module(gstreamer-pbutils REQUIRED IMPORTED_TARGET gstreamer-pbutils-1.0)
+    pkg_search_module(gstreamer-plugins-base REQUIRED IMPORTED_TARGET gstreamer-plugins-base-1.0)
+    pkg_search_module(gstreamer-rtp REQUIRED IMPORTED_TARGET gstreamer-rtp-1.0)
+    pkg_search_module(gstreamer-rtsp REQUIRED IMPORTED_TARGET gstreamer-rtsp-1.0)
+    pkg_search_module(gstreamer-sdp REQUIRED IMPORTED_TARGET gstreamer-sdp-1.0)
+    pkg_search_module(gstreamer-tag REQUIRED IMPORTED_TARGET gstreamer-tag-1.0)
+    pkg_search_module(gstreamer-video REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
 endif()
-#pkg_search_module(gstreamer-codecparsers REQUIRED IMPORTED_TARGET gstreamer-codecparsers-1.0)
-pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0)
-pkg_search_module(gstreamer-allocators REQUIRED IMPORTED_TARGET gstreamer-allocators-1.0)
-pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
-pkg_search_module(gstreamer-audio REQUIRED IMPORTED_TARGET gstreamer-audio-1.0)
-pkg_search_module(gstreamer-base REQUIRED IMPORTED_TARGET gstreamer-base-1.0)
-pkg_search_module(gstreamer-controller REQUIRED IMPORTED_TARGET gstreamer-controller-1.0)
-pkg_search_module(gstreamer-cuda REQUIRED IMPORTED_TARGET gstreamer-cuda-1.0)
-pkg_search_module(gstreamer-net REQUIRED IMPORTED_TARGET gstreamer-net-1.0)
-pkg_search_module(gstreamer-pbutils REQUIRED IMPORTED_TARGET gstreamer-pbutils-1.0)
-pkg_search_module(gstreamer-plugins-base REQUIRED IMPORTED_TARGET gstreamer-plugins-base-1.0)
-pkg_search_module(gstreamer-rtp REQUIRED IMPORTED_TARGET gstreamer-rtp-1.0)
-pkg_search_module(gstreamer-rtsp REQUIRED IMPORTED_TARGET gstreamer-rtsp-1.0)
-pkg_search_module(gstreamer-sdp REQUIRED IMPORTED_TARGET gstreamer-sdp-1.0)
-pkg_search_module(gstreamer-tag REQUIRED IMPORTED_TARGET gstreamer-tag-1.0)
-pkg_search_module(gstreamer-video REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
 
 find_package(asio CONFIG REQUIRED)
 find_path(ASIOCHAN_INCLUDE_DIRS "asiochan/asiochan.hpp")
@@ -184,6 +191,7 @@ function(link_gstreamer target)
             PkgConfig::gstreamer-cuda
         )
     endif()
+    target_compile_definitions(${target} PRIVATE GST_USE_UNSTABLE_API)
 endfunction()
 
 function(link_common_libs target)
@@ -239,64 +247,67 @@ if(GSTREAMER_SUPPORT)
     link_common_libs(cfgogst)
 endif()
 
-include(CTest)
+if(ENABLE_TEST)
+    include(CTest)
 
-find_package(GTest CONFIG REQUIRED)
+    find_package(GTest CONFIG REQUIRED)
 
-add_executable(test-coevent "${MY_TEST_PATH}/coevent.cpp" "${SRC_PATH}/coevent.cpp" "${H_PRIVATE_PATH}/coevent.hpp")
-target_include_directories(test-coevent PRIVATE "${H_PRIVATE}")
-find_package(asio CONFIG REQUIRED)
-target_link_libraries(test-coevent PRIVATE asio::asio)
-target_link_libraries(test-coevent PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
-add_test(NAME test-coevent COMMAND test-coevent)
+    add_executable(test-coevent "${MY_TEST_PATH}/coevent.cpp" "${SRC_PATH}/coevent.cpp" "${H_PRIVATE_PATH}/coevent.hpp")
+    target_include_directories(test-coevent PRIVATE "${H_PRIVATE}")
+    find_package(asio CONFIG REQUIRED)
+    target_link_libraries(test-coevent PRIVATE asio::asio)
+    target_link_libraries(test-coevent PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
+    add_test(NAME test-coevent COMMAND test-coevent)
 
-add_executable(test-async "${MY_TEST_PATH}/async.cpp")
-target_include_directories(test-async PUBLIC ${H_PUBLIC})
-target_include_directories(test-async PRIVATE ${H_PRIVATE})
-target_compile_definitions(test-async PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
-fix_win_version_warn(test-async)
-target_link_libraries(test-async PRIVATE asio::asio cfgoclient)
-target_link_libraries(test-async PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
-add_test(NAME test-async COMMAND test-async)
+    add_executable(test-async "${MY_TEST_PATH}/async.cpp")
+    target_include_directories(test-async PUBLIC ${H_PUBLIC})
+    target_include_directories(test-async PRIVATE ${H_PRIVATE})
+    target_compile_definitions(test-async PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
+    fix_win_version_warn(test-async)
+    target_link_libraries(test-async PRIVATE asio::asio cfgoclient)
+    target_link_libraries(test-async PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
+    add_test(NAME test-async COMMAND test-async)
 
-if(GSTREAMER_SUPPORT)
-    find_package(CUDAToolkit)
-    find_package(cuda-api-wrappers CONFIG REQUIRED)
-    find_package(OpenCV CONFIG REQUIRED)
+    if(GSTREAMER_SUPPORT)
+        find_package(CUDAToolkit)
+        find_package(cuda-api-wrappers CONFIG REQUIRED)
+        find_package(OpenCV CONFIG REQUIRED)
 
-    find_package(onnxruntime CONFIG REQUIRED COMPONENTS onnxruntime_providers_cuda OPTIONAL_COMPONENTS onnxruntime_providers_tensorrt)
+        find_package(onnxruntime CONFIG REQUIRED COMPONENTS onnxruntime_providers_cuda OPTIONAL_COMPONENTS onnxruntime_providers_tensorrt)
 
-    add_executable(test-gst "${MY_TEST_PATH}/gst.cpp")
-    target_compile_definitions(test-gst PRIVATE BUILDING_CFGO)
-    target_include_directories(test-gst PRIVATE ${H_PUBLIC} ${H_PRIVATE} ${SRC_PATH} ${MY_TEST_PATH})
-    target_link_libraries(test-gst PRIVATE cfgoclient cfgogst)
-    target_link_libraries(test-gst PRIVATE CUDA::cudart)
-    target_link_libraries(test-gst PRIVATE cfgo-cuda)
-    fix_win_version_warn(cfgogst)
-    link_gstreamer(test-gst)
-    include_asiochan(test-gst)
-    link_common_libs(test-gst)
-    find_package(Poco REQUIRED COMPONENTS Net Foundation)
-    target_link_libraries(test-gst PRIVATE Poco::Foundation Poco::Net)
-    target_link_libraries(test-gst PRIVATE opencv_ml opencv_dnn opencv_dpm opencv_hdf)
-    target_link_libraries(test-gst PRIVATE cuda-api-wrappers::runtime-and-driver)
-    target_link_libraries(test-gst PRIVATE onnxruntime::onnxruntime)
-    if(WIN32)
-        add_custom_command(TARGET test-gst POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/bin
-            $<TARGET_FILE_DIR:test-gst>
-        )
-    else()
-        target_link_libraries(test-gst PRIVATE PkgConfig::libunwind)
+        add_executable(test-gst "${MY_TEST_PATH}/gst.cpp")
+        target_compile_definitions(test-gst PRIVATE BUILDING_CFGO)
+        target_include_directories(test-gst PRIVATE ${H_PUBLIC} ${H_PRIVATE} ${SRC_PATH} ${MY_TEST_PATH})
+        target_link_libraries(test-gst PRIVATE cfgoclient cfgogst)
+        target_link_libraries(test-gst PRIVATE CUDA::cudart)
+        target_link_libraries(test-gst PRIVATE cfgo-cuda)
+        fix_win_version_warn(cfgogst)
+        link_gstreamer(test-gst)
+        include_asiochan(test-gst)
+        link_common_libs(test-gst)
+        find_package(Poco REQUIRED COMPONENTS Net Foundation)
+        target_link_libraries(test-gst PRIVATE Poco::Foundation Poco::Net)
+        target_link_libraries(test-gst PRIVATE opencv_ml opencv_dnn opencv_dpm opencv_hdf)
+        target_link_libraries(test-gst PRIVATE cuda-api-wrappers::runtime-and-driver)
+        target_link_libraries(test-gst PRIVATE onnxruntime::onnxruntime)
+        if(WIN32)
+            add_custom_command(TARGET test-gst POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/bin
+                $<TARGET_FILE_DIR:test-gst>
+            )
+        else()
+            target_link_libraries(test-gst PRIVATE PkgConfig::libunwind)
+        endif()
     endif()
-endif()
 
-add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")
-target_include_directories(test-gstreamer PUBLIC ${H_PUBLIC})
-target_include_directories(test-gstreamer PRIVATE ${H_PRIVATE})
-target_compile_definitions(test-gstreamer PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
-link_gstreamer(test-gstreamer)
-find_package(Poco REQUIRED COMPONENTS Net Foundation)
-target_link_libraries(test-gstreamer PRIVATE Poco::Foundation Poco::Net)
-target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient cfgogst)
+    add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")
+    target_include_directories(test-gstreamer PUBLIC ${H_PUBLIC})
+    target_include_directories(test-gstreamer PRIVATE ${H_PRIVATE})
+    target_compile_definitions(test-gstreamer PRIVATE ASIOCHAN_USE_STANDALONE_ASIO)
+    link_gstreamer(test-gstreamer)
+    find_package(Poco REQUIRED COMPONENTS Net Foundation)
+    target_link_libraries(test-gstreamer PRIVATE Poco::Foundation Poco::Net)
+    target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient cfgogst)
+
+endif()
