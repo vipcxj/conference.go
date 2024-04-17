@@ -53,6 +53,9 @@ namespace cfgo
                 GstAppSinkCallbacks callbacks {};
                 gst_app_sink_set_callbacks(m_sink, &callbacks, NULL, NULL);
                 gst_object_unref(m_sink);
+                {
+                    std::lock_guard lk(m_mutex);
+                }
             }
 
             void AppSink::on_eos(GstAppSink *appsink, gpointer userdata)
@@ -60,7 +63,9 @@ namespace cfgo
                 AppSink * self = (AppSink *) userdata;
                 std::lock_guard lk(self->m_mutex);
                 self->m_eos = true;
+                spdlog::debug("on eos.");
                 chan_maybe_write(self->m_eos_notify);
+                spdlog::debug("eos notified.");
             }
             GstFlowReturn AppSink::on_new_preroll(GstAppSink *appsink, gpointer userdata)
             {
@@ -85,6 +90,7 @@ namespace cfgo
                     spdlog::debug("new sample");
                     self->m_cache.push_back(std::make_pair(self->m_seq++, steal_shared_gst_sample(sample)));
                     chan_maybe_write(self->m_sample_notify);
+                    spdlog::debug("new sample notified.");
                 }
                 return GST_FLOW_OK;
             }
@@ -130,21 +136,27 @@ namespace cfgo
                 }
                 if (done)
                 {
+                    spdlog::debug("got sample immediatly.");
                     co_return sample_ptr;
                 }
-                co_await select_or_throw(closer, asiochan::ops::read(m_sample_notify, m_eos_notify));
+                spdlog::debug("wait more sample.");
+                do
                 {
-                    std::lock_guard lk(m_mutex);
-                    if (m_cache.empty() && !m_eos)
+                    co_await select_or_throw(closer, asiochan::ops::read(m_sample_notify, m_eos_notify));
                     {
-                        throw cpptrace::logic_error("This should not happened. Only one receiver is supported at the same time.");
+                        std::lock_guard lk(m_mutex);
+                        if (!m_cache.empty() || m_eos)
+                        {
+                            if (!m_cache.empty())
+                            {
+                                sample_ptr = m_cache.front().second;
+                                m_cache.pop_front();
+                            }
+                            break;
+                        }
                     }
-                    if (!m_cache.empty())
-                    {
-                        sample_ptr = m_cache.front().second;
-                        m_cache.pop_front();
-                    }
-                }
+                } while (true);
+                spdlog::debug("got sample later.");
                 co_return sample_ptr;
             }
 

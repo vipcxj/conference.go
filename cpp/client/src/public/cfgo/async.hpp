@@ -1137,7 +1137,7 @@ namespace cfgo
                     const auto & [index, opt_value, except] = res.value();
                     if (except)
                     {
-                        PT::m_close_ch.close("Some task of \"All Group\" tasks failed.");
+                        // PT::m_close_ch.close("Some task of \"All Group\" tasks failed.");
                         std::rethrow_exception(except);
                     }
                     else
@@ -1185,7 +1185,7 @@ namespace cfgo
                     const auto & [index, except] = res.value();
                     if (except)
                     {
-                        PT::m_close_ch.close("Some task of \"All Group\" tasks failed.");
+                        // PT::m_close_ch.close("Some task of \"All Group\" tasks failed.");
                         std::rethrow_exception(except);
                     }
                 }
@@ -1231,7 +1231,7 @@ namespace cfgo
                     else
                     {
                         accepted = true;
-                        PT::m_close_ch.close("Some task of \"Any Group\" tasks succeed.");
+                        // PT::m_close_ch.close("Some task of \"Any Group\" tasks succeed.");
                         m_result = std::move(opt_value);
                         break;
                     }
@@ -1304,7 +1304,7 @@ namespace cfgo
                     else
                     {
                         accepted = true;
-                        PT::m_close_ch.close("Some task of \"Any Group\" tasks succeed.");
+                        // PT::m_close_ch.close("Some task of \"Any Group\" tasks succeed.");
                         break;
                     }
                 }
@@ -1516,8 +1516,10 @@ namespace cfgo
         {
             return;
         }
-        std::lock_guard lk((*ptr)->m_mutex);
-        --(*ptr)->m_ref_count;
+        {
+            std::lock_guard lk((*ptr)->m_mutex);
+            --(*ptr)->m_ref_count;
+        }
         if ((*ptr)->m_ref_count == 0)
         {
             delete *ptr;

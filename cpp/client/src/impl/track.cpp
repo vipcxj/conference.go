@@ -179,41 +179,43 @@ namespace cfgo
         void Track::on_track_msg(rtc::binary data) {
             bool is_rtcp = rtc::IsRtcp(data);
             MsgBuffer & cache = is_rtcp ? m_rtcp_cache : m_rtp_cache;
-            std::lock_guard g(m_lock);
-            if (m_seq == 0xffffffff)
             {
-                auto offset = makesure_min_seq();
-                for (auto &&v : m_rtcp_cache)
+                std::lock_guard g(m_lock);
+                if (m_seq == 0xffffffff)
                 {
-                    v.first -= offset;
+                    auto offset = makesure_min_seq();
+                    for (auto &&v : m_rtcp_cache)
+                    {
+                        v.first -= offset;
+                    }
+                    for (auto &&v : m_rtp_cache)
+                    {
+                        v.first -= offset;
+                    }
+                    m_seq -= offset;
                 }
-                for (auto &&v : m_rtp_cache)
+                if (is_rtcp)
                 {
-                    v.first -= offset;
+                    m_statistics.m_rtcp_receives_bytes += data.size();
+                    ++m_statistics.m_rtcp_receives_packets;
+                    if (cache.full())
+                    {
+                        m_statistics.m_rtcp_drops_bytes += data.size();
+                        ++m_statistics.m_rtcp_drops_packets;
+                    }
                 }
-                m_seq -= offset;
+                else
+                {
+                    m_statistics.m_rtp_receives_bytes += data.size();
+                    ++m_statistics.m_rtp_receives_packets;
+                    if (cache.full())
+                    {
+                        m_statistics.m_rtp_drops_bytes += data.size();
+                        ++m_statistics.m_rtp_drops_packets;
+                    }
+                }
+                cache.push_back(std::make_pair(++m_seq, std::make_unique<rtc::binary>(std::move(data))));
             }
-            if (is_rtcp)
-            {
-                m_statistics.m_rtcp_receives_bytes += data.size();
-                ++m_statistics.m_rtcp_receives_packets;
-                if (cache.full())
-                {
-                    m_statistics.m_rtcp_drops_bytes += data.size();
-                    ++m_statistics.m_rtcp_drops_packets;
-                }
-            }
-            else
-            {
-                m_statistics.m_rtp_receives_bytes += data.size();
-                ++m_statistics.m_rtp_receives_packets;
-                if (cache.full())
-                {
-                    m_statistics.m_rtp_drops_bytes += data.size();
-                    ++m_statistics.m_rtp_drops_packets;
-                }
-            }
-            cache.push_back(std::make_pair(++m_seq, std::make_unique<rtc::binary>(std::move(data))));
             chan_maybe_write(m_msg_notify);
         }
 
@@ -245,53 +247,23 @@ namespace cfgo
             {
                 co_return true;
             }
-            if (is_valid_close_chan(close_ch))
+            auto res = co_await cfgo::select(
+                close_ch,
+                asiochan::ops::read(m_open_notify, m_closed_notify)
+            );
+            if (!res)
             {
-                auto res = co_await cfgo::select(
-                    close_ch,
-                    asiochan::ops::read(m_open_notify, m_closed_notify)
-                );
-                if (!res)
-                {
-                    co_return false;
-                }
-                else if (res.received_from(m_open_notify))
-                {
-                    if (!m_open_notify.try_write())
-                    {
-                        spdlog::warn("[Track::await_open_or_closed:1] This should not happen.");
-                    }
-                }
-                else
-                {
-                    if (!m_closed_notify.try_write())
-                    {
-                        spdlog::warn("[Track::await_open_or_closed:2] This should not happen.");
-                    }
-                }
-                co_return true;
+                co_return false;
+            }
+            else if (res.received_from(m_open_notify))
+            {
+                chan_must_write(m_open_notify);
             }
             else
             {
-                auto res = co_await asiochan::select(
-                    asiochan::ops::read(m_open_notify, m_closed_notify)
-                );
-                if (res.received_from(m_open_notify))
-                {
-                    if (!m_open_notify.try_write())
-                    {
-                        spdlog::warn("[Track::await_open_or_closed:3] This should not happen.");
-                    }
-                }
-                else
-                {
-                    if (!m_closed_notify.try_write())
-                    {
-                        spdlog::warn("[Track::await_open_or_closed:4] This should not happen.");
-                    }
-                }
-                co_return true;
+                chan_must_write(m_closed_notify);
             }
+            co_return true;
         }
 
         auto Track::await_msg(cfgo::Track::MsgType msg_type, close_chan close_ch) -> asio::awaitable<cfgo::Track::MsgPtr>
@@ -320,36 +292,17 @@ namespace cfgo
             }
             do
             {
-                if (is_valid_close_chan(close_ch))
+                auto res = co_await cfgo::select(
+                    close_ch,
+                    asiochan::ops::read(m_msg_notify, m_closed_notify)
+                );
+                if (!res)
                 {
-                    auto res = co_await cfgo::select(
-                        close_ch,
-                        asiochan::ops::read(m_msg_notify, m_closed_notify)
-                    );
-                    if (!res)
-                    {
-                        co_return nullptr;
-                    }
-                    else if (res.received_from(m_closed_notify))
-                    {
-                        if (!m_closed_notify.try_write())
-                        {
-                            spdlog::warn("[Track::await_msg:1] This should not happen.");
-                        }
-                    }
+                    co_return nullptr;
                 }
-                else
+                else if (res.received_from(m_closed_notify))
                 {
-                    auto res = co_await asiochan::select(
-                        asiochan::ops::read(m_msg_notify, m_closed_notify)
-                    );
-                    if (res.received_from(m_closed_notify))
-                    {
-                        if (!m_closed_notify.try_write())
-                        {
-                            spdlog::warn("[Track::await_msg:2] This should not happen.");
-                        }
-                    }
+                    chan_must_write(m_closed_notify);
                 }
 
                 msg_ptr = receive_msg(msg_type);

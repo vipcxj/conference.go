@@ -198,7 +198,7 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
         {
             if (!closer.is_timeout())
             {
-                spdlog::error("Unable to link from {} to {}", GST_ELEMENT_NAME(link0->src()), GST_ELEMENT_NAME(link0->tgt()));
+                spdlog::error("Unable to link from {} to {}", GST_ELEMENT_NAME(a_link0->src()), GST_ELEMENT_NAME(a_link0->tgt()));
             }
             co_return;
         }
@@ -207,7 +207,7 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
         {
             if (!closer.is_timeout())
             {
-                spdlog::error("Unable to link from {} to {}", GST_ELEMENT_NAME(link1->src()), GST_ELEMENT_NAME(link1->tgt()));
+                spdlog::error("Unable to link from {} to {}", GST_ELEMENT_NAME(a_link1->src()), GST_ELEMENT_NAME(a_link1->tgt()));
             }
             co_return;
         }
@@ -216,7 +216,7 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
         {
             if (!closer.is_timeout())
             {
-                spdlog::error("Unable to link from {} to {}", GST_ELEMENT_NAME(link2->src()), GST_ELEMENT_NAME(link2->tgt()));
+                spdlog::error("Unable to link from {} to {}", GST_ELEMENT_NAME(a_link2->src()), GST_ELEMENT_NAME(a_link2->tgt()));
             }
             co_return;
         }
@@ -239,120 +239,136 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
             DEFER({
                 gst_context_unref(GST_CONTEXT(gst_cuda_ctx));
             });
-            cudaStream_t cuda_stream;
-            int device_id;
-            gst_cuda_context_push(gst_cuda_ctx);
-            cudaStreamCreate(&cuda_stream);
-            cudaGetDevice(&device_id);
-            gst_cuda_context_pop(NULL);
-            std::vector<AsyncBlocker> locked_blockers;
-            manually_ptr<unique_void_chan> * sync_ch_ptr = make_manually_ptr<unique_void_chan>();
-
-            Ort::Env env(ORT_LOGGING_LEVEL_INFO, "ai-demo");
-            Ort::SessionOptions session_options;
-            OrtTensorRTProviderOptions trt_options;
-            trt_options.device_id = device_id;
-            trt_options.trt_fp16_enable = true;
-            trt_options.trt_max_workspace_size = (size_t) 10 * 1024 * 1024 * 1024;
-            session_options.AppendExecutionProvider_TensorRT(trt_options);
-            OrtCUDAProviderOptions cuda_options;
-            cuda_options.device_id = device_id;
-            session_options.AppendExecutionProvider_CUDA(cuda_options);
-            auto session = Ort::Session(env, (getexedir() / "model_fp16.onnx").c_str(), session_options);
-            auto cuda_memory_info = Ort::MemoryInfo("Cuda", OrtAllocatorType::OrtArenaAllocator, device_id, OrtMemType::OrtMemTypeDefault);
-            const int64_t shape[] = {1, 3, 16, 224, 224};
-            const char * input_names[] = {"frames"};
-            const char * output_names[] = {"output"};
-            unique_void_chan ready_ch {};
-            std::thread t([&]() mutable {
-                spdlog::debug("warmup...");
-                gst_cuda_context_push(gst_cuda_ctx);
-                auto input = Ort::Value::CreateTensor(
-                    cuda_memory_info,
-                    d_ai_input + 0 * 3 * 16 * 224 * 224,
-                    1 * 3 * 16 * 224 * 224 * sizeof(half),
-                    shape,
-                    std::size(shape),
-                    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16
-                );
-                const Ort::Value input_values[] = {std::move(input)};
-                session.Run(Ort::RunOptions{nullptr}, input_names, input_values, std::size(input_values), output_names, std::size(output_names));
-                gst_cuda_context_pop(NULL);
-                spdlog::debug("warmuped.");
-                chan_must_write(ready_ch);
-            });
-            t.detach();
-            co_await ready_ch.read();
-
-            std::vector<std::string> labels = {"书写", "使用电子设备", "假装书写", "假装阅读", "其他非学习行为", "玩玩具", "睡着", "背书", "阅读"};
-
-            do
+            try
             {
-                bool ready = false;
-                {
-                    spdlog::debug("lock");
-                    co_await blocker_manager.lock(closer);
-                    DEFER({
-                        spdlog::debug("unlock");
-                        blocker_manager.unlock();
-                    });
-                    blocker_manager.collect_locked_blocker(locked_blockers);
-                    if (!locked_blockers.empty())
+                cudaStream_t cuda_stream;
+                int device_id;
+                gst_cuda_context_push(gst_cuda_ctx);
+                cudaStreamCreate(&cuda_stream);
+                cudaGetDevice(&device_id);
+                gst_cuda_context_pop(NULL);
+                std::vector<AsyncBlocker> locked_blockers;
+                manually_ptr<unique_void_chan> * sync_ch_ptr = make_manually_ptr<unique_void_chan>();
+
+                Ort::Env env(ORT_LOGGING_LEVEL_INFO, "ai-demo");
+                Ort::SessionOptions session_options {};
+                OrtTensorRTProviderOptions trt_options {};
+                trt_options.device_id = device_id;
+                trt_options.trt_fp16_enable = true;
+                trt_options.trt_max_workspace_size = (size_t) 10 * 1024 * 1024 * 1024;
+                session_options.AppendExecutionProvider_TensorRT(trt_options);
+                OrtCUDAProviderOptions cuda_options {};
+                cuda_options.device_id = device_id;
+                session_options.AppendExecutionProvider_CUDA(cuda_options);
+                auto session = Ort::Session(env, (getexedir() / "model_fp16.onnx").c_str(), session_options);
+                auto cuda_memory_info = Ort::MemoryInfo("Cuda", OrtAllocatorType::OrtArenaAllocator, device_id, OrtMemType::OrtMemTypeDefault);
+                const int64_t shape[] = {1, 3, 16, 224, 224};
+                const char * input_names[] = {"frames"};
+                const char * output_names[] = {"output"};
+                unique_void_chan ready_ch {};
+                std::thread t([&]() mutable {
+                    spdlog::debug("warmup...");
+                    try
                     {
                         gst_cuda_context_push(gst_cuda_ctx);
-                        for (auto && blocker : locked_blockers)
-                        {
-                            int index = (int) blocker.get_integer_user_data();
-                            gst::copy_ai_input(d_ready_areas, index, d_ai_input, 0, cuda_stream);
-                        }
-                        sync_ch_ptr->ref();
-                        cudaStreamAddCallback(cuda_stream, [](cudaStream_t stream, cudaError_t status, void * userData) {
-                            manually_ptr<unique_void_chan> * sync_ch_ptr = (manually_ptr<unique_void_chan> * ) userData;
-                            chan_must_write(sync_ch_ptr->data());
-                            manually_ptr_unref(&sync_ch_ptr);
-                        }, sync_ch_ptr, 0);
-                        gst_cuda_context_pop(NULL);
-
-                        co_await sync_ch_ptr->data().read();
-                        ready = true;
+                        DEFER({
+                            gst_cuda_context_pop(nullptr);
+                        });
+                        auto input = Ort::Value::CreateTensor(
+                            cuda_memory_info,
+                            d_ai_input + 0 * 3 * 16 * 224 * 224,
+                            1 * 3 * 16 * 224 * 224 * sizeof(half),
+                            shape,
+                            std::size(shape),
+                            ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16
+                        );
+                        const Ort::Value input_values[] = {std::move(input)};
+                        session.Run(Ort::RunOptions{nullptr}, input_names, input_values, std::size(input_values), output_names, std::size(output_names));
+                        spdlog::debug("warmuped.");
+                        chan_must_write(ready_ch);
                     }
-                }
-                if (ready)
+                    catch(...)
+                    {
+                        spdlog::error(what());
+                    }
+                });
+                t.detach();
+                co_await ready_ch.read();
+
+                std::vector<std::string> labels = {"书写", "使用电子设备", "假装书写", "假装阅读", "其他非学习行为", "玩玩具", "睡着", "背书", "阅读"};
+
+                do
                 {
-                    gst_cuda_context_push(gst_cuda_ctx);
-                    auto input = Ort::Value::CreateTensor(
-                        cuda_memory_info,
-                        d_ai_input + 0 * 3 * 16 * 224 * 224,
-                        1 * 3 * 16 * 224 * 224 * sizeof(half),
-                        shape,
-                        std::size(shape),
-                        ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16
-                    );
-                    const Ort::Value input_values[] = {std::move(input)};
-                    auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, input_values, std::size(input_values), output_names, std::size(output_names));
-                    assert(outputs.size() == 1 && outputs.front().IsTensor());
-                    auto & output = outputs.front();
-                    const Ort::Float16_t * floatarr = output.GetTensorData<Ort::Float16_t>();
-                    std::vector<std::pair<std::string, float>> scores;
-                    for (size_t i = 0; i < labels.size(); i++)
+                    bool ready = false;
                     {
-                        scores.push_back(std::make_pair(labels[i], (floatarr + i)->ToFloat()));
-                    }
-                    std::sort(scores.begin(), scores.end(), [](const std::pair<std::string, float> & e1, const std::pair<std::string, float> & e2) {
-                        return e1.second > e2.second;
-                    });
+                        spdlog::debug("lock");
+                        co_await blocker_manager.lock(closer);
+                        DEFER({
+                            spdlog::debug("unlock");
+                            blocker_manager.unlock();
+                        });
+                        blocker_manager.collect_locked_blocker(locked_blockers);
+                        if (!locked_blockers.empty())
+                        {
+                            gst_cuda_context_push(gst_cuda_ctx);
+                            for (auto && blocker : locked_blockers)
+                            {
+                                int index = (int) blocker.get_integer_user_data();
+                                gst::copy_ai_input(d_ready_areas, index, d_ai_input, 0, cuda_stream);
+                            }
+                            sync_ch_ptr->ref();
+                            cudaStreamAddCallback(cuda_stream, [](cudaStream_t stream, cudaError_t status, void * userData) {
+                                manually_ptr<unique_void_chan> * sync_ch_ptr = (manually_ptr<unique_void_chan> * ) userData;
+                                chan_must_write(sync_ch_ptr->data());
+                                manually_ptr_unref(&sync_ch_ptr);
+                            }, sync_ch_ptr, 0);
+                            gst_cuda_context_pop(NULL);
 
-                    std::stringstream ss;
-                    for (size_t i = 0; i < scores.size(); i++)
-                    {
-                        ss << "[" << scores[i].first << "]: " << scores[i].second << ", ";
+                            co_await sync_ch_ptr->data().read();
+                            ready = true;
+                        }
                     }
-                    ss << std::endl;
-                    spdlog::debug(ss.str());
-                    
-                    gst_cuda_context_pop(NULL);
-                }
-            } while (true);
+                    if (ready)
+                    {
+                        gst_cuda_context_push(gst_cuda_ctx);
+                        auto input = Ort::Value::CreateTensor(
+                            cuda_memory_info,
+                            d_ai_input + 0 * 3 * 16 * 224 * 224,
+                            1 * 3 * 16 * 224 * 224 * sizeof(half),
+                            shape,
+                            std::size(shape),
+                            ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16
+                        );
+                        const Ort::Value input_values[] = {std::move(input)};
+                        auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, input_values, std::size(input_values), output_names, std::size(output_names));
+                        assert(outputs.size() == 1 && outputs.front().IsTensor());
+                        auto & output = outputs.front();
+                        const Ort::Float16_t * floatarr = output.GetTensorData<Ort::Float16_t>();
+                        std::vector<std::pair<std::string, float>> scores;
+                        for (size_t i = 0; i < labels.size(); i++)
+                        {
+                            scores.push_back(std::make_pair(labels[i], (floatarr + i)->ToFloat()));
+                        }
+                        std::sort(scores.begin(), scores.end(), [](const std::pair<std::string, float> & e1, const std::pair<std::string, float> & e2) {
+                            return e1.second > e2.second;
+                        });
+
+                        std::stringstream ss;
+                        for (size_t i = 0; i < scores.size(); i++)
+                        {
+                            ss << "[" << scores[i].first << "]: " << scores[i].second << ", ";
+                        }
+                        ss << std::endl;
+                        spdlog::debug(ss.str());
+                        
+                        gst_cuda_context_pop(NULL);
+                    }
+                } while (true);
+            }
+            catch(...)
+            {
+                spdlog::debug(what());
+            }
         }));
         tasks.add_task(fix_async_lambda([appsink, blocker_manager, d_ready_areas](close_chan closer) mutable -> asio::awaitable<void> {
             int frame = 0;
@@ -712,6 +728,14 @@ int main(int argc, char **argv) {
     gst_debug_set_threshold_for_name("cfgosrc", GST_LEVEL_TRACE);
 
     debug_plugins();
+
+    GstPluginFeature* nvdec = gst_registry_lookup_feature(gst_registry_get(), "nvh264dec");
+    if (nvdec)
+    {
+        gst_plugin_feature_set_rank(nvdec, GST_RANK_PRIMARY + 2);
+        gst_object_unref(nvdec);
+    }
+
     cfgo::close_chan closer;
 
     ControlCHandler ctrl_c_handler(closer);

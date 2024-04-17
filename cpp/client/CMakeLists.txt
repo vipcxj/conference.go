@@ -210,6 +210,8 @@ function(fix_win_version_warn target)
     if(WIN32)
         message("WIN_TARGET_VER=${WIN_TARGET_VER}")
         target_compile_definitions(${target} PRIVATE _WIN32_WINNT=${WIN_TARGET_VER})
+        target_compile_options(${target} PRIVATE "$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+        target_compile_options(${target} PRIVATE "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
     endif()
 endfunction()
 
@@ -281,7 +283,7 @@ if(ENABLE_TEST)
         target_link_libraries(test-gst PRIVATE cfgoclient cfgogst)
         target_link_libraries(test-gst PRIVATE CUDA::cudart)
         target_link_libraries(test-gst PRIVATE cfgo-cuda)
-        fix_win_version_warn(cfgogst)
+        fix_win_version_warn(test-gst)
         link_gstreamer(test-gst)
         include_asiochan(test-gst)
         link_common_libs(test-gst)
@@ -294,6 +296,9 @@ if(ENABLE_TEST)
             add_custom_command(TARGET test-gst POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                 ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/bin
+                $<TARGET_FILE_DIR:test-gst>
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${CMAKE_CURRENT_LIST_DIR}/nuget/packages/Microsoft.ML.OnnxRuntime.Gpu.Windows/runtimes/win-x64/native
                 $<TARGET_FILE_DIR:test-gst>
             )
         else()
