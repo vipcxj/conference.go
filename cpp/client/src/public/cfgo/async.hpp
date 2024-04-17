@@ -4,6 +4,7 @@
 #include <chrono>
 #include <mutex>
 #include <vector>
+#include <set>
 #include "cfgo/alias.hpp"
 #include "cfgo/common.hpp"
 #include "cfgo/black_magic.hpp"
@@ -1029,7 +1030,7 @@ namespace cfgo
 
         auto await() -> asio::awaitable<AT>
         {
-            bool first_start;
+            bool first_start = false;
             {
                 std::lock_guard lock(m_mutex);
                 if (!m_start)
@@ -1042,11 +1043,14 @@ namespace cfgo
             {
                 auto executor = co_await asio::this_coro::executor;
                 int i = 0;
+                std::vector<close_chan> closers {};
                 for (auto && task : m_tasks)
                 {
+                    close_chan closer = m_close_ch.create_child();
+                    closers.push_back(closer);
                     asio::co_spawn(
                         executor,
-                        fix_async_lambda([i, close_ch = m_close_ch, data_ch = m_data_ch, task]() mutable -> asio::awaitable<T>
+                        fix_async_lambda([i, close_ch = closer, data_ch = m_data_ch, task]() mutable -> asio::awaitable<T>
                         {
                             std::exception_ptr except = nullptr;
                             try
@@ -1099,6 +1103,10 @@ namespace cfgo
                 {
                     m_internal_err = std::current_exception();
                     m_done_signal.close_no_except();
+                }
+                for (auto && closer : closers)
+                {
+                    closer.close();
                 }
             }
             co_await m_done_signal.await();
@@ -1340,6 +1348,182 @@ namespace cfgo
         AsyncTasksAny(const close_chan & close_ch = INVALID_CLOSE_CHAN): PT(close_ch) {}
         virtual ~AsyncTasksAny() = default;
     };
+
+    template<typename T>
+    class AsyncTasksSome : public AsyncTasksBase<T, std::map<int, T>>
+    {
+    public:
+        using PT = AsyncTasksBase<T, std::map<int, T>>;
+        AsyncTasksSome(std::uint32_t n, const close_chan & close_ch = INVALID_CLOSE_CHAN): m_target(n), PT(close_ch) {}
+        virtual ~AsyncTasksSome() = default;
+    private:
+        std::uint32_t m_target;
+        std::map<int, T> m_result;
+    protected:
+        auto _sync() -> asio::awaitable<void>
+        {
+            auto n = PT::m_tasks.size();
+            if (m_target > n)
+            {
+                throw cpptrace::runtime_error("The target is greater than the number of tasks.");
+            }
+            
+            std::uint32_t succeed = 0;
+            std::uint32_t failed = 0;
+            for (size_t i = 0; i < n; i++)
+            {
+                auto res = co_await chan_read<typename PT::DataType>(PT::m_data_ch, PT::m_close_ch);
+                if (res)
+                {
+                    const auto & [index, opt_value, except] = res.value();
+                    if (except)
+                    {
+                        ++failed;
+                    }
+                    else
+                    {
+                        m_result.insert(std::make_pair(index, *opt_value));
+                        ++succeed;
+                    }
+                    if (failed > n - m_target)
+                    {
+                        std::rethrow_exception(except);
+                    }
+                    if (succeed == m_target)
+                    {
+                        break;
+                    }
+                }
+                else
+                {
+                    throw CancelError(PT::m_close_ch);
+                }
+            }
+            co_return;
+        }
+
+        auto _collect_result() -> std::vector<std::optional<T>>
+        {
+            return m_result;
+        }
+    };
+
+    template<>
+    class AsyncTasksSome<void> : public AsyncTasksBase<void, std::set<int>>
+    {
+    public:
+        using PT = AsyncTasksBase<void, std::set<int>>;
+        AsyncTasksSome(std::uint32_t n, const close_chan & close_ch = INVALID_CLOSE_CHAN): m_target(n), PT(close_ch) {}
+        virtual ~AsyncTasksSome() = default;
+    private:
+        std::uint32_t m_target;
+        std::set<int> m_result;
+    protected:
+        auto _sync() -> asio::awaitable<void>
+        {
+            auto n = PT::m_tasks.size();
+            if (m_target > n)
+            {
+                throw cpptrace::runtime_error("The target is greater than the number of tasks.");
+            }
+            
+            std::uint32_t succeed = 0;
+            std::uint32_t failed = 0;
+            for (size_t i = 0; i < n; i++)
+            {
+                auto res = co_await chan_read<typename PT::DataType>(PT::m_data_ch, PT::m_close_ch);
+                if (res)
+                {
+                    const auto & [index, except] = res.value();
+                    if (except)
+                    {
+                        ++failed;
+                    }
+                    else
+                    {
+                        m_result.insert(index);
+                        ++succeed;
+                    }
+                    if (failed > n - m_target)
+                    {
+                        std::rethrow_exception(except);
+                    }
+                    if (succeed == m_target)
+                    {
+                        break;
+                    }
+                }
+                else
+                {
+                    throw CancelError(PT::m_close_ch);
+                }
+            }
+            co_return;
+        }
+
+        auto _collect_result() -> std::set<int>
+        {
+            return m_result;
+        }
+    };
+
+    template<typename T>
+    class manually_ptr
+    {
+    public:
+        template<typename... Args>
+        manually_ptr(Args &&... args): m_data(std::forward<Args>(args)...), m_ref_count(1) {}
+        manually_ptr(const manually_ptr &) = delete;
+        manually_ptr & operator = (const manually_ptr &) = delete;
+        void ref()
+        {
+            std::lock_guard lk(m_mutex);
+            ++m_ref_count;
+        }
+        T & data()
+        {
+            return m_data;
+        }
+        const T & data() const
+        {
+            return m_data;
+        }
+        T & operator -> ()
+        {
+            return m_data;
+        }
+        const T & operator -> () const
+        {
+            return m_data;
+        }
+        friend void manually_ptr_unref<T>(manually_ptr<T> ** ptr);
+    private:
+        std::uint32_t m_ref_count;
+        std::mutex m_mutex;
+        T m_data;
+    };
+
+    template<typename T, typename... Args>
+    manually_ptr<T> * make_manually_ptr(Args && ...args)
+    {
+        return new manually_ptr<T>(std::forward<Args>(args)...);
+    }
+
+    template<typename T>
+    void manually_ptr_unref(manually_ptr<T> ** ptr)
+    {
+        if (ptr == nullptr || *ptr == nullptr)
+        {
+            return;
+        }
+        std::lock_guard lk((*ptr)->m_mutex);
+        --(*ptr)->m_ref_count;
+        if ((*ptr)->m_ref_count == 0)
+        {
+            delete *ptr;
+            *ptr = nullptr;
+        }
+    }
 
 } // namespace cfgo
 

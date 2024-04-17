@@ -732,7 +732,7 @@ namespace cfgo
 
         void rtcpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)
         {
-            spdlog::debug("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
+            spdlog::trace("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
             std::lock_guard lock(self->m_mutex);
             for (auto && session : self->m_sessions)
             {
@@ -742,7 +742,7 @@ namespace cfgo
 
         void rtcpsrc_enough_data(GstElement * appsrc, CfgoSrc *self)
         {
-            spdlog::debug("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
+            spdlog::trace("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
             std::lock_guard lock(self->m_mutex);
             for (auto && session : self->m_sessions)
             {

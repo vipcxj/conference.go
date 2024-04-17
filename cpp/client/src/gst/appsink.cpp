@@ -14,7 +14,7 @@ namespace cfgo
             {
             public:
                 using SampleBuffer = boost::circular_buffer<std::pair<std::uint32_t, GstSampleSPtr>>;
-                AppSink(GstAppSink * sink);
+                AppSink(GstAppSink * sink, int cache_capicity);
                 ~AppSink();
 
                 auto pull_sample(close_chan closer) -> asio::awaitable<GstSampleSPtr>;
@@ -36,7 +36,7 @@ namespace cfgo
                 std::uint32_t _makesure_min_seq() const noexcept;
             };
             
-            AppSink::AppSink(GstAppSink * sink): m_sink(sink), m_seq(0), m_eos(false)
+            AppSink::AppSink(GstAppSink * sink, int cache_capicity): m_sink(sink), m_seq(0), m_eos(false), m_cache(cache_capicity)
             {
                 gst_object_ref(m_sink);
                 GstAppSinkCallbacks callbacks{};
@@ -82,6 +82,7 @@ namespace cfgo
                 auto sample = gst_app_sink_pull_sample(appsink);
                 if (sample)
                 {
+                    spdlog::debug("new sample");
                     self->m_cache.push_back(std::make_pair(self->m_seq++, steal_shared_gst_sample(sample)));
                     chan_maybe_write(self->m_sample_notify);
                 }
@@ -149,7 +150,7 @@ namespace cfgo
 
         } // namespace detail
 
-        AppSink::AppSink(GstAppSink *sink) : ImplBy(sink) {}
+        AppSink::AppSink(GstAppSink *sink, int cache_capicity) : ImplBy(sink, cache_capicity) {}
 
         auto AppSink::pull_sample(close_chan closer) -> asio::awaitable<GstSampleSPtr>
         {

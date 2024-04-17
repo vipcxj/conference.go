@@ -19,7 +19,7 @@ namespace cfgo
         class AppSink : public ImplBy<detail::AppSink>
         {
         public:
-            AppSink(GstAppSink * sink);
+            AppSink(GstAppSink * sink, int cache_capicity);
             /**
              * throw CancelError when closer is closed. return null shared_ptr when eos and no sample available.
             */

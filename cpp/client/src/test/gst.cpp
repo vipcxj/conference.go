@@ -1,5 +1,6 @@
 #include "cfgo/cfgo.hpp"
 #include "cfgo/gst/gst.hpp"
+#include "cfgo/gst/appsink.hpp"
 
 #include "cpptrace/cpptrace.hpp"
 
@@ -14,6 +15,7 @@
 #include <csignal>
 #include <set>
 #include <fstream>
+#include <sstream>
 #include <cuda.h>
 #include "cuda_fp16.h"
 #include "cuda/api.hpp"
@@ -219,173 +221,393 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
             co_return;
         }
         spdlog::debug("linked.");
-        std::thread t([pipeline]() {
-            try
-            {
-                int index = 0;
-                half * d_ai_input = nullptr;
-                auto appsink = pipeline.require_node("appsink");
-                do
-                {
-                    GstSample * sample = nullptr;
-                    g_signal_emit_by_name(appsink.get(), "pull-sample", &sample);
-                    if (!sample)
-                    {
-                        break;
-                    }
-                    DEFER({
-                        gst_sample_unref(sample);
-                    });
-                    auto buffer = gst_sample_get_buffer(sample);
-                    auto memory = gst_buffer_get_memory(buffer, 0);
-                    if (!memory)
-                    {
-                        continue;
-                    }
-                    DEFER({
-                        gst_memory_unref(memory);
-                    });
-                    if (gst_is_cuda_memory(memory))
-                    {
-                        auto caps = gst_sample_get_caps(sample);
-                        GstVideoFrame cuda_frame;
-                        GstVideoInfo info;
-                        gst_video_info_from_caps(&info, caps);
-                        gst_video_frame_map(&cuda_frame, &info, buffer, (GstMapFlags) (GST_MAP_READ | GST_MAP_CUDA));
-                        spdlog::debug("n components: {}, n plane: {}, frame size: {}, frame width: {}, frame height: {}",
-                            GST_VIDEO_FRAME_N_COMPONENTS(&cuda_frame),
-                            GST_VIDEO_FRAME_N_PLANES(&cuda_frame),
-                            GST_VIDEO_FRAME_SIZE(&cuda_frame),
-                            GST_VIDEO_FRAME_WIDTH(&cuda_frame),
-                            GST_VIDEO_FRAME_HEIGHT(&cuda_frame)
-                        );
-                        for (size_t i = 0; i < GST_VIDEO_FRAME_N_COMPONENTS(&cuda_frame); i++)
-                        {
-                            spdlog::debug("[component {}] depth: {}, width: {}, height: {}, offset: {}, stride: {}, plane: {}, poffset: {}, pstride: {}",
-                                i,
-                                GST_VIDEO_FRAME_COMP_DEPTH(&cuda_frame, i),
-                                GST_VIDEO_FRAME_COMP_WIDTH(&cuda_frame, i),
-                                GST_VIDEO_FRAME_COMP_HEIGHT(&cuda_frame, i),
-                                GST_VIDEO_FRAME_COMP_OFFSET(&cuda_frame, i),
-                                GST_VIDEO_FRAME_COMP_STRIDE(&cuda_frame, i),
-                                GST_VIDEO_FRAME_COMP_PLANE(&cuda_frame, i),
-                                GST_VIDEO_FRAME_COMP_POFFSET(&cuda_frame, i),
-                                GST_VIDEO_FRAME_COMP_PSTRIDE(&cuda_frame, i)
-                            );
-                        }
-                        for (size_t i = 0; i < GST_VIDEO_FRAME_N_PLANES(&cuda_frame); i++)
-                        {
-                            spdlog::debug("[plane {}] offset: {}, stride: {}",
-                                i,
-                                GST_VIDEO_FRAME_PLANE_OFFSET(&cuda_frame, i),
-                                GST_VIDEO_FRAME_PLANE_STRIDE(&cuda_frame, i)
-                            );
-                        }
-                        
-                        
-                        auto cuda_mem = (GstCudaMemory *) memory;
-                        bool need_release_stream = false;
-                        auto stream = gst_cuda_memory_get_stream(cuda_mem);
-                        if (!stream)
-                        {
-                            need_release_stream = true;
-                            stream = gst_cuda_stream_new(cuda_mem->context);
-                        }
-                        gst_cuda_context_push(cuda_mem->context);
-                        if (!d_ai_input)
-                        {
-                            cudaMalloc(&d_ai_input, 224 * 224 * 3 * 16 * 2);
-                        }
 
-                        if (index < 16)
-                        {
-                            CUstream cuda_stream = gst_cuda_stream_get_handle(stream);
-                            cudaStreamSynchronize(cuda_stream);
-                            auto now = std::chrono::high_resolution_clock::now();
-                            gst::copy_ai_input(
-                                (unsigned char *) GST_VIDEO_FRAME_PLANE_DATA(&cuda_frame, 0), 
-                                1024, 
-                                d_ai_input,
-                                index,
-                                cuda_stream
-                            );
-                            cudaStreamSynchronize(cuda_stream);
-                            auto used = std::chrono::high_resolution_clock::now() - now;
-                            spdlog::debug("move used: {} ms.", std::chrono::duration_cast<std::chrono::milliseconds>(used).count());
-                        }
-                        else
-                        {
-                            {
-                                int device_id;
-                                cudaGetDevice(&device_id);
-                                Ort::Env env(ORT_LOGGING_LEVEL_INFO, "ai-demo");
-                                Ort::SessionOptions session_options;
-                                OrtTensorRTProviderOptions trt_options;
-                                trt_options.device_id = device_id;
-                                trt_options.trt_fp16_enable = true;
-                                trt_options.trt_max_workspace_size = (size_t) 10 * 1024 * 1024 * 1024;
-                                session_options.AppendExecutionProvider_TensorRT(trt_options);
-                                OrtCUDAProviderOptions cuda_options;
-                                cuda_options.device_id = device_id;
-                                session_options.AppendExecutionProvider_CUDA(cuda_options);
-                                auto session = Ort::Session(env, (getexedir() / "model_fp16.onnx").c_str(), session_options);
-                                auto memory_info = Ort::MemoryInfo("Cuda", OrtAllocatorType::OrtArenaAllocator, device_id, OrtMemType::OrtMemTypeDefault);
-                                const int64_t shape[] = {1, 3, 16, 224, 224};
-                                auto input = Ort::Value::CreateTensor(
-                                    memory_info,
-                                    (void *) d_ai_input,
-                                    224 * 224 * 3 * 16 * 2,
-                                    shape,
-                                    5,
-                                    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16
-                                );
-                                const char * input_names[] = {"frames"};
-                                const Ort::Value input_values[] = {std::move(input)};
-                                const char * output_names[] = {"output"};
-                                auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, input_values, (size_t) 1, output_names, (size_t) 1);
-                                for (size_t i = 0; i < 10; i++)
-                                {
-                                    auto now = std::chrono::high_resolution_clock::now();
-                                    auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, input_values, (size_t) 1, output_names, (size_t) 1);
-                                    auto used = std::chrono::high_resolution_clock::now() - now;
-                                    spdlog::debug("infer used: {} ms.", std::chrono::duration_cast<std::chrono::milliseconds>(used).count());
-                                    assert(outputs.size() == 1 && outputs.front().IsTensor());
-                                    auto & output = outputs.front();
-                                    auto type_info = output.GetTypeInfo();
-                                    auto t_info = type_info.GetTensorTypeAndShapeInfo();
-                                    std::cout << "output element type: " << t_info.GetElementType() << std::endl;
-                                    auto m_info = output.GetTensorMemoryInfo();
-                                    std::cout << "output device type: " << m_info.GetDeviceType() << ", memory type: " << m_info.GetMemoryType() << ", device id: " << m_info.GetDeviceId() << std::endl;
-                                    const Ort::Float16_t * floatarr = output.GetTensorData<Ort::Float16_t>();
-                                    for (size_t j = 0; j < 9; j++)
-                                    {
-                                        std::cout << "Score for class [" << j << "] =  " << floatarr[j].ToFloat() << "; ";
-                                    }
-                                    std::cout << std::endl << std::flush;
-                                }
-                            
-                            }
-                            cudaFree(d_ai_input);
-                        }
-                        gst_cuda_context_pop(nullptr);
-                        if (need_release_stream)
-                        {
-                            gst_cuda_stream_unref(stream);
-                        }
-                        if (index >= 16)
-                        {                            
-                            break;
-                        }
-                        ++index;
-                    }
-                } while (true);
-            }
-            catch(...)
+        auto raw_appsink = pipeline.require_node("appsink");
+        cfgo::gst::AppSink appsink(GST_APP_SINK(raw_appsink.get()), 32);
+        unsigned char * d_ready_areas = nullptr;
+        half * d_ai_input = nullptr;
+        AsyncBlockerManager blocker_manager({});
+        AsyncTasksAll<void> tasks(closer);
+        GstCudaContext * gst_cuda_ctx = nullptr;
+        gst_cuda_ensure_element_context(raw_appsink.get(), -1, &gst_cuda_ctx);
+        gst_cuda_context_push(gst_cuda_ctx);
+        cudaMalloc(&d_ready_areas, 1 * 16 * 3 * 224 * 224);
+        cudaMalloc(&d_ai_input, 1 * 16 * 3 * 224 * 224 * 2);
+        gst_cuda_context_pop(NULL);
+        gst_context_ref(GST_CONTEXT(gst_cuda_ctx));
+        tasks.add_task(fix_async_lambda([gst_cuda_ctx, blocker_manager, d_ready_areas, d_ai_input](close_chan closer) mutable -> asio::awaitable<void> {
+            DEFER({
+                gst_context_unref(GST_CONTEXT(gst_cuda_ctx));
+            });
+            cudaStream_t cuda_stream;
+            int device_id;
+            gst_cuda_context_push(gst_cuda_ctx);
+            cudaStreamCreate(&cuda_stream);
+            cudaGetDevice(&device_id);
+            gst_cuda_context_pop(NULL);
+            std::vector<AsyncBlocker> locked_blockers;
+            manually_ptr<unique_void_chan> * sync_ch_ptr = make_manually_ptr<unique_void_chan>();
+
+            Ort::Env env(ORT_LOGGING_LEVEL_INFO, "ai-demo");
+            Ort::SessionOptions session_options;
+            OrtTensorRTProviderOptions trt_options;
+            trt_options.device_id = device_id;
+            trt_options.trt_fp16_enable = true;
+            trt_options.trt_max_workspace_size = (size_t) 10 * 1024 * 1024 * 1024;
+            session_options.AppendExecutionProvider_TensorRT(trt_options);
+            OrtCUDAProviderOptions cuda_options;
+            cuda_options.device_id = device_id;
+            session_options.AppendExecutionProvider_CUDA(cuda_options);
+            auto session = Ort::Session(env, (getexedir() / "model_fp16.onnx").c_str(), session_options);
+            auto cuda_memory_info = Ort::MemoryInfo("Cuda", OrtAllocatorType::OrtArenaAllocator, device_id, OrtMemType::OrtMemTypeDefault);
+            const int64_t shape[] = {1, 3, 16, 224, 224};
+            const char * input_names[] = {"frames"};
+            const char * output_names[] = {"output"};
+            unique_void_chan ready_ch {};
+            std::thread t([&]() mutable {
+                spdlog::debug("warmup...");
+                gst_cuda_context_push(gst_cuda_ctx);
+                auto input = Ort::Value::CreateTensor(
+                    cuda_memory_info,
+                    d_ai_input + 0 * 3 * 16 * 224 * 224,
+                    1 * 3 * 16 * 224 * 224 * sizeof(half),
+                    shape,
+                    std::size(shape),
+                    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16
+                );
+                const Ort::Value input_values[] = {std::move(input)};
+                session.Run(Ort::RunOptions{nullptr}, input_names, input_values, std::size(input_values), output_names, std::size(output_names));
+                gst_cuda_context_pop(NULL);
+                spdlog::debug("warmuped.");
+                chan_must_write(ready_ch);
+            });
+            t.detach();
+            co_await ready_ch.read();
+
+            std::vector<std::string> labels = {"书写", "使用电子设备", "假装书写", "假装阅读", "其他非学习行为", "玩玩具", "睡着", "背书", "阅读"};
+
+            do
             {
-                spdlog::error(what());
-            }
-        });
-        t.detach();
+                bool ready = false;
+                {
+                    spdlog::debug("lock");
+                    co_await blocker_manager.lock(closer);
+                    DEFER({
+                        spdlog::debug("unlock");
+                        blocker_manager.unlock();
+                    });
+                    blocker_manager.collect_locked_blocker(locked_blockers);
+                    if (!locked_blockers.empty())
+                    {
+                        gst_cuda_context_push(gst_cuda_ctx);
+                        for (auto && blocker : locked_blockers)
+                        {
+                            int index = (int) blocker.get_integer_user_data();
+                            gst::copy_ai_input(d_ready_areas, index, d_ai_input, 0, cuda_stream);
+                        }
+                        sync_ch_ptr->ref();
+                        cudaStreamAddCallback(cuda_stream, [](cudaStream_t stream, cudaError_t status, void * userData) {
+                            manually_ptr<unique_void_chan> * sync_ch_ptr = (manually_ptr<unique_void_chan> * ) userData;
+                            chan_must_write(sync_ch_ptr->data());
+                            manually_ptr_unref(&sync_ch_ptr);
+                        }, sync_ch_ptr, 0);
+                        gst_cuda_context_pop(NULL);
+
+                        co_await sync_ch_ptr->data().read();
+                        ready = true;
+                    }
+                }
+                if (ready)
+                {
+                    gst_cuda_context_push(gst_cuda_ctx);
+                    auto input = Ort::Value::CreateTensor(
+                        cuda_memory_info,
+                        d_ai_input + 0 * 3 * 16 * 224 * 224,
+                        1 * 3 * 16 * 224 * 224 * sizeof(half),
+                        shape,
+                        std::size(shape),
+                        ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16
+                    );
+                    const Ort::Value input_values[] = {std::move(input)};
+                    auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, input_values, std::size(input_values), output_names, std::size(output_names));
+                    assert(outputs.size() == 1 && outputs.front().IsTensor());
+                    auto & output = outputs.front();
+                    const Ort::Float16_t * floatarr = output.GetTensorData<Ort::Float16_t>();
+                    std::vector<std::pair<std::string, float>> scores;
+                    for (size_t i = 0; i < labels.size(); i++)
+                    {
+                        scores.push_back(std::make_pair(labels[i], (floatarr + i)->ToFloat()));
+                    }
+                    std::sort(scores.begin(), scores.end(), [](const std::pair<std::string, float> & e1, const std::pair<std::string, float> & e2) {
+                        return e1.second > e2.second;
+                    });
+
+                    std::stringstream ss;
+                    for (size_t i = 0; i < scores.size(); i++)
+                    {
+                        ss << "[" << scores[i].first << "]: " << scores[i].second << ", ";
+                    }
+                    ss << std::endl;
+                    spdlog::debug(ss.str());
+                    
+                    gst_cuda_context_pop(NULL);
+                }
+            } while (true);
+        }));
+        tasks.add_task(fix_async_lambda([appsink, blocker_manager, d_ready_areas](close_chan closer) mutable -> asio::awaitable<void> {
+            int frame = 0;
+            AsyncBlocker blocker = co_await blocker_manager.add_blocker(0);
+            blocker.set_user_data((std::int64_t) 0);
+            manually_ptr<unique_void_chan> * sync_ch_ptr = make_manually_ptr<unique_void_chan>();
+            DEFER({
+                manually_ptr_unref(&sync_ch_ptr);
+            });
+            do
+            {
+                spdlog::debug("pulling sample.");
+                cfgo::gst::GstSampleSPtr sample = co_await appsink.pull_sample();
+                spdlog::debug("sample pulled.");
+                if (!sample)
+                {
+                    spdlog::debug("no sample, so eos.");
+                    break;
+                }
+                auto buffer = gst_sample_get_buffer(sample.get());
+                auto memory = gst_buffer_get_memory(buffer, 0);
+                if (!memory)
+                {
+                    spdlog::debug("unable to get memory.");
+                    continue;
+                }
+                DEFER({
+                    gst_memory_unref(memory);
+                });
+                if (!gst_is_cuda_memory(memory))
+                {
+                    spdlog::debug("memory is not cuda memory.");
+                    continue;
+                }
+                auto cuda_mem = (GstCudaMemory *) memory;
+                bool need_release_stream = false;
+                auto stream = gst_cuda_memory_get_stream(cuda_mem);
+                if (!stream)
+                {
+                    need_release_stream = true;
+                    stream = gst_cuda_stream_new(cuda_mem->context);
+                }
+                DEFER({
+                    if (need_release_stream)
+                    {
+                        gst_cuda_stream_unref(stream);
+                    }
+                });
+
+                auto caps = gst_sample_get_caps(sample.get());
+                GstVideoFrame cuda_frame;
+                GstVideoInfo info;
+                gst_video_info_from_caps(&info, caps);
+                gst_video_frame_map(&cuda_frame, &info, buffer, (GstMapFlags) (GST_MAP_READ | GST_MAP_CUDA));
+
+                gst_cuda_context_push(cuda_mem->context);
+                CUstream cuda_stream = gst_cuda_stream_get_handle(stream);
+                spdlog::debug("writing frame {}", frame);
+                gst::copy_frame((unsigned char *) GST_VIDEO_FRAME_PLANE_DATA(&cuda_frame, 0), 1024, d_ready_areas, frame % 16, 0, cuda_stream);
+                sync_ch_ptr->ref();
+                cudaStreamAddCallback(cuda_stream, [](cudaStream_t stream, cudaError_t status, void * userData) {
+                    manually_ptr<unique_void_chan> * sync_ch_ptr = (manually_ptr<unique_void_chan> * ) userData;
+                    try
+                    {
+                        chan_must_write(sync_ch_ptr->data());
+                    }
+                    catch(const std::exception& e)
+                    {
+                        spdlog::error(what());
+                    }
+                    manually_ptr_unref(&sync_ch_ptr);
+                }, sync_ch_ptr, 0);
+                gst_cuda_context_pop(NULL);
+
+                spdlog::debug("waiting stream completed.");
+                co_await sync_ch_ptr->data().read();
+                spdlog::debug("stream completed.");
+                if (blocker.need_block() && frame >= 16)
+                {
+                    spdlog::debug("blocking");
+                    co_await blocker.await_unblock();
+                    spdlog::debug("unblocked.");
+                }
+                ++frame;
+            } while (true);
+        }));
+        co_await tasks.await();
+ 
+        // std::thread t([pipeline]() {
+        //     try
+        //     {
+        //         int index = 0;
+        //         half * d_ai_input = nullptr;
+        //         auto appsink = pipeline.require_node("appsink");
+        //         do
+        //         {
+        //             GstSample * sample = nullptr;
+        //             g_signal_emit_by_name(appsink.get(), "pull-sample", &sample);
+        //             if (!sample)
+        //             {
+        //                 break;
+        //             }
+        //             DEFER({
+        //                 gst_sample_unref(sample);
+        //             });
+        //             auto buffer = gst_sample_get_buffer(sample);
+        //             auto memory = gst_buffer_get_memory(buffer, 0);
+        //             if (!memory)
+        //             {
+        //                 continue;
+        //             }
+        //             DEFER({
+        //                 gst_memory_unref(memory);
+        //             });
+        //             if (gst_is_cuda_memory(memory))
+        //             {
+        //                 auto caps = gst_sample_get_caps(sample);
+        //                 GstVideoFrame cuda_frame;
+        //                 GstVideoInfo info;
+        //                 gst_video_info_from_caps(&info, caps);
+        //                 gst_video_frame_map(&cuda_frame, &info, buffer, (GstMapFlags) (GST_MAP_READ | GST_MAP_CUDA));
+        //                 spdlog::debug("n components: {}, n plane: {}, frame size: {}, frame width: {}, frame height: {}",
+        //                     GST_VIDEO_FRAME_N_COMPONENTS(&cuda_frame),
+        //                     GST_VIDEO_FRAME_N_PLANES(&cuda_frame),
+        //                     GST_VIDEO_FRAME_SIZE(&cuda_frame),
+        //                     GST_VIDEO_FRAME_WIDTH(&cuda_frame),
+        //                     GST_VIDEO_FRAME_HEIGHT(&cuda_frame)
+        //                 );
+        //                 for (size_t i = 0; i < GST_VIDEO_FRAME_N_COMPONENTS(&cuda_frame); i++)
+        //                 {
+        //                     spdlog::debug("[component {}] depth: {}, width: {}, height: {}, offset: {}, stride: {}, plane: {}, poffset: {}, pstride: {}",
+        //                         i,
+        //                         GST_VIDEO_FRAME_COMP_DEPTH(&cuda_frame, i),
+        //                         GST_VIDEO_FRAME_COMP_WIDTH(&cuda_frame, i),
+        //                         GST_VIDEO_FRAME_COMP_HEIGHT(&cuda_frame, i),
+        //                         GST_VIDEO_FRAME_COMP_OFFSET(&cuda_frame, i),
+        //                         GST_VIDEO_FRAME_COMP_STRIDE(&cuda_frame, i),
+        //                         GST_VIDEO_FRAME_COMP_PLANE(&cuda_frame, i),
+        //                         GST_VIDEO_FRAME_COMP_POFFSET(&cuda_frame, i),
+        //                         GST_VIDEO_FRAME_COMP_PSTRIDE(&cuda_frame, i)
+        //                     );
+        //                 }
+        //                 for (size_t i = 0; i < GST_VIDEO_FRAME_N_PLANES(&cuda_frame); i++)
+        //                 {
+        //                     spdlog::debug("[plane {}] offset: {}, stride: {}",
+        //                         i,
+        //                         GST_VIDEO_FRAME_PLANE_OFFSET(&cuda_frame, i),
+        //                         GST_VIDEO_FRAME_PLANE_STRIDE(&cuda_frame, i)
+        //                     );
+        //                 }
+                        
+                        
+        //                 auto cuda_mem = (GstCudaMemory *) memory;
+        //                 bool need_release_stream = false;
+        //                 auto stream = gst_cuda_memory_get_stream(cuda_mem);
+        //                 if (!stream)
+        //                 {
+        //                     need_release_stream = true;
+        //                     stream = gst_cuda_stream_new(cuda_mem->context);
+        //                 }
+        //                 gst_cuda_context_push(cuda_mem->context);
+        //                 if (!d_ai_input)
+        //                 {
+        //                     cudaMalloc(&d_ai_input, 224 * 224 * 3 * 16 * 2);
+        //                 }
+
+        //                 if (index < 16)
+        //                 {
+        //                     cudaStream_t cuda_stream = gst_cuda_stream_get_handle(stream);
+        //                     cudaStreamSynchronize(cuda_stream);
+        //                     auto now = std::chrono::high_resolution_clock::now();
+        //                     gst::copy_ai_input(
+        //                         (unsigned char *) GST_VIDEO_FRAME_PLANE_DATA(&cuda_frame, 0), 
+        //                         1024, 
+        //                         d_ai_input,
+        //                         index,
+        //                         cuda_stream
+        //                     );
+        //                     cudaStreamSynchronize(cuda_stream);
+        //                     auto used = std::chrono::high_resolution_clock::now() - now;
+        //                     spdlog::debug("move used: {} ms.", std::chrono::duration_cast<std::chrono::milliseconds>(used).count());
+        //                 }
+        //                 else
+        //                 {
+        //                     {
+        //                         int device_id;
+        //                         cudaGetDevice(&device_id);
+        //                         Ort::Env env(ORT_LOGGING_LEVEL_INFO, "ai-demo");
+        //                         Ort::SessionOptions session_options;
+        //                         OrtTensorRTProviderOptions trt_options;
+        //                         trt_options.device_id = device_id;
+        //                         trt_options.trt_fp16_enable = true;
+        //                         trt_options.trt_max_workspace_size = (size_t) 10 * 1024 * 1024 * 1024;
+        //                         session_options.AppendExecutionProvider_TensorRT(trt_options);
+        //                         OrtCUDAProviderOptions cuda_options;
+        //                         cuda_options.device_id = device_id;
+        //                         session_options.AppendExecutionProvider_CUDA(cuda_options);
+        //                         auto session = Ort::Session(env, (getexedir() / "model_fp16.onnx").c_str(), session_options);
+        //                         auto memory_info = Ort::MemoryInfo("Cuda", OrtAllocatorType::OrtArenaAllocator, device_id, OrtMemType::OrtMemTypeDefault);
+        //                         const int64_t shape[] = {1, 3, 16, 224, 224};
+        //                         auto input = Ort::Value::CreateTensor(
+        //                             memory_info,
+        //                             (void *) d_ai_input,
+        //                             224 * 224 * 3 * 16 * 2,
+        //                             shape,
+        //                             5,
+        //                             ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16
+        //                         );
+        //                         const char * input_names[] = {"frames"};
+        //                         const Ort::Value input_values[] = {std::move(input)};
+        //                         const char * output_names[] = {"output"};
+        //                         auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, input_values, (size_t) 1, output_names, (size_t) 1);
+        //                         for (size_t i = 0; i < 10; i++)
+        //                         {
+        //                             auto now = std::chrono::high_resolution_clock::now();
+        //                             auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, input_values, (size_t) 1, output_names, (size_t) 1);
+        //                             auto used = std::chrono::high_resolution_clock::now() - now;
+        //                             spdlog::debug("infer used: {} ms.", std::chrono::duration_cast<std::chrono::milliseconds>(used).count());
+        //                             assert(outputs.size() == 1 && outputs.front().IsTensor());
+        //                             auto & output = outputs.front();
+        //                             auto type_info = output.GetTypeInfo();
+        //                             auto t_info = type_info.GetTensorTypeAndShapeInfo();
+        //                             std::cout << "output element type: " << t_info.GetElementType() << std::endl;
+        //                             auto m_info = output.GetTensorMemoryInfo();
+        //                             std::cout << "output device type: " << m_info.GetDeviceType() << ", memory type: " << m_info.GetMemoryType() << ", device id: " << m_info.GetDeviceId() << std::endl;
+        //                             const Ort::Float16_t * floatarr = output.GetTensorData<Ort::Float16_t>();
+        //                             for (size_t j = 0; j < 9; j++)
+        //                             {
+        //                                 std::cout << "Score for class [" << j << "] =  " << floatarr[j].ToFloat() << "; ";
+        //                             }
+        //                             std::cout << std::endl << std::flush;
+        //                         }
+                            
+        //                     }
+        //                     cudaFree(d_ai_input);
+        //                 }
+        //                 gst_cuda_context_pop(nullptr);
+        //                 if (need_release_stream)
+        //                 {
+        //                     gst_cuda_stream_unref(stream);
+        //                 }
+        //                 if (index >= 16)
+        //                 {                            
+        //                     break;
+        //                 }
+        //                 ++index;
+        //             }
+        //         } while (true);
+        //     }
+        //     catch(...)
+        //     {
+        //         spdlog::error(what());
+        //     }
+        // });
+        // t.detach();
     }));
     tasks.add_task(fix_async_lambda([pipeline](auto closer) mutable -> asio::awaitable<void> {
         co_await pipeline.await();

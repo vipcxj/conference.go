@@ -12,19 +12,36 @@ namespace cfgo
         class AsyncBlocker
         {
         public:
-            AsyncBlocker(std::uint32_t id): m_id(id) {}
+            AsyncBlocker(std::uint32_t id): m_id(id), m_user_data(nullptr) {}
             AsyncBlocker(const AsyncBlocker &) = delete;
             AsyncBlocker & operator = (const AsyncBlocker &) = delete;
             auto request_block(close_chan closer) -> asio::awaitable<bool>;
+            bool need_block() const noexcept;
+            bool is_blocked() const noexcept;
             auto await_unblock() -> asio::awaitable<void>;
             void unblock();
             std::uint32_t id() const noexcept;
+            void set_user_data(std::shared_ptr<void> user_data);
+            void set_user_data(std::int64_t user_data);
+            void set_user_data(double user_data);
+            void set_user_data(const std::string & user_data);
+            std::shared_ptr<void> get_pointer_user_data() const;
+            std::int64_t get_integer_user_data() const;
+            double get_float_user_data() const;
+            const std::string & get_string_user_data() const;
+            void remove_user_data();
+            bool has_user_data() const noexcept;
+            bool has_ptr_data() const noexcept;
+            bool has_int_data() const noexcept;
+            bool has_float_data() const noexcept;
+            bool has_string_data() const noexcept;
         private:
             std::uint32_t m_id;
             bool m_block = false;
             bool m_blocked = false;
             unique_void_chan m_request_chan;
             unique_void_chan m_response_chan;
+            std::variant<std::nullptr_t, std::shared_ptr<void>, std::int64_t, double, std::string> m_user_data;
         };
 
         // can not concurrent with unblock
@@ -49,12 +66,25 @@ namespace cfgo
                 }
             } while (true);
         }
+
+        bool AsyncBlocker::need_block() const noexcept
+        {
+            return m_block;
+        }
+
+        bool AsyncBlocker::is_blocked() const noexcept
+        {
+            return m_blocked;
+        }
         
         // can not concurrent with request_block
         void AsyncBlocker::unblock()
         {
-            m_block = false;
-            std::ignore = m_request_chan.try_write();
+            if (m_block)
+            {
+                m_block = false;
+                std::ignore = m_request_chan.try_write();
+            }
         }
 
         auto AsyncBlocker::await_unblock() -> asio::awaitable<void>
@@ -87,6 +117,76 @@ namespace cfgo
             return m_id;
         }
 
+        void AsyncBlocker::set_user_data(std::shared_ptr<void> user_data)
+        {
+            m_user_data = user_data;
+        }
+
+        void AsyncBlocker::set_user_data(std::int64_t user_data)
+        {
+            m_user_data = user_data;
+        }
+
+        void AsyncBlocker::set_user_data(double user_data)
+        {
+            m_user_data = user_data;
+        }
+
+        void AsyncBlocker::set_user_data(const std::string & user_data)
+        {
+            m_user_data = user_data;
+        }
+
+        std::shared_ptr<void> AsyncBlocker::get_pointer_user_data() const
+        {
+            return std::get<std::shared_ptr<void>>(m_user_data);
+        }
+
+        std::int64_t AsyncBlocker::get_integer_user_data() const
+        {
+            return std::get<std::int64_t>(m_user_data);
+        }
+
+        double AsyncBlocker::get_float_user_data() const
+        {
+            return std::get<double>(m_user_data);
+        }
+
+        const std::string & AsyncBlocker::get_string_user_data() const
+        {
+            return std::get<std::string>(m_user_data);
+        }
+
+        void AsyncBlocker::remove_user_data()
+        {
+            m_user_data = nullptr;
+        }
+
+        bool AsyncBlocker::has_user_data() const noexcept
+        {
+            return !std::holds_alternative<std::nullptr_t>(m_user_data);
+        }
+
+        bool AsyncBlocker::has_ptr_data() const noexcept
+        {
+            return std::holds_alternative<std::shared_ptr<void>>(m_user_data);
+        }
+
+        bool AsyncBlocker::has_int_data() const noexcept
+        {
+            return std::holds_alternative<std::int64_t>(m_user_data);
+        }
+
+        bool AsyncBlocker::has_float_data() const noexcept
+        {
+            return std::holds_alternative<double>(m_user_data);
+        }
+
+        bool AsyncBlocker::has_string_data() const noexcept
+        {
+            return std::holds_alternative<std::string>(m_user_data);
+        }
+
         class AsyncBlockerManager : public std::enable_shared_from_this<AsyncBlockerManager>
         {
         public:
@@ -103,7 +203,6 @@ namespace cfgo
                 AsyncBlockerPtr m_blocker;
                 std::uint32_t m_epoch;
                 int m_priority;
-                bool m_used;
                 bool m_valid;
             };
 
@@ -113,6 +212,7 @@ namespace cfgo
 
             auto lock(close_chan closer) -> asio::awaitable<void>;
             void unlock();
+            void collect_locked_blocker(std::vector<cfgo::AsyncBlocker> & blockers);
             auto add_blocker(int priority, close_chan closer) -> asio::awaitable<AsyncBlockerPtr>;
             void remove_blocker(std::uint32_t id);
         protected:
@@ -166,7 +266,7 @@ namespace cfgo
                 if (!m_locked)
                 {
                     block_ptr = std::make_shared<AsyncBlocker>(m_next_id++);
-                    m_blockers.push_back({block_ptr, m_next_epoch++, priority, false, true});
+                    m_blockers.push_back({block_ptr, m_next_epoch++, priority, true});
                     if (not_enouth && _calc_batch() <= m_blockers.size())
                     {
                         chan_must_write(m_ready_ch);
@@ -267,7 +367,7 @@ namespace cfgo
             } while (true);
             try
             {
-                AsyncTasksAll<void> tasks(closer);
+                AsyncTasksSome<void> tasks(batch, closer);
                 {
                     std::lock_guard lk(m_mutex);
                     std::vector<std::reference_wrapper<BlockerInfo>> selects(m_blockers.begin(), m_blockers.end());
@@ -305,11 +405,16 @@ namespace cfgo
                         {
                             break;
                         }
-                        blocker.m_used = true;
-                        tasks.add_task(fix_async_lambda([blocker = blocker.m_blocker](auto closer) -> asio::awaitable<void> {
-                            if (!co_await blocker->request_block(closer))
+                        tasks.add_task(fix_async_lambda([blocker = blocker.m_blocker, timeout = m_conf.block_timeout](close_chan closer) -> asio::awaitable<void> {
+                            auto child_closer = closer.create_child();
+                            child_closer.set_timeout(timeout);
+                            if (!co_await blocker->request_block(child_closer))
                             {
-                                throw CancelError(closer);   
+                                blocker->unblock();
+                                if (!child_closer.is_timeout())
+                                {
+                                    throw CancelError(child_closer);
+                                }
                             }
                         }));
                     }
@@ -333,11 +438,7 @@ namespace cfgo
                 m_locked = false;
                 for (auto && blocker : m_blockers)
                 {
-                    if (blocker.m_used)
-                    {
-                        blocker.m_used = false;
-                        blocker.m_blocker->unblock();
-                    }
+                    blocker.m_blocker->unblock();
                 }
                 for (auto it = m_blockers.begin(); it != m_blockers.end();)
                 {
@@ -354,13 +455,24 @@ namespace cfgo
                 for (auto && request : m_blocker_requests)
                 {
                     auto block_ptr = std::make_shared<AsyncBlocker>(request.m_id);
-                    m_blockers.push_back({block_ptr, m_next_epoch++, request.m_priority, false, true});
+                    m_blockers.push_back({block_ptr, m_next_epoch++, request.m_priority, true});
                     chan_must_write(request.m_chan, block_ptr);
                 }
                 m_blocker_requests.clear();
             }
         }
 
+        void AsyncBlockerManager::collect_locked_blocker(std::vector<cfgo::AsyncBlocker> & blockers)
+        {
+            blockers.clear();
+            for (auto && blocker : m_blockers)
+            {
+                if (blocker.m_blocker->is_blocked())
+                {
+                    blockers.push_back(cfgo::AsyncBlocker{blocker.m_blocker});
+                }
+            }
+        }
 
     } // namespace detail
 
@@ -369,6 +481,16 @@ namespace cfgo
     auto AsyncBlocker::request_block(close_chan closer) -> asio::awaitable<bool>
     {
         return impl()->request_block(std::move(closer));
+    }
+
+    bool AsyncBlocker::need_block() const noexcept
+    {
+        return impl()->need_block();
+    }
+
+    bool AsyncBlocker::is_blocked() const noexcept
+    {
+        return impl()->is_blocked();
     }
 
     auto AsyncBlocker::await_unblock() -> asio::awaitable<void>
@@ -384,6 +506,76 @@ namespace cfgo
     std::uint32_t AsyncBlocker::id() const noexcept
     {
         return impl()->id();
+    }
+
+    void AsyncBlocker::set_user_data(std::shared_ptr<void> user_data)
+    {
+        impl()->set_user_data(user_data);
+    }
+
+    void AsyncBlocker::set_user_data(std::int64_t user_data)
+    {
+        impl()->set_user_data(user_data);
+    }
+    
+    void AsyncBlocker::set_user_data(double user_data)
+    {
+        impl()->set_user_data(user_data);
+    }
+    
+    void AsyncBlocker::set_user_data(const std::string & user_data)
+    {
+        impl()->set_user_data(user_data);
+    }
+    
+    std::shared_ptr<void> AsyncBlocker::get_pointer_user_data() const
+    {
+        return impl()->get_pointer_user_data();
+    }
+    
+    std::int64_t AsyncBlocker::get_integer_user_data() const
+    {
+        return impl()->get_integer_user_data();
+    }
+
+    double AsyncBlocker::get_float_user_data() const
+    {
+        return impl()->get_float_user_data();
+    }
+
+    const std::string & AsyncBlocker::get_string_user_data() const
+    {
+        return impl()->get_string_user_data();
+    }
+
+    void AsyncBlocker::remove_user_data()
+    {
+        impl()->remove_user_data();
+    }
+
+    bool AsyncBlocker::has_user_data() const noexcept
+    {
+        return impl()->has_user_data();
+    }
+
+    bool AsyncBlocker::has_ptr_data() const noexcept
+    {
+        return impl()->has_ptr_data();
+    }
+
+    bool AsyncBlocker::has_int_data() const noexcept
+    {
+        return impl()->has_int_data();
+    }
+
+    bool AsyncBlocker::has_float_data() const noexcept
+    {
+        return impl()->has_float_data();
+    }
+
+    bool AsyncBlocker::has_string_data() const noexcept
+    {
+        return impl()->has_string_data();
     }
 
     void AsyncBlockerManager::Configure::validate() const
@@ -409,11 +601,16 @@ namespace cfgo
     {
         impl()->unlock();
     }
+
+    void AsyncBlockerManager::collect_locked_blocker(std::vector<cfgo::AsyncBlocker> & blockers)
+    {
+        impl()->collect_locked_blocker(blockers);
+    }
     
-    auto AsyncBlockerManager::add_blocker(int priority, close_chan closer) -> asio::awaitable<AsyncBlocker::Ptr>
+    auto AsyncBlockerManager::add_blocker(int priority, close_chan closer) -> asio::awaitable<AsyncBlocker>
     {
         auto block_ptr = co_await impl()->add_blocker(priority, closer);
-        co_return std::make_shared<AsyncBlocker>(block_ptr);
+        co_return AsyncBlocker{block_ptr};
     }
 
     void AsyncBlockerManager::remove_blocker(std::uint32_t id)

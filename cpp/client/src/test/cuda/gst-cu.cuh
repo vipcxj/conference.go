@@ -8,7 +8,8 @@ namespace cfgo
 {
     namespace gst
     {
-        void copy_ai_input(unsigned char * d_src, int stride, half * d_target, int frame, CUstream stream);
+        void copy_frame(unsigned char * d_src, int stride, unsigned char * d_target, int frame, int index, CUstream stream);
+        void copy_ai_input(unsigned char * d_src, int src_index, half * d_target, int tgt_index, CUstream stream);
     } // namespace gst
     
 } // namespace cfgo

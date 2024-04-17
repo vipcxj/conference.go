@@ -3,6 +3,7 @@
 
 #include "cfgo/alias.hpp"
 #include "cfgo/async.hpp"
+#include "cfgo/async_locker.hpp"
 #include "cfgo/capi.h"
 #include "cfgo/cbridge.hpp"
 #include "cfgo/client.hpp"
