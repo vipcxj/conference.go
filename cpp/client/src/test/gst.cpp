@@ -224,6 +224,7 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
 
         auto raw_appsink = pipeline.require_node("appsink");
         cfgo::gst::AppSink appsink(GST_APP_SINK(raw_appsink.get()), 32);
+        appsink.init();
         unsigned char * d_ready_areas = nullptr;
         half * d_ai_input = nullptr;
         AsyncBlockerManager blocker_manager({});
@@ -232,7 +233,15 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
         gst_cuda_ensure_element_context(raw_appsink.get(), -1, &gst_cuda_ctx);
         gst_cuda_context_push(gst_cuda_ctx);
         cudaMalloc(&d_ready_areas, 1 * 16 * 3 * 224 * 224);
-        cudaMalloc(&d_ai_input, 1 * 16 * 3 * 224 * 224 * 2);
+        cudaCheckErrors("malloc ready areas memory");
+        DEFER({
+            cudaFree(d_ready_areas);
+        });
+        cudaMalloc(&d_ai_input, 1 * 16 * 3 * 224 * 224 * sizeof(half));
+        cudaCheckErrors("malloc ai input memory");
+        DEFER({
+            cudaFree(d_ai_input);
+        });
         gst_cuda_context_pop(NULL);
         gst_context_ref(GST_CONTEXT(gst_cuda_ctx));
         tasks.add_task(fix_async_lambda([gst_cuda_ctx, blocker_manager, d_ready_areas, d_ai_input](close_chan closer) mutable -> asio::awaitable<void> {
@@ -245,7 +254,12 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
                 int device_id;
                 gst_cuda_context_push(gst_cuda_ctx);
                 cudaStreamCreate(&cuda_stream);
+                cudaCheckErrors("create stream");
+                DEFER({
+                    cudaStreamDestroy(cuda_stream);
+                });
                 cudaGetDevice(&device_id);
+                cudaCheckErrors("get device");
                 gst_cuda_context_pop(NULL);
                 std::vector<AsyncBlocker> locked_blockers;
                 manually_ptr<unique_void_chan> * sync_ch_ptr = make_manually_ptr<unique_void_chan>();
@@ -254,7 +268,7 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
                 Ort::SessionOptions session_options {};
                 OrtTensorRTProviderOptions trt_options {};
                 trt_options.device_id = device_id;
-                trt_options.trt_fp16_enable = true;
+                trt_options.trt_fp16_enable = 1;
                 trt_options.trt_max_workspace_size = (size_t) 10 * 1024 * 1024 * 1024;
                 session_options.AppendExecutionProvider_TensorRT(trt_options);
                 OrtCUDAProviderOptions cuda_options {};
@@ -311,11 +325,18 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
                         if (!locked_blockers.empty())
                         {
                             gst_cuda_context_push(gst_cuda_ctx);
+                            cudaEvent_t start, end;
+                            cudaEventCreate(&start);
+                            cudaCheckErrors("create start event");
+                            cudaEventCreate(&end);
+                            cudaCheckErrors("create stop event");
+                            cudaEventRecord(start, cuda_stream);
                             for (auto && blocker : locked_blockers)
                             {
                                 int index = (int) blocker.get_integer_user_data();
                                 gst::copy_ai_input(d_ready_areas, index, d_ai_input, 0, cuda_stream);
                             }
+                            cudaEventRecord(end, cuda_stream);
                             sync_ch_ptr->ref();
                             cudaStreamAddCallback(cuda_stream, [](cudaStream_t stream, cudaError_t status, void * userData) {
                                 manually_ptr<unique_void_chan> * sync_ch_ptr = (manually_ptr<unique_void_chan> * ) userData;
@@ -325,6 +346,11 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
                             gst_cuda_context_pop(NULL);
 
                             co_await sync_ch_ptr->data().read();
+                            float used = 0.0;
+                            cudaEventElapsedTime(&used, start, end);
+                            cudaEventDestroy(start);
+                            cudaEventDestroy(end);
+                            spdlog::debug("copy ai input use {} ms", used);
                             ready = true;
                         }
                     }
@@ -340,7 +366,12 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
                             ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16
                         );
                         const Ort::Value input_values[] = {std::move(input)};
+                        assert(std::size(input_values) == 1);
+                        assert(std::size(output_names) == 1);
+                        auto start = std::chrono::high_resolution_clock::now();
                         auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, input_values, std::size(input_values), output_names, std::size(output_names));
+                        auto end = std::chrono::high_resolution_clock::now();
+                        spdlog::debug("infer use {} ms", std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() * 1.0f / 1000);
                         assert(outputs.size() == 1 && outputs.front().IsTensor());
                         auto & output = outputs.front();
                         const Ort::Float16_t * floatarr = output.GetTensorData<Ort::Float16_t>();
@@ -365,97 +396,135 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
                     }
                 } while (true);
             }
+            catch(const CancelError& e)
+            {
+                spdlog::debug("closed 0");
+                std::rethrow_exception(std::current_exception());
+            }
             catch(...)
             {
-                spdlog::debug(what());
+                spdlog::debug("error 0");
+                std::rethrow_exception(std::current_exception()); 
             }
         }));
         tasks.add_task(fix_async_lambda([appsink, blocker_manager, d_ready_areas](close_chan closer) mutable -> asio::awaitable<void> {
-            int frame = 0;
-            AsyncBlocker blocker = co_await blocker_manager.add_blocker(0);
-            blocker.set_user_data((std::int64_t) 0);
-            manually_ptr<unique_void_chan> * sync_ch_ptr = make_manually_ptr<unique_void_chan>();
-            DEFER({
-                manually_ptr_unref(&sync_ch_ptr);
-            });
-            do
+            try
             {
-                spdlog::debug("pulling sample.");
-                cfgo::gst::GstSampleSPtr sample = co_await appsink.pull_sample();
-                spdlog::debug("sample pulled.");
-                if (!sample)
-                {
-                    spdlog::debug("no sample, so eos.");
-                    break;
-                }
-                auto buffer = gst_sample_get_buffer(sample.get());
-                auto memory = gst_buffer_get_memory(buffer, 0);
-                if (!memory)
-                {
-                    spdlog::debug("unable to get memory.");
-                    continue;
-                }
+                int frame = 0;
+                AsyncBlocker blocker = co_await blocker_manager.add_blocker(0);
+                blocker.set_user_data((std::int64_t) 0);
+                manually_ptr<unique_void_chan> * sync_ch_ptr = make_manually_ptr<unique_void_chan>();
                 DEFER({
-                    gst_memory_unref(memory);
-                });
-                if (!gst_is_cuda_memory(memory))
-                {
-                    spdlog::debug("memory is not cuda memory.");
-                    continue;
-                }
-                auto cuda_mem = (GstCudaMemory *) memory;
-                bool need_release_stream = false;
-                auto stream = gst_cuda_memory_get_stream(cuda_mem);
-                if (!stream)
-                {
-                    need_release_stream = true;
-                    stream = gst_cuda_stream_new(cuda_mem->context);
-                }
-                DEFER({
-                    if (need_release_stream)
-                    {
-                        gst_cuda_stream_unref(stream);
-                    }
-                });
-
-                auto caps = gst_sample_get_caps(sample.get());
-                GstVideoFrame cuda_frame;
-                GstVideoInfo info;
-                gst_video_info_from_caps(&info, caps);
-                gst_video_frame_map(&cuda_frame, &info, buffer, (GstMapFlags) (GST_MAP_READ | GST_MAP_CUDA));
-
-                gst_cuda_context_push(cuda_mem->context);
-                CUstream cuda_stream = gst_cuda_stream_get_handle(stream);
-                spdlog::debug("writing frame {}", frame);
-                gst::copy_frame((unsigned char *) GST_VIDEO_FRAME_PLANE_DATA(&cuda_frame, 0), 1024, d_ready_areas, frame % 16, 0, cuda_stream);
-                sync_ch_ptr->ref();
-                cudaStreamAddCallback(cuda_stream, [](cudaStream_t stream, cudaError_t status, void * userData) {
-                    manually_ptr<unique_void_chan> * sync_ch_ptr = (manually_ptr<unique_void_chan> * ) userData;
-                    try
-                    {
-                        chan_must_write(sync_ch_ptr->data());
-                    }
-                    catch(const std::exception& e)
-                    {
-                        spdlog::error(what());
-                    }
                     manually_ptr_unref(&sync_ch_ptr);
-                }, sync_ch_ptr, 0);
-                gst_cuda_context_pop(NULL);
-
-                spdlog::debug("waiting stream completed.");
-                co_await sync_ch_ptr->data().read();
-                spdlog::debug("stream completed.");
-                if (blocker.need_block() && frame >= 16)
+                });
+                do
                 {
-                    spdlog::debug("blocking");
-                    co_await blocker.await_unblock();
-                    spdlog::debug("unblocked.");
-                }
-                ++frame;
-            } while (true);
+                    cfgo::gst::GstSampleSPtr sample = co_await appsink.pull_sample();
+                    if (!sample)
+                    {
+                        spdlog::debug("no sample, so eos.");
+                        break;
+                    }
+                    auto buffer = gst_sample_get_buffer(sample.get());
+                    auto memory = gst_buffer_get_memory(buffer, 0);
+                    if (!memory)
+                    {
+                        spdlog::debug("unable to get memory.");
+                        continue;
+                    }
+                    DEFER({
+                        gst_memory_unref(memory);
+                    });
+                    if (!gst_is_cuda_memory(memory))
+                    {
+                        spdlog::debug("memory is not cuda memory.");
+                        continue;
+                    }
+                    auto cuda_mem = (GstCudaMemory *) memory;
+                    bool need_release_stream = false;
+                    auto stream = gst_cuda_memory_get_stream(cuda_mem);
+                    if (!stream)
+                    {
+                        need_release_stream = true;
+                        stream = gst_cuda_stream_new(cuda_mem->context);
+                    }
+                    DEFER({
+                        if (need_release_stream)
+                        {
+                            gst_cuda_stream_unref(stream);
+                        }
+                    });
+
+                    auto caps = gst_sample_get_caps(sample.get());
+                    GstVideoFrame cuda_frame;
+                    GstVideoInfo info;
+                    gst_video_info_from_caps(&info, caps);
+                    gst_video_frame_map(&cuda_frame, &info, buffer, (GstMapFlags) (GST_MAP_READ | GST_MAP_CUDA));
+
+                    gst_cuda_context_push(cuda_mem->context);
+                    CUstream cuda_stream = gst_cuda_stream_get_handle(stream);
+                    cudaEvent_t start, end;
+                    cudaEventCreate(&start);
+                    cudaCheckErrors("create start event");
+                    cudaEventCreate(&end);
+                    cudaCheckErrors("create stop event");
+                    cudaEventRecord(start, cuda_stream);
+                    gst::copy_frame((unsigned char *) GST_VIDEO_FRAME_PLANE_DATA(&cuda_frame, 0), 1024, d_ready_areas, frame % 16, 0, cuda_stream);
+                    cudaEventRecord(end, cuda_stream);
+                    sync_ch_ptr->ref();
+                    cudaStreamAddCallback(cuda_stream, [](cudaStream_t stream, cudaError_t status, void * userData) {
+                        manually_ptr<unique_void_chan> * sync_ch_ptr = (manually_ptr<unique_void_chan> * ) userData;
+                        try
+                        {
+                            chan_must_write(sync_ch_ptr->data());
+                        }
+                        catch(...)
+                        {
+                            spdlog::error(what());
+                        }
+                        manually_ptr_unref(&sync_ch_ptr);
+                    }, sync_ch_ptr, 0);
+                    gst_cuda_context_pop(NULL);
+
+                    co_await sync_ch_ptr->data().read();
+                    float used = 0.0;
+                    cudaEventElapsedTime(&used, start, end);
+                    cudaEventDestroy(start);
+                    cudaEventDestroy(end);
+                    spdlog::debug("copy frame use {} ms", used);
+
+                    if (blocker.need_block() && frame >= 16)
+                    {
+                        co_await blocker.await_unblock();
+                    }
+                    ++frame;
+                } while (true);
+            }
+            catch(const CancelError& e)
+            {
+                spdlog::debug("closed 1");
+                std::rethrow_exception(std::current_exception());
+            }
+            catch(...)
+            {
+                spdlog::debug("error 1");
+                std::rethrow_exception(std::current_exception()); 
+            }
         }));
-        co_await tasks.await();
+        try
+        {
+            co_await tasks.await();
+        }
+        catch(const CancelError& e)
+        {
+            spdlog::debug("closed 2");
+            std::rethrow_exception(std::current_exception());
+        }
+        catch(...)
+        {
+            spdlog::debug("error 2");
+            std::rethrow_exception(std::current_exception()); 
+        }
  
         // std::thread t([pipeline]() {
         //     try
@@ -628,7 +697,20 @@ auto main_task(cfgo::Client::CtxPtr exec_ctx, const std::string & token, cfgo::c
     tasks.add_task(fix_async_lambda([pipeline](auto closer) mutable -> asio::awaitable<void> {
         co_await pipeline.await();
     }));
-    co_await tasks.await();
+    try
+    {
+        co_await tasks.await();
+    }
+    catch(const CancelError& e)
+    {
+        spdlog::debug("closed 3");
+        std::rethrow_exception(std::current_exception());
+    }
+    catch(...)
+    {
+        spdlog::debug("error 3");
+        std::rethrow_exception(std::current_exception()); 
+    }
 
     // pipeline.add_node("mp4mux", "mp4mux");
     // pipeline.add_node("filesink", "filesink");
@@ -746,6 +828,10 @@ int main(int argc, char **argv) {
         try
         {
             co_await main_task(pool, token, closer);
+        }
+        catch(const cfgo::CancelError & e)
+        {
+            spdlog::debug("closed");
         }
         catch(...)
         {

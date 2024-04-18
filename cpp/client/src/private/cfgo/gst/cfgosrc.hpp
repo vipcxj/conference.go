@@ -8,6 +8,7 @@
 #include "cfgo/gst/gstcfgosrc.h"
 #include "cfgo/gst/utils.hpp"
 #include "gst/gst.h"
+#include "gst/app/gstappsrc.h"
 #include <vector>
 #include <thread>
 
@@ -82,10 +83,6 @@ namespace cfgo
             GstCfgoSrc * m_owner = nullptr;
             bool m_detached = false;
             GstElement * m_rtp_bin = nullptr;
-            gulong m_rtpsrc_need_data = 0;
-            gulong m_rtpsrc_enough_data = 0;
-            gulong m_rtcpsrc_need_data = 0;
-            gulong m_rtcpsrc_enough_data = 0;
             gulong m_request_pt_map = 0;
             gulong m_pad_added_handler = 0;
             gulong m_pad_removed_handler = 0;
@@ -174,14 +171,14 @@ namespace cfgo
             void switch_mode(GstCfgoSrcMode mode);
             void set_decode_caps(const GstCaps * caps);
 
-            friend void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self);
-            friend void rtpsrc_enough_data(GstElement * appsrc, CfgoSrc *self);
-            friend void rtcpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self);
-            friend void rtcpsrc_enough_data(GstElement * appsrc, CfgoSrc *self);
-            friend GstCaps * request_pt_map(GstElement *src, guint session_id, guint pt, CfgoSrc *self);
-            friend void pad_added_handler(GstElement *src, GstPad *new_pad, CfgoSrc *self);
-            friend void pad_removed_handler(GstElement * src, GstPad * pad, CfgoSrc *self);
-            friend GstPadProbeReturn block_buffer_probe(GstPad * pad, GstPadProbeInfo * info, CfgoSrc * input);
+            friend void rtpsrc_need_data(GstAppSrc * appsrc, guint length, gpointer user_data);
+            friend void rtpsrc_enough_data(GstAppSrc * appsrc, gpointer user_data);
+            friend void rtcpsrc_need_data(GstAppSrc * appsrc, guint length, gpointer user_data);
+            friend void rtcpsrc_enough_data(GstAppSrc * appsrc, gpointer user_data);
+            friend GstCaps * request_pt_map(GstElement *src, guint session_id, guint pt, gpointer user_data);
+            friend void pad_added_handler(GstElement *src, GstPad *new_pad, gpointer user_data);
+            friend void pad_removed_handler(GstElement * src, GstPad * pad, gpointer user_data);
+            // friend GstPadProbeReturn block_buffer_probe(GstPad * pad, GstPadProbeInfo * info, CfgoSrc * input);
         };
     } // namespace gst    
 } // namespace cfgo

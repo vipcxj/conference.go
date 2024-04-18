@@ -19,7 +19,7 @@ namespace cfgo
             bool need_block() const noexcept;
             bool is_blocked() const noexcept;
             auto await_unblock() -> asio::awaitable<void>;
-            void unblock();
+            bool unblock();
             std::uint32_t id() const noexcept;
             void set_user_data(std::shared_ptr<void> user_data);
             void set_user_data(std::int64_t user_data);
@@ -78,12 +78,17 @@ namespace cfgo
         }
         
         // can not concurrent with request_block
-        void AsyncBlocker::unblock()
+        bool AsyncBlocker::unblock()
         {
             if (m_block)
             {
                 m_block = false;
                 std::ignore = m_request_chan.try_write();
+                return true;
+            }
+            else
+            {
+                return false;
             }
         }
 
@@ -423,6 +428,7 @@ namespace cfgo
             }
             catch(...)
             {
+                spdlog::debug("unlock because except.");
                 unlock();
                 std::rethrow_exception(std::current_exception());
             }
@@ -438,7 +444,10 @@ namespace cfgo
                 m_locked = false;
                 for (auto && blocker : m_blockers)
                 {
-                    blocker.m_blocker->unblock();
+                    if (blocker.m_blocker->unblock())
+                    {
+                        ++blocker.m_epoch;
+                    }
                 }
                 for (auto it = m_blockers.begin(); it != m_blockers.end();)
                 {

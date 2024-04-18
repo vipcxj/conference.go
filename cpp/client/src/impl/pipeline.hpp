@@ -23,6 +23,7 @@ namespace cfgo
             public:
                 using CtxPtr = std::shared_ptr<asio::execution_context>;
                 using NODE_MAP = std::unordered_map<std::string, GstElement *>;
+                using NODE_HANDLER_MAP = std::unordered_map<std::string, gulong>;
                 using LinkPtr = std::shared_ptr<Link>;
                 using LinkList = std::list<LinkPtr>;
                 using LinkMap = std::unordered_map<std::string, std::unordered_map<std::string, LinkPtr>>;
@@ -41,6 +42,7 @@ namespace cfgo
                 GstPipeline * m_pipeline;
                 GstBus * m_bus;
                 NODE_MAP m_nodes;
+                NODE_HANDLER_MAP m_node_handlers;
                 LinkMap m_links_by_src;
                 LinkList m_pending_links;
                 std::mutex m_mutex;
@@ -59,6 +61,7 @@ namespace cfgo
                 bool _remove_link(const LinkPtr & link, bool clean_pending);
                 [[nodiscard]] GstElement * _node(const std::string & name) const;
                 [[nodiscard]] GstElement * _require_node(const std::string & name) const;
+                void _release_node(GstElement * node, bool remove);
             public:
                 Pipeline(const std::string & name, CtxPtr exec_ctx = nullptr);
                 ~Pipeline();
@@ -83,8 +86,8 @@ namespace cfgo
                 }
 
                 friend class AsyncLink;
-                friend void pad_added_handler(GstElement *src, GstPad *new_pad, Pipeline *pipeline);
-                friend gboolean on_bus_message(GstBus *bus, GstMessage *message, Pipeline *pipeline);
+                friend void pad_added_handler(GstElement *src, GstPad *new_pad, gpointer user_data);
+                friend gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer user_data);
             };
         } // namespace impl
     } // namespace gst

@@ -551,6 +551,15 @@ TEST(Chan, AsyncTasksAnyVoid) {
     }, true);
 }
 
+TEST(Helper, SharedPtrHolder) {
+    auto ptr = std::make_shared<int>();
+    EXPECT_EQ(ptr.use_count(), 1);
+    auto holder = cfgo::make_shared_holder(ptr);
+    EXPECT_EQ(ptr.use_count(), 2);
+    cfgo::destroy_shared_holder(holder);
+    EXPECT_EQ(ptr.use_count(), 1);
+}
+
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

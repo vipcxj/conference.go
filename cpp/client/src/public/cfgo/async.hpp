@@ -62,7 +62,7 @@ namespace cfgo
         [[nodiscard]] auto await() -> asio::awaitable<bool>;
         void set_timeout(const duration_t& dur, std::string && reason = "");
         duration_t get_timeout() const noexcept;
-        [[nodiscard]] CloseSignal create_child();
+        [[nodiscard]] CloseSignal create_child() const;
         void stop(bool stop_timer = true);
         void resume();
         [[nodiscard]] friend inline auto operator==(
@@ -1011,7 +1011,7 @@ namespace cfgo
         {
             if (is_valid_close_chan(close_ch))
             {
-                m_close_ch = close_ch;
+                m_close_ch = close_ch.create_child();
             }
             else
             {
@@ -1043,14 +1043,11 @@ namespace cfgo
             {
                 auto executor = co_await asio::this_coro::executor;
                 int i = 0;
-                std::vector<close_chan> closers {};
                 for (auto && task : m_tasks)
                 {
-                    close_chan closer = m_close_ch.create_child();
-                    closers.push_back(closer);
                     asio::co_spawn(
                         executor,
-                        fix_async_lambda([i, close_ch = closer, data_ch = m_data_ch, task]() mutable -> asio::awaitable<T>
+                        fix_async_lambda([i, close_ch = m_close_ch, data_ch = m_data_ch, task]() mutable -> asio::awaitable<T>
                         {
                             std::exception_ptr except = nullptr;
                             try
@@ -1104,10 +1101,7 @@ namespace cfgo
                     m_internal_err = std::current_exception();
                     m_done_signal.close_no_except();
                 }
-                for (auto && closer : closers)
-                {
-                    closer.close();
-                }
+                m_close_ch.close_no_except();
             }
             co_await m_done_signal.await();
             if (m_internal_err)
@@ -1525,6 +1519,106 @@ namespace cfgo
             delete *ptr;
             *ptr = nullptr;
         }
+    }
+
+    template<typename T>
+    struct shared_ptr_holder
+    {
+        std::shared_ptr<T> m_ptr;
+
+        shared_ptr_holder(const std::shared_ptr<T> & ptr): m_ptr(ptr) {}
+        shared_ptr_holder(std::shared_ptr<T> && ptr): m_ptr(std::move(ptr)) {}
+        shared_ptr_holder(const shared_ptr_holder &) = delete;
+        shared_ptr_holder & operator = (const shared_ptr_holder &) = delete;
+
+        std::shared_ptr<T> & operator -> ()
+        {
+            return m_ptr;
+        }
+
+        const std::shared_ptr<T> & operator -> () const
+        {
+            return m_ptr;
+        }
+    };
+
+    template<typename T>
+    shared_ptr_holder<T> * make_shared_holder(const std::shared_ptr<T> & ptr)
+    {
+        return new shared_ptr_holder<T>(ptr);
+    }
+
+    template<typename T>
+    shared_ptr_holder<T> * make_shared_holder(std::shared_ptr<T> && ptr)
+    {
+        return new shared_ptr_holder<T>(std::move(ptr));
+    }
+
+    template<typename T>
+    inline shared_ptr_holder<T> & cast_shared_holder_ref(void * ptr)
+    {
+        auto holder_ptr = static_cast<shared_ptr_holder<T> *>(ptr);
+        return *holder_ptr;
+    } 
+
+    template<typename T>
+    void destroy_shared_holder(shared_ptr_holder<T> * holder_ptr)
+    {
+        if (holder_ptr)
+            delete holder_ptr;
+    }
+
+    template<typename T>
+    inline void destroy_shared_holder(void * holder_ptr)
+    {
+        destroy_shared_holder<T>(static_cast<shared_ptr_holder<T> *>(holder_ptr));
+    }
+
+    template<typename T>
+    struct weak_ptr_holder
+    {
+        std::weak_ptr<T> m_ptr;
+
+        weak_ptr_holder(std::weak_ptr<T> && ptr): m_ptr(std::move(ptr)) {}
+        weak_ptr_holder(const weak_ptr_holder &) = delete;
+        weak_ptr_holder & operator = (const weak_ptr_holder &) = delete;
+
+        std::shared_ptr<T> lock() const noexcept
+        {
+            return m_ptr.lock();
+        }
+    };
+
+    template<typename T>
+    weak_ptr_holder<T> * make_weak_holder(std::weak_ptr<T> && ptr)
+    {
+        return new weak_ptr_holder<T>(std::move(ptr));
+    }
+
+    template<typename T>
+    inline weak_ptr_holder<T> * cast_weak_holder(void * ptr)
+    {
+        return static_cast<weak_ptr_holder<T> *>(ptr);
+    } 
+
+    template<typename T>
+    inline weak_ptr_holder<T> & cast_weak_holder_ref(void * ptr)
+    {
+        auto holder_ptr = cast_weak_holder<T>(ptr);
+        return *holder_ptr;
+    } 
+
+    template<typename T>
+    void destroy_weak_holder(weak_ptr_holder<T> * holder_ptr)
+    {
+        if (holder_ptr)
+            delete holder_ptr;
+    }
+
+    template<typename T>
+    inline void destroy_weak_holder(void * holder_ptr)
+    {
+        destroy_weak_holder<T>(static_cast<weak_ptr_holder<T> *>(holder_ptr));
     }
 
 } // namespace cfgo

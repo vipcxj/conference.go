@@ -506,7 +506,7 @@ namespace cfgo
         m_state->resume();
     }
 
-    CloseSignal CloseSignal::create_child()
+    CloseSignal CloseSignal::create_child() const
     {
         return m_state->create_child();
     }

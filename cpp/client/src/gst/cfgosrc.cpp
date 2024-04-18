@@ -26,16 +26,22 @@ namespace cfgo
             return TRUE;
         }
 
-        void pad_added_handler(GstElement *src, GstPad *new_pad, CfgoSrc *self)
+        void pad_added_handler(GstElement *src, GstPad *new_pad, gpointer user_data)
         {
             spdlog::debug("[{}] add pad {}", GST_ELEMENT_NAME(src), GST_PAD_NAME(new_pad));
-            self->_install_pad(new_pad);
+            if (auto self = cast_weak_holder<CfgoSrc>(user_data)->lock())
+            {
+                self->_install_pad(new_pad);
+            }
         }
 
-        void pad_removed_handler(GstElement * src, GstPad * pad, CfgoSrc *self)
+        void pad_removed_handler(GstElement * src, GstPad * pad, gpointer user_data)
         {
             spdlog::debug("[{}] pad {} removed.", GST_ELEMENT_NAME(src), GST_PAD_NAME(pad));
-            self->_uninstall_pad(pad);
+            if (auto self = cast_weak_holder<CfgoSrc>(user_data)->lock())
+            {
+                self->_uninstall_pad(pad);
+            }
         }
 
         CfgoSrc::Channel::~Channel()
@@ -85,16 +91,16 @@ namespace cfgo
             return std::find(m_pads.begin(), m_pads.end(), pad) != m_pads.end();
         }
 
-        GstPadProbeReturn
-        block_buffer_probe (GstPad * pad, GstPadProbeInfo * info, CfgoSrc * input)
-        {
-            auto blocker = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(pad), "GstCfgoSrc.blocker"));
-            gst_pad_remove_probe (pad, blocker);
-            input->_safe_use_owner<void>([input, pad](auto owner) {
-                input->_install_pad(pad);
-            });
-            return GST_PAD_PROBE_OK;
-        }
+        // GstPadProbeReturn
+        // block_buffer_probe (GstPad * pad, GstPadProbeInfo * info, CfgoSrc * input)
+        // {
+        //     auto blocker = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(pad), "GstCfgoSrc.blocker"));
+        //     gst_pad_remove_probe (pad, blocker);
+        //     input->_safe_use_owner<void>([input, pad](auto owner) {
+        //         input->_install_pad(pad);
+        //     });
+        //     return GST_PAD_PROBE_OK;
+        // }
 
         void CfgoSrc::Channel::install_ghost(CfgoSrc * parent, GstCfgoSrc * owner, GstPad * pad, const std::string & ghost_name)
         {
@@ -347,22 +353,8 @@ namespace cfgo
                 session->release_rtcp_pad(m_rtp_bin);
             }
             m_sessions.clear();
-            if (m_rtpsrc_enough_data)
-            {
-                rtp_src_remove_callback(m_owner, m_rtpsrc_enough_data);
-            }
-            if (m_rtpsrc_need_data)
-            {
-                rtp_src_remove_callback(m_owner, m_rtpsrc_need_data);
-            }
-            if (m_rtcpsrc_enough_data)
-            {
-                rtcp_src_remove_callback(m_owner, m_rtcpsrc_enough_data);
-            }
-            if (m_rtcpsrc_need_data)
-            {
-                rtcp_src_remove_callback(m_owner, m_rtcpsrc_need_data);
-            }
+            rtp_src_remove_callbacks(m_owner);
+            rtcp_src_remove_callbacks(m_owner);
             if (m_rtp_bin)
             {
                 if (m_request_pt_map)
@@ -424,8 +416,12 @@ namespace cfgo
                     NULL
                 );
             }
-            channel.m_pad_added_handle = g_signal_connect(processor, "pad-added", G_CALLBACK(pad_added_handler), this);
-            channel.m_pad_removed_handle = g_signal_connect(processor, "pad-removed", G_CALLBACK(pad_removed_handler), this);
+            channel.m_pad_added_handle = g_signal_connect_data(processor, "pad-added", G_CALLBACK(pad_added_handler), make_weak_holder(weak_from_this()), [](gpointer data, GClosure * closure) {
+                destroy_weak_holder<CfgoSrc>(data);
+            }, G_CONNECT_DEFAULT);
+            channel.m_pad_removed_handle = g_signal_connect_data(processor, "pad-removed", G_CALLBACK(pad_removed_handler), make_weak_holder(weak_from_this()), [](gpointer data, GClosure * closure) {
+                destroy_weak_holder<CfgoSrc>(data);
+            }, G_CONNECT_DEFAULT);
             auto sink_pad = gst_element_get_static_pad(processor, "sink");
             DEFER({
                 g_object_unref(sink_pad);
@@ -710,9 +706,10 @@ namespace cfgo
             }
         }
 
-        void rtpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)
+        void rtpsrc_need_data(GstAppSrc * appsrc, guint length, gpointer user_data)
         {
             spdlog::trace("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
+            auto & self = cast_shared_holder_ref<CfgoSrc>(user_data);
             std::lock_guard lock(self->m_mutex);
             for (auto && session : self->m_sessions)
             {
@@ -720,42 +717,58 @@ namespace cfgo
             }
         }
 
-        void rtpsrc_enough_data(GstElement * appsrc, CfgoSrc *self)
+        void rtpsrc_enough_data(GstAppSrc * appsrc, gpointer user_data)
         {
             spdlog::trace("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
-            std::lock_guard lock(self->m_mutex);
-            for (auto && session : self->m_sessions)
+            if (auto self = cast_weak_holder<CfgoSrc>(user_data)->lock())
             {
-                std::ignore = session->m_rtp_enough_data_ch.try_write();
+                std::lock_guard lock(self->m_mutex);
+                for (auto && session : self->m_sessions)
+                {
+                    std::ignore = session->m_rtp_enough_data_ch.try_write();
+                }
             }
         }
 
-        void rtcpsrc_need_data(GstElement * appsrc, guint length, CfgoSrc *self)
+        void rtcpsrc_need_data(GstAppSrc * appsrc, guint length, gpointer user_data)
         {
             spdlog::trace("{} need {} bytes data", GST_ELEMENT_NAME(appsrc), length);
-            std::lock_guard lock(self->m_mutex);
-            for (auto && session : self->m_sessions)
+            if (auto self = cast_weak_holder<CfgoSrc>(user_data)->lock())
             {
-                std::ignore = session->m_rtcp_need_data_ch.try_write();
+                std::lock_guard lock(self->m_mutex);
+                for (auto && session : self->m_sessions)
+                {
+                    std::ignore = session->m_rtcp_need_data_ch.try_write();
+                }
             }
         }
 
-        void rtcpsrc_enough_data(GstElement * appsrc, CfgoSrc *self)
+        void rtcpsrc_enough_data(GstAppSrc * appsrc, gpointer user_data)
         {
             spdlog::trace("{} say data is enough.", GST_ELEMENT_NAME(appsrc));
-            std::lock_guard lock(self->m_mutex);
-            for (auto && session : self->m_sessions)
+            if (auto self = cast_weak_holder<CfgoSrc>(user_data)->lock())
             {
-                std::ignore = session->m_rtcp_enough_data_ch.try_write();
+                std::lock_guard lock(self->m_mutex);
+                for (auto && session : self->m_sessions)
+                {
+                    std::ignore = session->m_rtcp_enough_data_ch.try_write();
+                }
             }
         }
 
-        GstCaps * request_pt_map(GstElement *src, guint session_id, guint pt, CfgoSrc *self)
+        GstCaps * request_pt_map(GstElement *src, guint session_id, guint pt, gpointer user_data)
         {
             spdlog::debug("[session {}] reqiest pt {}", session_id, pt);
-            std::lock_guard lock(self->m_mutex);
-            auto & session = self->m_sessions[session_id];
-            return (GstCaps *) session->m_track->get_gst_caps(pt);
+            if (auto self = cast_weak_holder<CfgoSrc>(user_data)->lock())
+            {
+                std::lock_guard lock(self->m_mutex);
+                auto & session = self->m_sessions[session_id];
+                return (GstCaps *) session->m_track->get_gst_caps(pt);
+            }
+            else
+            {
+                return nullptr;
+            }
         }
 
         void CfgoSrc::_create_rtp_bin(GstCfgoSrc * owner)
@@ -766,13 +779,23 @@ namespace cfgo
             {
                 throw cpptrace::runtime_error("Unable to create rtpbin.");
             }
-            m_rtpsrc_enough_data = rtp_src_add_enough_data_callback(owner, G_CALLBACK(rtpsrc_enough_data), this);
-            m_rtpsrc_need_data = rtp_src_add_need_data_callback(owner, G_CALLBACK(rtpsrc_need_data), this);
-            m_rtcpsrc_enough_data = rtcp_src_add_enough_data_callback(owner, G_CALLBACK(rtcpsrc_enough_data), this);
-            m_rtcpsrc_need_data = rtcp_src_add_need_data_callback(owner, G_CALLBACK(rtcpsrc_need_data), this);
-            m_request_pt_map = g_signal_connect(m_rtp_bin, "request-pt-map", G_CALLBACK(request_pt_map), this);
-            m_pad_added_handler = g_signal_connect(m_rtp_bin, "pad-added", G_CALLBACK(pad_added_handler), this);
-            m_pad_removed_handler = g_signal_connect(m_rtp_bin, "pad-removed", G_CALLBACK(pad_removed_handler), this);
+            GstAppSrcCallbacks rtp_cbs {};
+            rtp_cbs.enough_data = rtpsrc_enough_data;
+            rtp_cbs.need_data = rtpsrc_need_data;
+            rtp_src_set_callbacks(owner, rtp_cbs, make_weak_holder(weak_from_this()), destroy_weak_holder<CfgoSrc>);
+            GstAppSrcCallbacks rtcp_cbs {};
+            rtcp_cbs.enough_data = rtcpsrc_enough_data;
+            rtcp_cbs.need_data = rtcpsrc_need_data;
+            rtcp_src_set_callbacks(owner, rtcp_cbs, make_weak_holder(weak_from_this()), destroy_weak_holder<CfgoSrc>);
+            m_request_pt_map = g_signal_connect_data(m_rtp_bin, "request-pt-map", G_CALLBACK(request_pt_map), make_weak_holder(weak_from_this()), [](gpointer data, GClosure * closure) {
+                destroy_weak_holder<CfgoSrc>(data);
+            }, G_CONNECT_DEFAULT);
+            m_pad_added_handler = g_signal_connect_data(m_rtp_bin, "pad-added", G_CALLBACK(pad_added_handler), make_weak_holder(weak_from_this()), [](gpointer data, GClosure * closure) {
+                destroy_weak_holder<CfgoSrc>(data);
+            }, G_CONNECT_DEFAULT);
+            m_pad_removed_handler = g_signal_connect_data(m_rtp_bin, "pad-removed", G_CALLBACK(pad_removed_handler), make_weak_holder(weak_from_this()), [](gpointer data, GClosure * closure) {
+                destroy_weak_holder<CfgoSrc>(data);
+            }, G_CONNECT_DEFAULT);
             gst_bin_add(GST_BIN(owner), m_rtp_bin);
             gst_element_sync_state_with_parent(m_rtp_bin);
         }

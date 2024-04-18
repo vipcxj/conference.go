@@ -167,34 +167,26 @@ namespace cfgo
 {
     namespace gst
     {
-        gulong rtp_src_add_need_data_callback(GstCfgoSrc * parent, GCallback cb, void * user_data)
+        void rtp_src_set_callbacks(GstCfgoSrc * parent, GstAppSrcCallbacks & callbacks, gpointer user_data, GDestroyNotify notify)
         {
-            return g_signal_connect(parent->priv->rtpsrc, "need-data", G_CALLBACK(cb), user_data);
+            gst_app_src_set_callbacks(GST_APP_SRC(parent->priv->rtpsrc), &callbacks, user_data, notify);
         }
 
-        gulong rtp_src_add_enough_data_callback(GstCfgoSrc * parent, GCallback cb, void * user_data)
+        void rtp_src_remove_callbacks(GstCfgoSrc * parent)
         {
-            return g_signal_connect(parent->priv->rtpsrc, "enough-data", G_CALLBACK(cb), user_data);
+            GstAppSrcCallbacks cbs {};
+            gst_app_src_set_callbacks(GST_APP_SRC(parent->priv->rtpsrc), &cbs, nullptr, nullptr);
         }
 
-        gulong rtcp_src_add_need_data_callback(GstCfgoSrc * parent, GCallback cb, void * user_data)
+        void rtcp_src_set_callbacks(GstCfgoSrc * parent, GstAppSrcCallbacks & callbacks, gpointer user_data, GDestroyNotify notify)
         {
-            return g_signal_connect(parent->priv->rtcpsrc, "need-data", G_CALLBACK(cb), user_data);
+            gst_app_src_set_callbacks(GST_APP_SRC(parent->priv->rtcpsrc), &callbacks, user_data, notify);
         }
 
-        gulong rtcp_src_add_enough_data_callback(GstCfgoSrc * parent, GCallback cb, void * user_data)
+        void rtcp_src_remove_callbacks(GstCfgoSrc * parent)
         {
-            return g_signal_connect(parent->priv->rtcpsrc, "enough-data", G_CALLBACK(cb), user_data);
-        }
-
-        void rtp_src_remove_callback(GstCfgoSrc * parent, gulong handle)
-        {
-            g_signal_handler_disconnect(parent->priv->rtpsrc, handle);
-        }
-
-        void rtcp_src_remove_callback(GstCfgoSrc * parent, gulong handle)
-        {
-            g_signal_handler_disconnect(parent->priv->rtcpsrc, handle);
+            GstAppSrcCallbacks cbs {};
+            gst_app_src_set_callbacks(GST_APP_SRC(parent->priv->rtcpsrc), &cbs, nullptr, nullptr);
         }
 
         void link_rtp_src(GstCfgoSrc * parent, GstPad * pad)

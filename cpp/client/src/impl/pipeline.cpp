@@ -108,53 +108,56 @@ namespace cfgo
                 return (i == len1 && j == len2) || f1 > 0 || f2 > 0;
             }
 
-            void pad_added_handler(GstElement *src, GstPad *new_pad, Pipeline *pipeline)
+            void pad_added_handler(GstElement *src, GstPad *new_pad, gpointer user_data)
             {
                 std::string node_name = GST_ELEMENT_NAME(src);
                 std::string pad_name = GST_PAD_NAME(new_pad);
+                if (auto pipeline = cast_weak_holder<Pipeline>(user_data)->lock())
                 {
-                    std::lock_guard lock(pipeline->m_mutex);
-                    pipeline->_add_pad(src, new_pad);
-                }
-                {
-                    std::lock_guard lock(pipeline->m_mutex);
-                    auto waiters_iter = pipeline->m_waiters.find(node_name);
-                    if (waiters_iter != pipeline->m_waiters.end())
                     {
-                        for (auto && waiter_pair : waiters_iter->second)
+                        std::lock_guard lock(pipeline->m_mutex);
+                        pipeline->_add_pad(src, new_pad);
+                    }
+                    {
+                        std::lock_guard lock(pipeline->m_mutex);
+                        auto waiters_iter = pipeline->m_waiters.find(node_name);
+                        if (waiters_iter != pipeline->m_waiters.end())
                         {
-                            if (match_pad_name(pad_name, waiter_pair.first))
+                            for (auto && waiter_pair : waiters_iter->second)
                             {
-                                std::ignore = waiter_pair.second.try_write(new_pad);
+                                if (match_pad_name(pad_name, waiter_pair.first))
+                                {
+                                    std::ignore = waiter_pair.second.try_write(new_pad);
+                                }
                             }
                         }
                     }
-                }
-                {
-                    std::lock_guard lock(pipeline->m_mutex);
-
-                    auto link_iter = pipeline->_find_pending_link(node_name, pad_name, Pipeline::ANY);
-                    if (link_iter != pipeline->m_pending_links.end())
                     {
-                        auto link = *link_iter;
-                        if (src == link->src())
+                        std::lock_guard lock(pipeline->m_mutex);
+
+                        auto link_iter = pipeline->_find_pending_link(node_name, pad_name, Pipeline::ANY);
+                        if (link_iter != pipeline->m_pending_links.end())
                         {
-                            link->set_src_pad(new_pad);
-                        }
-                        else
-                        {
-                            link->set_tgt_pad(new_pad);
-                        }
-                        if (link->is_ready())
-                        {
-                            bool linked = pipeline->_add_link(link, true);
-                            link->notify_linked(linked);
+                            auto link = *link_iter;
+                            if (src == link->src())
+                            {
+                                link->set_src_pad(new_pad);
+                            }
+                            else
+                            {
+                                link->set_tgt_pad(new_pad);
+                            }
+                            if (link->is_ready())
+                            {
+                                bool linked = pipeline->_add_link(link, true);
+                                link->notify_linked(linked);
+                            }
                         }
                     }
                 }
             }
 
-            gboolean on_bus_message(GstBus *bus, GstMessage *message, Pipeline *pipeline) 
+            gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer user_data) 
             {
                 if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_ERROR)
                 {
@@ -162,7 +165,10 @@ namespace cfgo
                 }
                 
                 gst_message_ref(message);
-                pipeline->m_msg_ch.write(message);
+                if (auto pipeline = cast_weak_holder<Pipeline>(user_data)->lock())
+                {
+                    pipeline->m_msg_ch.write(message);
+                }
                 return TRUE;
             }
 
@@ -183,12 +189,16 @@ namespace cfgo
                 {
                     throw cpptrace::runtime_error("Unable to get the bus from the pipeline " + name + ".");
                 }
-                gst_bus_add_watch(m_bus, (GstBusFunc) on_bus_message, this);
+                gst_bus_add_watch_full(m_bus, G_PRIORITY_DEFAULT, on_bus_message, make_weak_holder(weak_from_this()), destroy_weak_holder<Pipeline>);
             }
 
             Pipeline::~Pipeline()
             {
                 stop();
+                for (auto && [node_name, node] : m_nodes)
+                {
+                    _release_node(node, false);
+                }
                 gst_bus_remove_watch(m_bus);
                 while (auto msg = m_msg_ch.try_read())
                 {
@@ -270,16 +280,43 @@ namespace cfgo
                     throw cpptrace::runtime_error("Unable add the " + type + " element with name " + name + " to the pipeline " + this->name() + ".");
                 }
                 gst_element_sync_state_with_parent(element);
+                gulong handler = 0;
                 if (g_signal_lookup("pad-added", G_OBJECT_TYPE (element)))
                 {
-                    g_signal_connect(element, "pad-added", G_CALLBACK(pad_added_handler), this);
+                    handler = g_signal_connect_data(element, "pad-added", G_CALLBACK(pad_added_handler), make_weak_holder(weak_from_this()), [](gpointer data, GClosure * closure) {
+                        destroy_weak_holder<Pipeline>(data);
+                    }, G_CONNECT_DEFAULT);
                 }
                 std::lock_guard lock(m_mutex);
                 if (m_nodes.contains(name))
                 {
                     throw cpptrace::runtime_error("The node " + name + " (" + type + ") has already exist in the pipeline " + this->name() + ".");
-                }   
+                }
                 m_nodes.emplace(std::make_pair(name, element));
+                if (handler)
+                {
+                    m_node_handlers.insert(std::make_pair(name, handler));
+                }
+            }
+
+            void Pipeline::_release_node(GstElement * node, bool remove)
+            {
+                std::lock_guard lock(m_mutex);
+                auto iter = m_node_handlers.find(GST_ELEMENT_NAME(node));
+                if (iter != m_node_handlers.end())
+                {
+                    g_signal_handler_disconnect(node, iter->second);
+                    m_node_handlers.erase(iter);
+                }
+                if (remove)
+                {
+                    auto iter = m_nodes.find(GST_ELEMENT_NAME(node));
+                    if (iter != m_nodes.end())
+                    {
+                        m_nodes.erase(iter);
+                    }
+                    gst_bin_remove(GST_BIN(m_pipeline), node);
+                }
             }
 
             void Pipeline::_add_pad(GstElement *src, GstPad * pad)

@@ -20,6 +20,7 @@ namespace cfgo
         {
         public:
             AppSink(GstAppSink * sink, int cache_capicity);
+            void init();
             /**
              * throw CancelError when closer is closed. return null shared_ptr when eos and no sample available.
             */
