@@ -208,7 +208,6 @@ function(include_asiochan target)
     target_include_directories(${target} PRIVATE ${ASIOCHAN_INCLUDE_DIRS})
 endfunction(include_asiochan target)
 
-
 function(fix_win_version_warn target)
     if(WIN32)
         message("WIN_TARGET_VER=${WIN_TARGET_VER}")
@@ -217,8 +216,6 @@ function(fix_win_version_warn target)
         target_compile_options(${target} PRIVATE "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
     endif()
 endfunction()
-
-
 
 add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
 target_compile_definitions(cfgoclient PRIVATE BUILDING_CFGO)
@@ -318,4 +315,9 @@ if(ENABLE_TEST)
     target_link_libraries(test-gstreamer PRIVATE Poco::Foundation Poco::Net)
     target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient cfgogst)
 
+endif()
+
+install(TARGETS cfgoclient)
+if(GSTREAMER_SUPPORT)
+    install(TARGETS cfgogst)
 endif()
