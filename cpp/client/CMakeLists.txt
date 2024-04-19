@@ -219,7 +219,10 @@ endfunction()
 
 add_library(cfgoclient ${MY_SOURCES} ${MY_PUBLIC_HEADERS} ${MY_PRIVATE_HEADERS})
 target_compile_definitions(cfgoclient PRIVATE BUILDING_CFGO)
-target_include_directories(cfgoclient PUBLIC ${H_PUBLIC})
+target_include_directories(cfgoclient PUBLIC
+    $<BUILD_INTERFACE:${H_PUBLIC}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
 target_include_directories(cfgoclient PRIVATE ${H_PRIVATE} ${SRC_PATH})
 fix_win_version_warn(cfgoclient)
 link_common_libs(cfgoclient)
@@ -240,7 +243,10 @@ subdirs(${SRC_PATH}/test/cuda)
 if(GSTREAMER_SUPPORT)
     add_library(cfgogst ${MY_GST_PLUGIN_SOURCES} ${MY_GST_PLUGIN_PUBLIC_HEADERS} ${MY_GST_PLUGIN_PRIVATE_HEADERS})
     target_compile_definitions(cfgogst PRIVATE BUILDING_CFGO)
-    target_include_directories(cfgogst PUBLIC ${H_PUBLIC})
+    target_include_directories(cfgogst PUBLIC
+        $<BUILD_INTERFACE:${H_PUBLIC}>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
     target_include_directories(cfgogst PRIVATE ${H_PRIVATE} ${SRC_PATH})
     fix_win_version_warn(cfgogst)
     target_link_libraries(cfgogst PRIVATE cfgoclient)
@@ -317,7 +323,33 @@ if(ENABLE_TEST)
 
 endif()
 
-install(TARGETS cfgoclient)
+install(TARGETS cfgoclient EXPORT cfgoclientTargets
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+install(DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/src/public/cfgo" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    REGEX "/gst/.*" EXCLUDE
+)
+# Export targets
+install(
+	EXPORT cfgoclientTargets
+	FILE cfgoclientTargets.cmake
+	NAMESPACE cfgo::
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cfgo
+)
 if(GSTREAMER_SUPPORT)
-    install(TARGETS cfgogst)
+    install(TARGETS cfgogst EXPORT cfgogstTargets
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+    install(DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/src/public/cfgo/gst" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/cfgo")
+    # Export targets
+    install(
+        EXPORT cfgogstTargets
+        FILE cfgogstTargets.cmake
+        NAMESPACE cfgo::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cfgo
+    )
 endif()
