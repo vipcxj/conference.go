@@ -32,7 +32,6 @@
       "features": ["plugins-good", "nvcodec"]
     },
     "socket-io-client",
-    "boost-lexical-cast",
     "gtest",
     "poco",
     {
