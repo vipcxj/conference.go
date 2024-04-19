@@ -240,8 +240,6 @@ if(GSTREAMER_SUPPORT)
     link_gstreamer(cfgoclient)
 endif()
 
-subdirs(${SRC_PATH}/test/cuda)
-
 if(GSTREAMER_SUPPORT)
     add_library(cfgogst ${MY_GST_PLUGIN_SOURCES} ${MY_GST_PLUGIN_PUBLIC_HEADERS} ${MY_GST_PLUGIN_PRIVATE_HEADERS})
     target_compile_definitions(cfgogst PRIVATE BUILDING_CFGO)
@@ -285,6 +283,8 @@ if(ENABLE_TEST)
 
         find_package(onnxruntime CONFIG REQUIRED COMPONENTS onnxruntime_providers_cuda OPTIONAL_COMPONENTS onnxruntime_providers_tensorrt)
 
+        subdirs(${SRC_PATH}/test/cuda)
+
         add_executable(test-gst "${MY_TEST_PATH}/gst.cpp")
         target_compile_definitions(test-gst PRIVATE BUILDING_CFGO)
         target_include_directories(test-gst PRIVATE ${H_PUBLIC} ${H_PRIVATE} ${SRC_PATH} ${MY_TEST_PATH})
@@ -312,17 +312,16 @@ if(ENABLE_TEST)
         else()
             target_link_libraries(test-gst PRIVATE PkgConfig::libunwind)
         endif()
+
+        add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")
+        target_include_directories(test-gstreamer PUBLIC ${H_PUBLIC})
+        target_include_directories(test-gstreamer PRIVATE ${H_PRIVATE})
+        include_asiochan(test-gstreamer)
+        link_gstreamer(test-gstreamer)
+        find_package(Poco REQUIRED COMPONENTS Net Foundation)
+        target_link_libraries(test-gstreamer PRIVATE Poco::Foundation Poco::Net)
+        target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient cfgogst)
     endif()
-
-    add_executable(test-gstreamer "${MY_TEST_PATH}/gstreamer.cpp")
-    target_include_directories(test-gstreamer PUBLIC ${H_PUBLIC})
-    target_include_directories(test-gstreamer PRIVATE ${H_PRIVATE})
-    include_asiochan(test-gstreamer)
-    link_gstreamer(test-gstreamer)
-    find_package(Poco REQUIRED COMPONENTS Net Foundation)
-    target_link_libraries(test-gstreamer PRIVATE Poco::Foundation Poco::Net)
-    target_link_libraries(test-gstreamer PRIVATE asio::asio cfgoclient cfgogst)
-
 endif()
 
 install(TARGETS cfgoclient EXPORT cfgoclientTargets
@@ -336,10 +335,26 @@ install(DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/src/public/cfgo" DESTINATION "${CMA
 # Export targets
 install(
 	EXPORT cfgoclientTargets
-	FILE cfgoclientTargets.cmake
+	FILE cfgoclient-targets.cmake
 	NAMESPACE cfgo::
-	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cfgo
+	DESTINATION share/cfgo
 )
+# Generate the config file in the current binary dir (this ensures it's not placed directly in source)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cfgoclient-config.cmake"
+    "include(CMakeFindDependencyMacro)\n"
+    "find_dependency(Boost CONFIG REQUIRED)\n"
+    "find_dependency(cpptrace CONFIG REQUIRED)\n"
+    "find_dependency(spdlog CONFIG REQUIRED)\n"
+    "find_dependency(fmt CONFIG REQUIRED)\n"
+    "find_dependency(sioclient CONFIG REQUIRED)\n"
+    "find_dependency(LibDataChannel CONFIG REQUIRED)\n"
+    "find_dependency(nlohmann_json CONFIG REQUIRED)\n"
+    "include(\"\${CMAKE_CURRENT_LIST_DIR}/cfgoclient-targets.cmake\")\n"
+)
+# Install the generated config file
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/cfgoclient-config.cmake"
+        DESTINATION share/cfgo)
+
 if(GSTREAMER_SUPPORT)
     install(TARGETS cfgogst EXPORT cfgogstTargets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
