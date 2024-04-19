@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 project(cfgoclient)
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # https://learn.microsoft.com/en-us/cpp/porting/modifying-winver-and-win32-winnt?view=msvc-170
@@ -352,4 +354,14 @@ if(GSTREAMER_SUPPORT)
         NAMESPACE cfgo::
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cfgo
     )
+endif()
+
+if(NOT TARGET uninstall)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/uninstall.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/cmake/uninstall.cmake"
+        IMMEDIATE @ONLY)
+
+    add_custom_target(uninstall
+        COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake/uninstall.cmake)
 endif()

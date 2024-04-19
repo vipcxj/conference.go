@@ -38,5 +38,6 @@ build/
 vcpkg-configuration.json
 CMakePresets.json
 debug.env
+/cpp/client/cmake/uninstall.cmake
 /cpp/client/nuget/packages
 /cpp/client/src/public/cfgo/config/configuration.h
