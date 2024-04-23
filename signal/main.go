@@ -215,7 +215,20 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		if err != nil {
 			panic(err)
 		}
-		err = ctx.Messager().Emit(context.TODO(), &msg)
+		err = ctx.ClusterEmit(context.TODO(), &msg)
+		if err != nil {
+			panic(err)
+		}
+	})
+	s.On("user-ack", func(args ...any) {
+		msg := UserAckMessage{}
+		ark, err := parseArgs(&msg, args...)
+		arkArgs := make([]any, 1)
+		defer FinallyResponse(ctx.Socket, ark, arkArgs, "user", false)
+		if err != nil {
+			panic(err)
+		}
+		err = ctx.ClusterEmit(context.TODO(), &msg)
 		if err != nil {
 			panic(err)
 		}
@@ -224,6 +237,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	ctx.Messager().OnWant(ctx.Id, ctx.StateWant, ctx.RoomPaterns()...)
 	ctx.Messager().OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
 	ctx.Messager().OnUser(ctx.Id, ctx.OnUserMessage, ctx.RoomPaterns()...)
+	ctx.Messager().OnUserAck(ctx.Id, ctx.OnUserAckMessage, ctx.RoomPaterns()...)
 	ctx.Sugar().Debugf("the signal context initialized")
 	return ctx, nil
 }

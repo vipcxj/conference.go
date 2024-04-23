@@ -90,7 +90,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	router := s.ctx.Global.Router()
 	// accept track from addr
 	router.makeSureExternelConn(msg.Addr)
-	peer, err := s.ctx.MakeSurePeer()
+	peer, err := s.ctx.makeSurePeer()
 	if err != nil {
 		panic(err)
 	}
@@ -147,20 +147,11 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 		sdpId := s.ctx.NextSdpMsgId()
 		s.ctx.Sugar().Infof("gen sdp id: %v", sdpId)
 
-		for _, room := range s.ctx.Rooms() {
-			selMsg := &SelectMessage{
-				Router: &proto.Router{
-					Room: room,
-				},
-				PubId:       msg.PubId,
-				Tracks:      matcheds,
-				TransportId: router.id.String(),
-			}
-			err = s.ctx.Messager().Emit(context.TODO(), selMsg)
-			if err != nil {
-				s.ctx.Sugar().Error("select msg emit failed, %v", err)
-			}
-		}
+		s.ctx.clusterEmit(context.TODO(), &SelectMessage{
+			PubId:       msg.PubId,
+			Tracks:      matcheds,
+			TransportId: router.id.String(),
+		})
 		// s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
 		// s.ctx.Socket.Emit("select", selMsg)
 		respMsg := &SubscribedMessage{
@@ -495,21 +486,11 @@ func (me *Publication) Bind() bool {
 		tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *proto.Track, remove bool) {
 			return pt.track, false
 		})
-		for _, room := range me.ctx.Rooms() {
-			msg := &StateMessage{
-				Router: &proto.Router{
-					Room: room,
-				},
-				PubId:  me.id,
-				Tracks: tracks,
-				Addr:   r.Addr(),
-			}
-			// to all in room include self
-			err := me.ctx.Messager().Emit(context.TODO(), msg)
-			if err != nil {
-				me.ctx.Sugar().Error("state msg emit failed, %v", err)
-			}
-		}
+		me.ctx.clusterEmit(context.TODO(), &StateMessage{
+			PubId:  me.id,
+			Tracks: tracks,
+			Addr:   r.Addr(),
+		})
 		// me.ctx.Socket.To(me.ctx.Rooms()...).Emit("state", msg)
 		// me.ctx.Socket.Emit("state", msg)
 		return true
@@ -656,7 +637,7 @@ func (pt *PublishedTrack) isBind() bool {
 
 func (pt *PublishedTrack) Bind() bool {
 	ctx := pt.pub.ctx
-	peer, err := ctx.MakeSurePeer()
+	peer, err := ctx.makeSurePeer()
 	if err != nil {
 		panic(err)
 	}
@@ -681,7 +662,7 @@ func (pt *PublishedTrack) Bind() bool {
 		ctx.Sugar().Debugf("track with mid %s/%s bind successfully", pt.BindId(), t.Mid())
 		pt.remote = rt
 		pt.track.LocalId = rt.ID()
-		ctx.MustEmitWithAckCb(
+		ctx.mustEmitWithAckCb(
 			"published",
 			"send published msg",
 			&PublishedMessage{
@@ -698,7 +679,7 @@ func (me *PublishedTrack) SatifySelect(transportId string) bool {
 		return false
 	}
 	ctx := me.pub.ctx
-	peer, err := ctx.MakeSurePeer()
+	peer, err := ctx.makeSurePeer()
 	if err != nil {
 		panic(err)
 	}
@@ -847,12 +828,32 @@ func (ctx *SignalContext) checkClosed() error {
 	}
 }
 
+func (sctx *SignalContext) clusterEmit(ctx context.Context, message RoomMessage) {
+	for _, room := range sctx.Rooms() {
+		msg_copy := message.CopyPlain()
+		msg_copy.FixRouter(room, sctx.AuthInfo.UID, sctx.Messager().NodeName())
+		err := sctx.Messager().Emit(ctx, msg_copy)
+		if err != nil {
+			sctx.Sugar().Error("select msg emit failed, %v", err)
+		}
+	}
+}
+
+func (sctx *SignalContext) ClusterEmit(ctx context.Context, message RoomMessage) error {
+	if err := sctx.checkClosed(); err != nil {
+		return err
+	}
+	defer sctx.closed_mux.RUnlock()
+	sctx.clusterEmit(ctx, message)
+	return nil
+}
+
 type resWithError struct {
 	res []any
 	err error
 }
 
-func (ctx *SignalContext) emit(retries int, resCh chan *resWithError, cb func(re *resWithError), timeout time.Duration, ev string, args ...any) error {
+func (ctx *SignalContext) _emit(retries int, resCh chan *resWithError, cb func(re *resWithError), timeout time.Duration, ev string, args ...any) error {
 	socket := ctx.Socket
 	if timeout > 0 {
 		socket = socket.Timeout(timeout)
@@ -861,7 +862,7 @@ func (ctx *SignalContext) emit(retries int, resCh chan *resWithError, cb func(re
 	args = append(args, func(res []any, err error) {
 		if err != nil {
 			if retries > 0 {
-				emit_err := ctx.emit(retries-1, resCh, cb, timeout, ev, o_args...)
+				emit_err := ctx._emit(retries-1, resCh, cb, timeout, ev, o_args...)
 				if emit_err != nil {
 					re := &resWithError{
 						err: emit_err,
@@ -899,26 +900,26 @@ func (ctx *SignalContext) emit(retries int, resCh chan *resWithError, cb func(re
 	return socket.Emit(ev, args...)
 }
 
+func (ctx *SignalContext) emit(ev string, args ...any) error {
+	return ctx._emit(0, nil, nil, 0, ev, args...)
+}
+
 func (ctx *SignalContext) Emit(ev string, args ...any) error {
 	if err := ctx.checkClosed(); err != nil {
 		return err
 	}
 	defer ctx.closed_mux.RUnlock()
-	return ctx.emit(0, nil, nil, 0, ev, args...)
+	return ctx.emit(ev, args...)
 }
 
-func (ctx *SignalContext) EmitWithAck(ev string, args ...any) ([]any, error) {
-	if err := ctx.checkClosed(); err != nil {
-		return nil, err
-	}
-	defer ctx.closed_mux.RUnlock()
+func (ctx *SignalContext) emitWithAck(ev string, args ...any) ([]any, error) {
 	signalConf := &ctx.Global.Conf().Signal
 	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 6 * time.Millisecond
 	}
 	resCh := make(chan *resWithError)
-	err := ctx.emit(signalConf.MsgTimeoutRetries, resCh, nil, timeout, ev, args...)
+	err := ctx._emit(signalConf.MsgTimeoutRetries, resCh, nil, timeout, ev, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -934,12 +935,16 @@ func (ctx *SignalContext) EmitWithAck(ev string, args ...any) ([]any, error) {
 	}
 }
 
-func (ctx *SignalContext) MustEmitWithAck(ev string, cause string, args ...any) error {
+func (ctx *SignalContext) EmitWithAck(ev string, args ...any) ([]any, error) {
 	if err := ctx.checkClosed(); err != nil {
-		return err
+		return nil, err
 	}
 	defer ctx.closed_mux.RUnlock()
-	_, err := ctx.EmitWithAck(ev, args...)
+	return ctx.emitWithAck(ev, args...)
+}
+
+func (ctx *SignalContext) mustEmitWithAck(ev string, cause string, args ...any) error {
+	_, err := ctx.emitWithAck(ev, args...)
 	if err != nil {
 		ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
 		FatalErrorAndClose(ctx.Socket, err, cause)
@@ -947,17 +952,21 @@ func (ctx *SignalContext) MustEmitWithAck(ev string, cause string, args ...any) 
 	return err
 }
 
-func (ctx *SignalContext) EmitWithAckCb(ev string, cb func(res []any, err error), args ...any) error {
+func (ctx *SignalContext) MustEmitWithAck(ev string, cause string, args ...any) error {
 	if err := ctx.checkClosed(); err != nil {
 		return err
 	}
 	defer ctx.closed_mux.RUnlock()
+	return ctx.mustEmitWithAck(ev, cause, args...)
+}
+
+func (ctx *SignalContext) emitWithAckCb(ev string, cb func(res []any, err error), args ...any) error {
 	signalConf := &ctx.Global.Conf().Signal
 	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 6 * time.Millisecond
 	}
-	return ctx.emit(
+	return ctx._emit(
 		signalConf.MsgTimeoutRetries, nil,
 		func(re *resWithError) {
 			if re.err != nil && re.err.Error() == "timeout" {
@@ -970,12 +979,16 @@ func (ctx *SignalContext) EmitWithAckCb(ev string, cb func(res []any, err error)
 	)
 }
 
-func (ctx *SignalContext) MustEmitWithAckCb(ev string, cause string, args ...any) {
+func (ctx *SignalContext) EmitWithAckCb(ev string, cb func(res []any, err error), args ...any) error {
 	if err := ctx.checkClosed(); err != nil {
-		return
+		return err
 	}
 	defer ctx.closed_mux.RUnlock()
-	err := ctx.EmitWithAckCb(ev, func(_ []any, err error) {
+	return ctx.emitWithAckCb(ev, cb, args...)
+}
+
+func (ctx *SignalContext) mustEmitWithAckCb(ev string, cause string, args ...any) {
+	err := ctx.emitWithAckCb(ev, func(_ []any, err error) {
 		if err != nil {
 			ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
 			FatalErrorAndClose(ctx.Socket, err, cause)
@@ -985,6 +998,14 @@ func (ctx *SignalContext) MustEmitWithAckCb(ev string, cause string, args ...any
 		ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
 		FatalErrorAndClose(ctx.Socket, err, cause)
 	}
+}
+
+func (ctx *SignalContext) MustEmitWithAckCb(ev string, cause string, args ...any) {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
+	ctx.mustEmitWithAckCb(ev, cause, args...)
 }
 
 func (ctx *SignalContext) SetCloseCallback(cb *ConferenceCallback) {
@@ -1120,21 +1141,10 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 	}
 
 	r := ctx.Global.Router()
-
-	for _, room := range ctx.Rooms() {
-		want := &WantMessage{
-			Router: &proto.Router{
-				Room: room,
-			},
-			Pattern:     message.Pattern,
-			TransportId: r.id.String(),
-		}
-		err = ctx.Messager().Emit(context.TODO(), want)
-		if err != nil {
-			ctx.Sugar().Error("want msg emit failed, %v", err)
-		}
-		// broadcast above include self, the pub in self may satify the sub too. so should check self.
-	}
+	ctx.clusterEmit(context.TODO(), &WantMessage{
+		Pattern:     message.Pattern,
+		TransportId: r.id.String(),
+	})
 	return
 }
 
@@ -1255,21 +1265,11 @@ func (ctx *SignalContext) StateWant(message *WantMessage) {
 	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
 		satified := pub.State(message)
 		if len(satified) > 0 {
-			for _, room := range ctx.Rooms() {
-				msg := &StateMessage{
-					Router: &proto.Router{
-						Room: room,
-					},
-					PubId:  pub.id,
-					Tracks: satified,
-					Addr:   r.Addr(),
-				}
-				// to all in room include self
-				err := ctx.Messager().Emit(context.TODO(), msg)
-				if err != nil {
-					ctx.Sugar().Error("state msg emit failed, %v", err)
-				}
-			}
+			ctx.clusterEmit(context.TODO(), &StateMessage{
+				PubId:  pub.id,
+				Tracks: satified,
+				Addr:   r.Addr(),
+			})
 		}
 		return true
 	})
@@ -1286,6 +1286,20 @@ func (ctx *SignalContext) SatifySelect(message *SelectMessage) {
 	}
 }
 
+func (ctx *SignalContext) Bind() {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
+	ctx.publications.ForEach(func(pid string, pub *Publication) bool {
+		if pub.Bind() {
+			return false
+		} else {
+			return true
+		}
+	})
+}
+
 func (ctx *SignalContext) OnUserMessage(message *UserMessage) {
 	if err := ctx.checkClosed(); err != nil {
 		return
@@ -1297,7 +1311,27 @@ func (ctx *SignalContext) OnUserMessage(message *UserMessage) {
 	if message.Router.UserTo != "" && message.Router.UserTo != ctx.AuthInfo.UID {
 		return
 	}
-	ctx.Emit("user", message)
+	msg := message.CopyPlain()
+	msg.GetRouter().NodeFrom = ""
+	msg.GetRouter().NodeTo = ""
+	ctx.emit("user", msg)
+}
+
+func (ctx *SignalContext) OnUserAckMessage(message *UserAckMessage) {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
+	if message == nil || message.Router == nil {
+		return
+	}
+	if message.Router.UserTo != "" && message.Router.UserTo != ctx.AuthInfo.UID {
+		return
+	}
+	msg := message.CopyPlain()
+	msg.GetRouter().NodeFrom = ""
+	msg.GetRouter().NodeTo = ""
+	ctx.emit("user-ack", msg)
 }
 
 func (ctx *SignalContext) closePeer() {
@@ -1311,6 +1345,13 @@ func (ctx *SignalContext) closePeer() {
 	}
 	ctx.peerClosed = true
 	if ctx.Peer != nil {
+		ctx.Peer.OnICECandidate(nil)
+		ctx.Peer.OnTrack(nil)
+		ctx.Peer.OnConnectionStateChange(nil)
+		ctx.Peer.OnICEConnectionStateChange(nil)
+		ctx.Peer.OnICEGatheringStateChange(nil)
+		ctx.Peer.OnNegotiationNeeded(nil)
+		ctx.Peer.OnSignalingStateChange(nil)
 		// ignore error
 		ctx.Peer.Close()
 	}
@@ -1332,7 +1373,7 @@ func (ctx *SignalContext) StartNegotiate(peer *webrtc.PeerConnection, msgId int)
 		return
 	}
 	desc := peer.LocalDescription()
-	return ctx.MustEmitWithAck("sdp", "send sdp msg", SdpMessage{
+	return ctx.mustEmitWithAck("sdp", "send sdp msg", SdpMessage{
 		Type: desc.Type.String(),
 		Sdp:  desc.SDP,
 		Mid:  msgId,
@@ -1500,11 +1541,7 @@ func createPeer(conf *config.ConferenceConfigure) (*webrtc.PeerConnection, error
 	return peer, err
 }
 
-func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error) {
-	if err = ctx.checkClosed(); err != nil {
-		return
-	}
-	defer ctx.closed_mux.RUnlock()
+func (ctx *SignalContext) makeSurePeer() (peer *webrtc.PeerConnection, err error) {
 	if ctx.peerClosed {
 		err = webrtc.ErrConnectionClosed
 		return
@@ -1538,13 +1575,7 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 		})
 		peer.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
 			ctx.Sugar().Debugf("accept track with mid %s, mime type: %v, playload type: %v", r.RTPTransceiver().Mid(), r.Track().Codec().MimeType, r.Track().Codec().PayloadType)
-			ctx.publications.ForEach(func(pid string, pub *Publication) bool {
-				if pub.Bind() {
-					return false
-				} else {
-					return true
-				}
-			})
+			ctx.Bind()
 		})
 
 		lastState := peer.ConnectionState()
@@ -1581,6 +1612,14 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 		ctx.Peer = peer
 	}
 	return
+}
+
+func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error) {
+	if err = ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
+	return ctx.makeSurePeer()
 }
 
 func (ctx *SignalContext) hasRoomRight(room string) bool {

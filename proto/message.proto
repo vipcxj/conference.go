@@ -140,4 +140,13 @@ message UserMessage {
     Router router = 1;
 	// @gotags: mapstructure:"content"
 	string content = 2;
+	// @gotags: mapstructure:"msgId"
+	uint32 msgId = 3;
+}
+
+message UserAckMessage {
+	// @gotags: mapstructure:"router"
+    Router router = 1;
+	// @gotags: mapstructure:"msgId"
+	uint32 msgId = 3;
 }

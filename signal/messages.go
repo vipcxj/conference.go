@@ -67,6 +67,8 @@ type SelectMessage = proto.SelectMessage
 
 type UserMessage = proto.UserMessage
 
+type UserAckMessage = proto.UserAckMessage
+
 type PublishOp int
 
 const (

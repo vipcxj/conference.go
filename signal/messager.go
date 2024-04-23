@@ -20,11 +20,9 @@ type OnStateFunc = func(*proto.StateMessage)
 type OnWantFunc = func(*proto.WantMessage)
 type OnSelectFunc = func(*proto.SelectMessage)
 type OnUserFunc = func(*proto.UserMessage)
+type OnUserAckFunc = func(*proto.UserAckMessage)
 
-type RoomMessage interface {
-	gproto.Message
-	GetRouter() *proto.Router
-}
+type RoomMessage = proto.RoomMessage
 
 type messagerCallbackBox[M RoomMessage] struct {
 	id  string
@@ -39,21 +37,25 @@ type OnSelectFuncBox = messagerCallbackBox[*proto.SelectMessage]
 type OnSelectFuncBoxes = map[string]*OnSelectFuncBox
 type OnUserFuncBox = messagerCallbackBox[*proto.UserMessage]
 type OnUserFuncBoxes = map[string]*OnUserFuncBox
+type OnUserAckFuncBox = messagerCallbackBox[*proto.UserAckMessage]
+type OnUserAckFuncBoxes = map[string]*OnUserAckFuncBox
 
 type Messager struct {
-	global            *Global
-	nodeName          string
-	kafka             *KafkaClient
-	onStateMutex      sync.RWMutex
-	onStateCallbacks  *PatternMap[OnStateFuncBoxes]
-	onWantMutex       sync.RWMutex
-	onWantCallbacks   *PatternMap[OnWantFuncBoxes]
-	onSelectMutex     sync.RWMutex
-	onSelectCallbacks *PatternMap[OnSelectFuncBoxes]
-	onUserMutex       sync.RWMutex
-	onUserCallbacks   *PatternMap[OnUserFuncBoxes]
-	logger            *zap.Logger
-	sugar             *zap.SugaredLogger
+	global             *Global
+	nodeName           string
+	kafka              *KafkaClient
+	onStateMutex       sync.RWMutex
+	onStateCallbacks   *PatternMap[OnStateFuncBoxes]
+	onWantMutex        sync.RWMutex
+	onWantCallbacks    *PatternMap[OnWantFuncBoxes]
+	onSelectMutex      sync.RWMutex
+	onSelectCallbacks  *PatternMap[OnSelectFuncBoxes]
+	onUserMutex        sync.RWMutex
+	onUserCallbacks    *PatternMap[OnUserFuncBoxes]
+	onUserAckMutex     sync.RWMutex
+	onUserAckCallbacks *PatternMap[OnUserAckFuncBoxes]
+	logger             *zap.Logger
+	sugar              *zap.SugaredLogger
 }
 
 type GinLike interface {
@@ -61,22 +63,25 @@ type GinLike interface {
 }
 
 const (
-	TOPIC_STATE  = "cluster_state"
-	TOPIC_WANT   = "cluster_want"
-	TOPIC_SELECT = "cluster_select"
-	TOPIC_USER   = "cluster_user"
+	TOPIC_STATE    = "cluster_state"
+	TOPIC_WANT     = "cluster_want"
+	TOPIC_SELECT   = "cluster_select"
+	TOPIC_USER     = "cluster_user"
+	TOPIC_USER_ACK = "cluster_user_ack"
 )
 
 func NewMessager(global *Global) (*Messager, error) {
 	clusterConfig := &global.Conf().Cluster
 	logger := log.Logger().With(zap.String("tag", "messager"))
 	messager := &Messager{
-		global:            global,
-		onStateCallbacks:  NewPatternMap[OnStateFuncBoxes](),
-		onWantCallbacks:   NewPatternMap[OnWantFuncBoxes](),
-		onSelectCallbacks: NewPatternMap[OnSelectFuncBoxes](),
-		logger:            logger,
-		sugar:             logger.Sugar(),
+		global:             global,
+		onStateCallbacks:   NewPatternMap[OnStateFuncBoxes](),
+		onWantCallbacks:    NewPatternMap[OnWantFuncBoxes](),
+		onSelectCallbacks:  NewPatternMap[OnSelectFuncBoxes](),
+		onUserCallbacks:    NewPatternMap[OnUserFuncBoxes](),
+		onUserAckCallbacks: NewPatternMap[OnUserAckFuncBoxes](),
+		logger:             logger,
+		sugar:              logger.Sugar(),
 	}
 	if clusterConfig.Enable {
 		messager.nodeName = clusterConfig.GetNodeName()
@@ -84,11 +89,13 @@ func NewMessager(global *Global) (*Messager, error) {
 		topicWant := MakeKafkaTopic(global.Conf(), TOPIC_WANT)
 		topicSelect := MakeKafkaTopic(global.Conf(), TOPIC_SELECT)
 		topicUser := MakeKafkaTopic(global.Conf(), TOPIC_USER)
+		topicUserAck := MakeKafkaTopic(global.Conf(), TOPIC_USER_ACK)
 		workers := map[string]func(*kgo.Record){
-			topicState:  messager.onTopicState,
-			topicWant:   messager.onTopicWant,
-			topicSelect: messager.onTopicSelect,
-			topicUser:   messager.onTopicUser,
+			topicState:   messager.onTopicState,
+			topicWant:    messager.onTopicWant,
+			topicSelect:  messager.onTopicSelect,
+			topicUser:    messager.onTopicUser,
+			topicUserAck: messager.onTopicUserAck,
 		}
 		kafka, err := NewKafkaClient(
 			global,
@@ -114,6 +121,10 @@ func (m *Messager) Sugar() *zap.SugaredLogger {
 
 func (m *Messager) Conf() *config.ConferenceConfigure {
 	return m.global.Conf()
+}
+
+func (m *Messager) NodeName() string {
+	return m.nodeName
 }
 
 func (m *Messager) Run(ctx context.Context) {
@@ -178,6 +189,21 @@ func (m *Messager) onTopicUser(record *kgo.Record) {
 	}
 	if msg.Router.NodeFrom != m.nodeName {
 		m.consumeUser(&msg)
+	}
+}
+
+func (m *Messager) onTopicUserAck(record *kgo.Record) {
+	var msg proto.UserAckMessage
+	err := gproto.Unmarshal(record.Value, &msg)
+	if err != nil {
+		m.Sugar().Errorf("unable to unmarshal the user ack record: %v", record)
+		return
+	}
+	if msg.Router == nil {
+		m.Sugar().Errorf("accept a message without router")
+	}
+	if msg.Router.NodeFrom != m.nodeName {
+		m.consumeUserAck(&msg)
 	}
 }
 
@@ -331,6 +357,29 @@ func (m *Messager) consumeUser(msg *proto.UserMessage) {
 	}
 }
 
+func (m *Messager) OnUserAck(funId string, fun OnUserAckFunc, roomPattern ...string) {
+	m.onUserAckMutex.Lock()
+	defer m.onUserAckMutex.Unlock()
+	onMessage(m.onUserAckCallbacks, funId, fun, roomPattern...)
+}
+
+func (m *Messager) OffUserAck(funId string, roomPattern ...string) {
+	m.onUserAckMutex.Lock()
+	defer m.onUserAckMutex.Unlock()
+	offMessage(m.onUserAckCallbacks, funId, roomPattern...)
+}
+
+func (m *Messager) consumeUserAck(msg *proto.UserAckMessage) {
+	funs := func() []OnUserAckFunc {
+		m.onUserAckMutex.RLock()
+		defer m.onUserAckMutex.RUnlock()
+		return consumeMessage(m.onUserAckCallbacks, msg, m.sugar, m.nodeName)
+	}()
+	for _, fun := range funs {
+		go fun(msg)
+	}
+}
+
 func (m *Messager) logEmitMsg(msg RoomMessage, msgType string) {
 	router := msg.GetRouter()
 	if router.GetNodeTo() != "" {
@@ -441,6 +490,10 @@ func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
 		topic = MakeKafkaTopic(m.Conf(), TOPIC_USER)
 		m.logEmitMsg(msg, "user")
 		m.consumeUser(typedMsg)
+	case *UserAckMessage:
+		topic = MakeKafkaTopic(m.Conf(), TOPIC_USER_ACK)
+		m.logEmitMsg(msg, "user-ack")
+		m.consumeUserAck(typedMsg)
 	default:
 		return errors.InvalidMessage("invalid room message, unknown message type %v", reflect.TypeOf(msg))
 	}
