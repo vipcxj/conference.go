@@ -32,20 +32,20 @@ message PublicationPattern {
 }
 
 message Router {
-	// @gotags: mapstructure:"room"
+	// @gotags: mapstructure:"room,omitempty"
 	string room = 1;
-	// @gotags: mapstructure:"nodeFrom"
+	// @gotags: mapstructure:"nodeFrom,omitempty"
 	string nodeFrom = 2;
-	// @gotags: mapstructure:"nodeTo"
+	// @gotags: mapstructure:"nodeTo,omitempty"
     string nodeTo = 3;
-	// @gotags: mapstructure:"userFrom"
+	// @gotags: mapstructure:"userFrom,omitempty"
 	string userFrom = 4;
-	// @gotags: mapstructure:"userTo"
+	// @gotags: mapstructure:"userTo,omitempty"
 	string userTo = 5;
 }
 
 message WantMessage {
-	// @gotags: mapstructure:"router"
+	// @gotags: mapstructure:"router,omitempty"
     Router router = 1;
 	// @gotags: mapstructure:"reqTypes"
     repeated string reqTypes = 2;

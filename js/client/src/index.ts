@@ -79,8 +79,13 @@ interface LocalStream {
     constraints?: StreamConstraint[];
 }
 
+interface MessageRouter {
+    room?: string;
+    userTo?: string;
+}
+
 interface SignalMessage {
-    to?: string
+    router?: MessageRouter
 }
 
 interface SdpMessage extends SignalMessage {

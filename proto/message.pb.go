@@ -174,15 +174,15 @@ type Router struct {
 	unknownFields protoimpl.UnknownFields
 
 	 
-	Room string `protobuf:"bytes,1,opt,name=room,proto3" json:"room,omitempty" mapstructure:"room"`
+	Room string `protobuf:"bytes,1,opt,name=room,proto3" json:"room,omitempty" mapstructure:"room,omitempty"`
 	 
-	NodeFrom string `protobuf:"bytes,2,opt,name=nodeFrom,proto3" json:"nodeFrom,omitempty" mapstructure:"nodeFrom"`
+	NodeFrom string `protobuf:"bytes,2,opt,name=nodeFrom,proto3" json:"nodeFrom,omitempty" mapstructure:"nodeFrom,omitempty"`
 	 
-	NodeTo string `protobuf:"bytes,3,opt,name=nodeTo,proto3" json:"nodeTo,omitempty" mapstructure:"nodeTo"`
+	NodeTo string `protobuf:"bytes,3,opt,name=nodeTo,proto3" json:"nodeTo,omitempty" mapstructure:"nodeTo,omitempty"`
 	 
-	UserFrom string `protobuf:"bytes,4,opt,name=userFrom,proto3" json:"userFrom,omitempty" mapstructure:"userFrom"`
+	UserFrom string `protobuf:"bytes,4,opt,name=userFrom,proto3" json:"userFrom,omitempty" mapstructure:"userFrom,omitempty"`
 	 
-	UserTo string `protobuf:"bytes,5,opt,name=userTo,proto3" json:"userTo,omitempty" mapstructure:"userTo"`
+	UserTo string `protobuf:"bytes,5,opt,name=userTo,proto3" json:"userTo,omitempty" mapstructure:"userTo,omitempty"`
 }
 
 func (x *Router) Reset() {
@@ -258,7 +258,7 @@ type WantMessage struct {
 	unknownFields protoimpl.UnknownFields
 
 	 
-	Router *Router `protobuf:"bytes,1,opt,name=router,proto3" json:"router,omitempty" mapstructure:"router"`
+	Router *Router `protobuf:"bytes,1,opt,name=router,proto3" json:"router,omitempty" mapstructure:"router,omitempty"`
 	 
 	ReqTypes []string `protobuf:"bytes,2,rep,name=reqTypes,proto3" json:"reqTypes,omitempty" mapstructure:"reqTypes"`
 	 
