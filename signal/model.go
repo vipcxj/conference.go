@@ -574,7 +574,7 @@ func (me *PublishedTrack) TrackRemote() *webrtc.TrackRemote {
 }
 
 func (me *PublishedTrack) removeConsumer(consumer *RTPConsumer) {
-	me.consumers = utils.RemoveByValueFromSlice(me.consumers, true, consumer)
+	me.consumers = utils.SliceRemoveByValue(me.consumers, true, consumer)
 	if len(me.consumers) == 0 {
 		close(me.consumerChan)
 		me.consumerChan = nil
@@ -750,6 +750,12 @@ func (me *PublishedTrack) SatifySelect(transportId string) bool {
 	}
 }
 
+type timeoutError string
+
+func (te timeoutError) Error() string {
+	return string(te)
+}
+
 type SignalContext struct {
 	Id                string
 	Global            *Global
@@ -765,7 +771,7 @@ type SignalContext struct {
 	inited            bool
 	inited_mux        sync.Mutex
 	closed            bool
-	closed_mux        sync.Mutex
+	closed_mux        sync.RWMutex
 	close_cb_disabled bool
 	close_cb_mux      sync.Mutex
 	close_cb          *ConferenceCallback
@@ -828,15 +834,22 @@ func (ctx *SignalContext) CurrentSdpMsgId() int {
 	return int(ctx.sdpMsgId.Load())
 }
 
+func (ctx *SignalContext) checkClosed() error {
+	if ctx.closed {
+		return errors.SignalContextClosed()
+	}
+	ctx.closed_mux.RLock()
+	if ctx.closed {
+		ctx.closed_mux.RUnlock()
+		return errors.SignalContextClosed()
+	} else {
+		return nil
+	}
+}
+
 type resWithError struct {
 	res []any
 	err error
-}
-
-type timeoutError string
-
-func (te timeoutError) Error() string {
-	return string(te)
 }
 
 func (ctx *SignalContext) emit(retries int, resCh chan *resWithError, cb func(re *resWithError), timeout time.Duration, ev string, args ...any) error {
@@ -887,10 +900,18 @@ func (ctx *SignalContext) emit(retries int, resCh chan *resWithError, cb func(re
 }
 
 func (ctx *SignalContext) Emit(ev string, args ...any) error {
+	if err := ctx.checkClosed(); err != nil {
+		return err
+	}
+	defer ctx.closed_mux.RUnlock()
 	return ctx.emit(0, nil, nil, 0, ev, args...)
 }
 
 func (ctx *SignalContext) EmitWithAck(ev string, args ...any) ([]any, error) {
+	if err := ctx.checkClosed(); err != nil {
+		return nil, err
+	}
+	defer ctx.closed_mux.RUnlock()
 	signalConf := &ctx.Global.Conf().Signal
 	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
 	if timeout <= 0 {
@@ -914,6 +935,10 @@ func (ctx *SignalContext) EmitWithAck(ev string, args ...any) ([]any, error) {
 }
 
 func (ctx *SignalContext) MustEmitWithAck(ev string, cause string, args ...any) error {
+	if err := ctx.checkClosed(); err != nil {
+		return err
+	}
+	defer ctx.closed_mux.RUnlock()
 	_, err := ctx.EmitWithAck(ev, args...)
 	if err != nil {
 		ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
@@ -923,6 +948,10 @@ func (ctx *SignalContext) MustEmitWithAck(ev string, cause string, args ...any) 
 }
 
 func (ctx *SignalContext) EmitWithAckCb(ev string, cb func(res []any, err error), args ...any) error {
+	if err := ctx.checkClosed(); err != nil {
+		return err
+	}
+	defer ctx.closed_mux.RUnlock()
 	signalConf := &ctx.Global.Conf().Signal
 	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
 	if timeout <= 0 {
@@ -942,6 +971,10 @@ func (ctx *SignalContext) EmitWithAckCb(ev string, cb func(res []any, err error)
 }
 
 func (ctx *SignalContext) MustEmitWithAckCb(ev string, cause string, args ...any) {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
 	err := ctx.EmitWithAckCb(ev, func(_ []any, err error) {
 		if err != nil {
 			ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
@@ -967,15 +1000,15 @@ func (ctx *SignalContext) disableCloseCallback() {
 }
 
 func (ctx *SignalContext) Close(disableCloseCallback bool) {
-	ctx.Sugar().Debugf("closing the signal context");
+	ctx.Sugar().Debugf("closing the signal context")
 	if ctx.closed {
-		ctx.Sugar().Debugf("the signal context already closed, return directly");
+		ctx.Sugar().Debugf("the signal context already closed, return directly")
 		return
 	}
 	ctx.closed_mux.Lock()
 	if ctx.closed {
 		ctx.closed_mux.Unlock()
-		ctx.Sugar().Debugf("the signal context already closed, return directly");
+		ctx.Sugar().Debugf("the signal context already closed, return directly")
 		return
 	}
 	ctx.closed = true
@@ -1004,10 +1037,14 @@ func (ctx *SignalContext) Close(disableCloseCallback bool) {
 		ctx.close_cb = nil
 		go cb.Call(ctx)
 	}
-	ctx.Sugar().Debugf("the signal context closed");
+	ctx.Sugar().Debugf("the signal context closed")
 }
 
 func (ctx *SignalContext) AcceptTrack(msg *StateMessage) {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
 	ctx.subscriptions.ForEach(func(k string, sub *Subscription) bool {
 		sub.AcceptTrack(msg)
 		return true
@@ -1039,6 +1076,10 @@ func getMidFromSender(peer *webrtc.PeerConnection, sender *webrtc.RTPSender) str
 }
 
 func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, err error) {
+	if err = ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
 	err = message.Validate()
 	if err != nil {
 		return
@@ -1153,6 +1194,10 @@ func (ctx *SignalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnectio
 }
 
 func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err error) {
+	if err = ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
 	err = message.Validate()
 	if err != nil {
 		return
@@ -1202,6 +1247,10 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 }
 
 func (ctx *SignalContext) StateWant(message *WantMessage) {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
 	r := ctx.Global.Router()
 	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
 		satified := pub.State(message)
@@ -1227,10 +1276,28 @@ func (ctx *SignalContext) StateWant(message *WantMessage) {
 }
 
 func (ctx *SignalContext) SatifySelect(message *SelectMessage) {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
 	pub, found := ctx.publications.Get(message.PubId)
 	if found {
 		pub.SatifySelect(message)
 	}
+}
+
+func (ctx *SignalContext) OnUserMessage(message *UserMessage) {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
+	if message == nil || message.Router == nil {
+		return
+	}
+	if message.Router.UserTo != "" && message.Router.UserTo != ctx.AuthInfo.UID {
+		return
+	}
+	ctx.Emit("user", message)
 }
 
 func (ctx *SignalContext) closePeer() {
@@ -1250,6 +1317,10 @@ func (ctx *SignalContext) closePeer() {
 }
 
 func (ctx *SignalContext) StartNegotiate(peer *webrtc.PeerConnection, msgId int) (err error) {
+	if err = ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
 	ctx.Sugar().Debug("neg mux locked")
 	ctx.neg_mux.Lock()
 	offer, err := peer.CreateOffer(nil)
@@ -1430,6 +1501,10 @@ func createPeer(conf *config.ConferenceConfigure) (*webrtc.PeerConnection, error
 }
 
 func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error) {
+	if err = ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
 	if ctx.peerClosed {
 		err = webrtc.ErrConnectionClosed
 		return
@@ -1508,7 +1583,7 @@ func (ctx *SignalContext) MakeSurePeer() (peer *webrtc.PeerConnection, err error
 	return
 }
 
-func (ctx *SignalContext) HasRoomRight(room string) bool {
+func (ctx *SignalContext) hasRoomRight(room string) bool {
 	for _, p := range ctx.RoomPaterns() {
 		if MatchRoom(p, room) {
 			return true
@@ -1530,7 +1605,7 @@ func (ctx *SignalContext) JoinRoom(rooms ...string) error {
 		}
 	} else {
 		for _, room := range rooms {
-			if !ctx.HasRoomRight(room) {
+			if !ctx.hasRoomRight(room) {
 				return errors.RoomNoRight(room)
 			}
 		}
@@ -1546,7 +1621,7 @@ func (ctx *SignalContext) JoinRoom(rooms ...string) error {
 func (ctx *SignalContext) LeaveRoom(rooms ...string) {
 	ctx.rooms_mux.Lock()
 	defer ctx.rooms_mux.Unlock()
-	ctx.rooms = utils.RemoveByValuesFromSlice(ctx.rooms, false, rooms)
+	ctx.rooms = utils.SliceRemoveByValues(ctx.rooms, false, rooms...)
 }
 
 func GetSingalContext(s *socket.Socket) *SignalContext {

@@ -134,3 +134,10 @@ message SelectMessage {
 	// @gotags: mapstructure:"tracks"
     repeated Track tracks = 4;
 }
+
+message UserMessage {
+	// @gotags: mapstructure:"router"
+    Router router = 1;
+	// @gotags: mapstructure:"content"
+	string content = 2;
+}

@@ -42,7 +42,7 @@ func SocketIOAuthHandler(global *signal.Global) func(*socket.Socket, func(*socke
 		}
 		authInfo := &auth.AuthInfo{}
 		err := auth.Decode(token, authInfo)
-		if err != nil || authInfo.Usage != auth.AUTH_USAGE || (authInfo.Timestamp + int64(authInfo.Deadline) < time.Now().Unix()) {
+		if err != nil || authInfo.Usage != auth.AUTH_USAGE || authInfo.Key == "" || authInfo.UID == "" || (authInfo.Timestamp + int64(authInfo.Deadline) < time.Now().Unix()) {
 			next(socket.NewExtendedError("Unauthorized", err))
 			return
 		}

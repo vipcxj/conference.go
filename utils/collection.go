@@ -44,111 +44,6 @@ func IndexOf[T comparable](slice []T, target T, comparer func(T, T) bool) int {
 	return -1
 }
 
-func RemoveByIndexFromSlice[T any](slice []T, copy bool, index int) ([]T, bool) {
-	lenSlice := len(slice)
-	if index < 0 || index >= lenSlice {
-		return slice, false
-	}
-	if copy {
-		removed := make([]T, 0, lenSlice-1)
-		removed = append(removed, slice[0:index]...)
-		removed = append(removed, slice[index+1:]...)
-		return removed, true
-	} else {
-		if index == 0 {
-			return slice[1:], true
-		}
-		if index == lenSlice-1 {
-			return slice[0 : lenSlice-1], true
-		}
-		return append(slice[0:index], slice[index+1:]...), true
-	}
-}
-
-func ComparableCompare[T cmp.Ordered](t1, t2 T) int {
-	if t1 == t2 {
-		return 0
-	} else if t1 < t2 {
-		return -1
-	} else {
-		return 1
-	}
-}
-
-func RemoveByIndexesFromSlice[T any](slice []T, copy bool, indexes ...int) []T {
-	if len(indexes) == 0 {
-		return slice
-	}
-	var out []T
-	if copy {
-		out = make([]T, 0)
-	} else {
-		out = slice[0:0]
-	}
-	slices.SortFunc(indexes, ComparableCompare)
-	p := 0
-	for i, index := range indexes {
-		if index >= 0 {
-			p = i
-			break
-		}
-	}
-	e := -1
-	lenSlice := len(slice)
-	for i := len(indexes) - 1; i >= 0; i -- {
-		index := indexes[i]
-		if index < lenSlice {
-			e = i
-		}
-	}
-	if e == -1 {
-		return slice
-	}
-	
-	for i, v := range slice {
-		index := indexes[p]
-		if i != index {
-			out = append(out, v)
-		} else {
-			p ++
-		}
-		if p > e {
-			break
-		}
-	}
-	return out
-}
-
-func RemoveByValueFromSlice[T comparable](slice []T, copy bool, value T) []T {
-	var out []T
-	if copy {
-		out = make([]T, 0)
-	} else {
-		out = slice[0:0]
-	}
-	for _, v := range slice {
-		if v != value {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-func RemoveByValuesFromSlice[T comparable](slice []T, copy bool, values []T) []T {
-	var out []T
-	if copy {
-		out = make([]T, 0)
-	} else {
-		out = slice[0:0]
-	}
-	for _, v := range slice {
-		if !InSlice(values, v, nil) {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
 func InMap[K comparable, T any](m map[K]T, tester func(T) bool) bool {
 	for _, e := range m {
 		if tester(e) {
@@ -214,6 +109,176 @@ func SliceToMap[T any, K comparable, V any](slice []T, mapper func(T, int) (key 
 		}
 	}
 	return out
+}
+
+func SliceRemoveByIndex[T any](slice []T, copy bool, index int) ([]T, bool) {
+	l := len(slice)
+	if l == 0 {
+		return slice, false
+	}
+	if index < 0 || index >= l {
+		return slice, false
+	}
+	if copy {
+		removed := make([]T, 0, l-1)
+		removed = append(removed, slice[0:index]...)
+		removed = append(removed, slice[index+1:]...)
+		return removed, true
+	} else {
+		if index == 0 {
+			return slice[1:], true
+		}
+		if index == l-1 {
+			return slice[0 : l-1], true
+		}
+		return append(slice[0:index], slice[index+1:]...), true
+	}
+}
+
+func ComparableCompare[T cmp.Ordered](t1, t2 T) int {
+	if t1 == t2 {
+		return 0
+	} else if t1 < t2 {
+		return -1
+	} else {
+		return 1
+	}
+}
+
+func SliceRemoveByIndexes[T any](slice []T, copy bool, indexes ...int) []T {
+	if len(indexes) == 0 {
+		return slice
+	}
+	l := len(slice)
+	if l == 0 {
+		return slice
+	}
+	var out []T
+	if copy {
+		out = make([]T, 0)
+	} else {
+		out = slice[0:0]
+	}
+	slices.SortFunc(indexes, ComparableCompare)
+	p := 0
+	for i, index := range indexes {
+		if index >= 0 {
+			p = i
+			break
+		}
+	}
+	e := -1
+	for i := len(indexes) - 1; i >= 0; i-- {
+		index := indexes[i]
+		if index < l {
+			e = i
+			break
+		}
+	}
+	if e == -1 {
+		return slice
+	}
+	skip := false
+	for i, v := range slice {
+		if skip {
+			out = append(out, v)
+		} else {
+			index := indexes[p]
+			if i != index {
+				out = append(out, v)
+			} else {
+				p++
+				for p <= e && index == indexes[p] {
+					p++
+				}
+			}
+			if p > e {
+				skip = true
+			}
+		}
+	}
+	return out
+}
+
+func SliceRemoveByValue[T comparable](slice []T, copy bool, value T) []T {
+	l := len(slice)
+	if l == 0 {
+		return slice
+	}
+	var out []T
+	if copy {
+		out = make([]T, 0)
+	} else {
+		out = slice[0:0]
+	}
+	for _, v := range slice {
+		if v != value {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func SliceRemoveByValues[T comparable](slice []T, copy bool, values ...T) []T {
+	l := len(slice)
+	if l == 0 {
+		return slice
+	}
+	var out []T
+	if copy {
+		out = make([]T, 0)
+	} else {
+		out = slice[0:0]
+	}
+	for _, v := range slice {
+		if !InSlice(values, v, nil) {
+			out = append(out, v)
+		}
+	}
+	return out;
+}
+
+func SliceRemoveIf[T any](slice []T, copy bool, cond func(v T) bool) []T {
+	l := len(slice)
+	if l == 0 {
+		return slice
+	}
+	var out []T
+	if copy {
+		out = make([]T, 0)
+	} else {
+		out = slice[0:0]
+	}
+	for _, v := range slice {
+		if !cond(v) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func SliceRemoveIfIgnoreOrder[T any](slice []T, cond func(v T) bool) []T {
+	l := len(slice)
+	if l == 0 {
+		return slice
+	}
+	removed := 0
+	last := l - 1
+	for i := 0; i <= last; i++ {
+		v := slice[i]
+		if cond(v) {
+			for (last > i && cond(slice[last])) || last == i {
+				last --
+				removed ++
+			}
+			if last > i {
+				slice[i] = slice[last]
+				last --
+				removed ++
+			}
+		}
+	}
+	return slice[0:l - removed]
 }
 
 func MapValues[K comparable, T any](m map[K]T) []T {

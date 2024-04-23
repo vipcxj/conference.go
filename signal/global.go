@@ -8,6 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -80,7 +81,8 @@ func (m *Mongo) RecordCollection() *mongo.Collection {
 
 type Global struct {
 	sig_map  map[string]*SignalContext
-	sig_mux  sync.Mutex
+	sig_map_by_user map[string][]*SignalContext
+	sig_mux  sync.RWMutex
 	conf     *config.ConferenceConfigure
 	promReg  *prometheus.Registry
 	router   *Router
@@ -129,6 +131,15 @@ func NewGlobal(conf *config.ConferenceConfigure) (*Global, error) {
 func (g *Global) RegisterSignalContext(ctx *SignalContext) {
 	g.sig_mux.Lock()
 	defer g.sig_mux.Unlock()
+	if g.sig_map_by_user == nil {
+		g.sig_map_by_user = make(map[string][]*SignalContext)
+	}
+	ctxs, found := g.sig_map_by_user[ctx.AuthInfo.UID]
+	if !found {
+		g.sig_map_by_user[ctx.AuthInfo.UID] = []*SignalContext {ctx}
+	} else {
+		g.sig_map_by_user[ctx.AuthInfo.UID] = append(ctxs, ctx)
+	}
 	if g.sig_map == nil {
 		g.sig_map = make(map[string]*SignalContext)
 	}
@@ -141,8 +152,27 @@ func (g *Global) CloseSignalContext(id string, disableCloseCallback bool) {
 	ctx, ok := g.sig_map[id]
 	if ok {
 		delete(g.sig_map, id)
+		ctxs, found := g.sig_map_by_user[ctx.AuthInfo.UID];
+		if found {
+			ctxs = utils.SliceRemoveIfIgnoreOrder(ctxs, func(v *SignalContext) bool { return v.Id == id })
+			if len(ctxs) == 0 {
+				delete(g.sig_map_by_user, ctx.AuthInfo.UID)
+			} else {
+				g.sig_map_by_user[ctx.AuthInfo.UID] = ctxs
+			}
+		}
 		ctx.Close(disableCloseCallback)
 	}
+}
+
+func (g *Global) FindSignalContextByUser(uid string) (res []*SignalContext)  {
+	g.sig_mux.RLock()
+	defer g.sig_mux.RUnlock()
+	ctxs, found := g.sig_map_by_user[uid];
+	if found {
+		res = append(res, ctxs...)
+	}
+	return
 }
 
 func (g *Global) Conf() *config.ConferenceConfigure {

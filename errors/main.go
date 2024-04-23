@@ -17,10 +17,12 @@ const (
 	SUB_NOT_EXIST       = 12000
 	ROOM_NO_RIGHT       = 13000
 
-	INVALID_CONFIG      = 14000
-	INVALID_MESSAGE     = 15000
+	INVALID_CONFIG  = 14000
+	INVALID_MESSAGE = 15000
 
-	MSG_TIMEOUT         = 16000
+	MSG_TIMEOUT = 16000
+
+	SIGNAL_CONTEXT_CLOSED = 20000
 
 	INVALID_STATE = 10000000
 )
@@ -40,7 +42,7 @@ type ConferenceError struct {
 
 func (e *ConferenceError) GenCallStacks(ignores int) *ConferenceError {
 	callers := make([]uintptr, 128)
-	n := runtime.Callers(ignores + 1, callers)
+	n := runtime.Callers(ignores+1, callers)
 	frames := runtime.CallersFrames(callers[:n])
 	callFrames := make([]CallFrame, 0, n)
 	for {
@@ -143,6 +145,10 @@ func InvalidMessage(msg string, args ...any) *ConferenceError {
 
 func MsgTimeout(msg string, args ...any) *ConferenceError {
 	return NewError(MSG_TIMEOUT, msg, args...)
+}
+
+func SignalContextClosed() *ConferenceError {
+	return NewError(SIGNAL_CONTEXT_CLOSED, "the signal context is closed")
 }
 
 func ThisIsImpossible() *ConferenceError {

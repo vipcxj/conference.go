@@ -1,6 +1,7 @@
 package signal
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -206,9 +207,23 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			Id: subId,
 		}
 	})
+	s.On("user", func(args ...any) {
+		msg := UserMessage{}
+		ark, err := parseArgs(&msg, args...)
+		arkArgs := make([]any, 1)
+		defer FinallyResponse(ctx.Socket, ark, arkArgs, "user", false)
+		if err != nil {
+			panic(err)
+		}
+		err = ctx.Messager().Emit(context.TODO(), &msg)
+		if err != nil {
+			panic(err)
+		}
+	})
 	ctx.Messager().OnState(ctx.Id, ctx.AcceptTrack, ctx.RoomPaterns()...)
 	ctx.Messager().OnWant(ctx.Id, ctx.StateWant, ctx.RoomPaterns()...)
 	ctx.Messager().OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
+	ctx.Messager().OnUser(ctx.Id, ctx.OnUserMessage, ctx.RoomPaterns()...)
 	ctx.Sugar().Debugf("the signal context initialized")
 	return ctx, nil
 }

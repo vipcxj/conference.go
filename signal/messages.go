@@ -65,6 +65,8 @@ type StateMessage = proto.StateMessage
 //	}
 type SelectMessage = proto.SelectMessage
 
+type UserMessage = proto.UserMessage
+
 type PublishOp int
 
 const (

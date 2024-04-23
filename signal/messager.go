@@ -19,6 +19,7 @@ import (
 type OnStateFunc = func(*proto.StateMessage)
 type OnWantFunc = func(*proto.WantMessage)
 type OnSelectFunc = func(*proto.SelectMessage)
+type OnUserFunc = func(*proto.UserMessage)
 
 type RoomMessage interface {
 	gproto.Message
@@ -36,6 +37,8 @@ type OnWantFuncBox = messagerCallbackBox[*proto.WantMessage]
 type OnWantFuncBoxes = map[string]*OnWantFuncBox
 type OnSelectFuncBox = messagerCallbackBox[*proto.SelectMessage]
 type OnSelectFuncBoxes = map[string]*OnSelectFuncBox
+type OnUserFuncBox = messagerCallbackBox[*proto.UserMessage]
+type OnUserFuncBoxes = map[string]*OnUserFuncBox
 
 type Messager struct {
 	global            *Global
@@ -47,6 +50,8 @@ type Messager struct {
 	onWantCallbacks   *PatternMap[OnWantFuncBoxes]
 	onSelectMutex     sync.RWMutex
 	onSelectCallbacks *PatternMap[OnSelectFuncBoxes]
+	onUserMutex       sync.RWMutex
+	onUserCallbacks   *PatternMap[OnUserFuncBoxes]
 	logger            *zap.Logger
 	sugar             *zap.SugaredLogger
 }
@@ -59,6 +64,7 @@ const (
 	TOPIC_STATE  = "cluster_state"
 	TOPIC_WANT   = "cluster_want"
 	TOPIC_SELECT = "cluster_select"
+	TOPIC_USER   = "cluster_user"
 )
 
 func NewMessager(global *Global) (*Messager, error) {
@@ -77,10 +83,12 @@ func NewMessager(global *Global) (*Messager, error) {
 		topicState := MakeKafkaTopic(global.Conf(), TOPIC_STATE)
 		topicWant := MakeKafkaTopic(global.Conf(), TOPIC_WANT)
 		topicSelect := MakeKafkaTopic(global.Conf(), TOPIC_SELECT)
+		topicUser := MakeKafkaTopic(global.Conf(), TOPIC_USER)
 		workers := map[string]func(*kgo.Record){
 			topicState:  messager.onTopicState,
 			topicWant:   messager.onTopicWant,
 			topicSelect: messager.onTopicSelect,
+			topicUser:   messager.onTopicUser,
 		}
 		kafka, err := NewKafkaClient(
 			global,
@@ -155,6 +163,21 @@ func (m *Messager) onTopicSelect(record *kgo.Record) {
 	}
 	if msg.Router.NodeFrom != m.nodeName {
 		m.consumeSelect(&msg)
+	}
+}
+
+func (m *Messager) onTopicUser(record *kgo.Record) {
+	var msg proto.UserMessage
+	err := gproto.Unmarshal(record.Value, &msg)
+	if err != nil {
+		m.Sugar().Errorf("unable to unmarshal the user record: %v", record)
+		return
+	}
+	if msg.Router == nil {
+		m.Sugar().Errorf("accept a message without router")
+	}
+	if msg.Router.NodeFrom != m.nodeName {
+		m.consumeUser(&msg)
 	}
 }
 
@@ -285,6 +308,29 @@ func (m *Messager) consumeSelect(msg *proto.SelectMessage) {
 	}
 }
 
+func (m *Messager) OnUser(funId string, fun OnUserFunc, roomPattern ...string) {
+	m.onUserMutex.Lock()
+	defer m.onUserMutex.Unlock()
+	onMessage(m.onUserCallbacks, funId, fun, roomPattern...)
+}
+
+func (m *Messager) OffUser(funId string, roomPattern ...string) {
+	m.onUserMutex.Lock()
+	defer m.onUserMutex.Unlock()
+	offMessage(m.onUserCallbacks, funId, roomPattern...)
+}
+
+func (m *Messager) consumeUser(msg *proto.UserMessage) {
+	funs := func() []OnUserFunc {
+		m.onUserMutex.RLock()
+		defer m.onUserMutex.RUnlock()
+		return consumeMessage(m.onUserCallbacks, msg, m.sugar, m.nodeName)
+	}()
+	for _, fun := range funs {
+		go fun(msg)
+	}
+}
+
 func (m *Messager) logEmitMsg(msg RoomMessage, msgType string) {
 	router := msg.GetRouter()
 	if router.GetNodeTo() != "" {
@@ -391,6 +437,10 @@ func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
 		topic = MakeKafkaTopic(m.Conf(), TOPIC_SELECT)
 		m.logEmitMsg(msg, "select")
 		m.consumeSelect(typedMsg)
+	case *UserMessage:
+		topic = MakeKafkaTopic(m.Conf(), TOPIC_USER)
+		m.logEmitMsg(msg, "user")
+		m.consumeUser(typedMsg)
 	default:
 		return errors.InvalidMessage("invalid room message, unknown message type %v", reflect.TypeOf(msg))
 	}
