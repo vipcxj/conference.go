@@ -135,6 +135,20 @@ message SelectMessage {
     repeated Track tracks = 4;
 }
 
+message WantParticipantMessage {
+	// @gotags: mapstructure:"router"
+    Router router = 1;
+}
+
+message StateParticipantMessage {
+	// @gotags: mapstructure:"router"
+	Router router = 1;
+	// @gotags: mapstructure:"userId"
+	string userId = 2;
+	// @gotags: mapstructure:"userName"
+	string userName = 3;
+}
+
 message UserMessage {
 	// @gotags: mapstructure:"router"
     Router router = 1;

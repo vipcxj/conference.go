@@ -737,6 +737,11 @@ func (te timeoutError) Error() string {
 	return string(te)
 }
 
+// type Participant struct {
+// 	Id string
+// 	Name string
+// }
+
 type SignalContext struct {
 	Id                string
 	Global            *Global
@@ -1020,7 +1025,11 @@ func (ctx *SignalContext) disableCloseCallback() {
 	ctx.close_cb_disabled = true
 }
 
-func (ctx *SignalContext) Close(disableCloseCallback bool) {
+func (ctx *SignalContext) Close() {
+	ctx.Global.CloseSignalContext(ctx.Id, false)
+}
+
+func (ctx *SignalContext) SelfClose(disableCloseCallback bool) {
 	ctx.Sugar().Debugf("closing the signal context")
 	if ctx.closed {
 		ctx.Sugar().Debugf("the signal context already closed, return directly")
@@ -1040,6 +1049,10 @@ func (ctx *SignalContext) Close(disableCloseCallback bool) {
 	ctx.Messager().OffState(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffWant(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffSelect(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffWantParticipant(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffStateParticipant(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffUser(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffUserAck(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Sugar().Debugf("signal context closing")
 	ctx.closePeer()
 	ctx.publications.ForEach(func(k string, pub *Publication) bool {
@@ -1286,6 +1299,25 @@ func (ctx *SignalContext) SatifySelect(message *SelectMessage) {
 	}
 }
 
+func (ctx *SignalContext) StateParticipants(message *WantParticipantMessage) {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
+	ctx.clusterEmit(context.TODO(), &StateParticipantMessage{
+		UserId:   ctx.AuthInfo.UID,
+		UserName: ctx.AuthInfo.UName,
+	})
+}
+
+func (ctx *SignalContext) AcceptParticipants(message *StateParticipantMessage) {
+	if err := ctx.checkClosed(); err != nil {
+		return
+	}
+	defer ctx.closed_mux.RUnlock()
+	ctx.emit("participant", proto.ToClientMessage(message))
+}
+
 func (ctx *SignalContext) Bind() {
 	if err := ctx.checkClosed(); err != nil {
 		return
@@ -1311,10 +1343,7 @@ func (ctx *SignalContext) OnUserMessage(message *UserMessage) {
 	if message.Router.UserTo != "" && message.Router.UserTo != ctx.AuthInfo.UID {
 		return
 	}
-	msg := message.CopyPlain()
-	msg.GetRouter().NodeFrom = ""
-	msg.GetRouter().NodeTo = ""
-	ctx.emit("user", msg)
+	ctx.emit("user", proto.ToClientMessage(message))
 }
 
 func (ctx *SignalContext) OnUserAckMessage(message *UserAckMessage) {
@@ -1328,10 +1357,7 @@ func (ctx *SignalContext) OnUserAckMessage(message *UserAckMessage) {
 	if message.Router.UserTo != "" && message.Router.UserTo != ctx.AuthInfo.UID {
 		return
 	}
-	msg := message.CopyPlain()
-	msg.GetRouter().NodeFrom = ""
-	msg.GetRouter().NodeTo = ""
-	ctx.emit("user-ack", msg)
+	ctx.emit("user-ack", proto.ToClientMessage(message))
 }
 
 func (ctx *SignalContext) closePeer() {
@@ -1586,7 +1612,7 @@ func (ctx *SignalContext) makeSurePeer() (peer *webrtc.PeerConnection, err error
 				ctx.Metrics().OnWebrtcConnectStart(ctx)
 			} else if pcs == webrtc.PeerConnectionStateClosed || pcs == webrtc.PeerConnectionStateFailed {
 				ctx.Metrics().OnWebrtcConnectClose(ctx)
-				ctx.Close(false)
+				ctx.Close()
 			}
 		})
 		lastIceConnectionState := peer.ICEConnectionState()
@@ -1672,16 +1698,14 @@ func GetSingalContext(s *socket.Socket) *SignalContext {
 	}
 }
 
-func SetAuthInfoAndId(s *socket.Socket, authInfo *auth.AuthInfo, id string) *SignalContext {
+func SetAuthInfoAndId(s *socket.Socket, authInfo *auth.AuthInfo, id string, global *Global) {
 	raw := s.Data()
 	if raw == nil {
-		ctx := newSignalContext(s, authInfo, id)
+		ctx := global.FindSignalContextById(id)
+		if ctx == nil {
+			ctx = newSignalContext(s, authInfo, id)
+			ctx.Global = global
+		}
 		s.SetData(ctx)
-		return ctx
-	} else {
-		ctx := raw.(*SignalContext)
-		ctx.Id = id
-		ctx.AuthInfo = authInfo
-		return ctx
 	}
 }

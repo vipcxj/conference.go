@@ -19,6 +19,8 @@ import (
 type OnStateFunc = func(*proto.StateMessage)
 type OnWantFunc = func(*proto.WantMessage)
 type OnSelectFunc = func(*proto.SelectMessage)
+type OnWantParticipantFunc = func(*proto.WantParticipantMessage)
+type OnStateParticipantFunc = func(*proto.StateParticipantMessage)
 type OnUserFunc = func(*proto.UserMessage)
 type OnUserAckFunc = func(*proto.UserAckMessage)
 
@@ -35,27 +37,35 @@ type OnWantFuncBox = messagerCallbackBox[*proto.WantMessage]
 type OnWantFuncBoxes = map[string]*OnWantFuncBox
 type OnSelectFuncBox = messagerCallbackBox[*proto.SelectMessage]
 type OnSelectFuncBoxes = map[string]*OnSelectFuncBox
+type OnWantParticipantFuncBox = messagerCallbackBox[*proto.WantParticipantMessage]
+type OnWantParticipantFuncBoxes = map[string]*OnWantParticipantFuncBox
+type OnStateParticipantFuncBox = messagerCallbackBox[*proto.StateParticipantMessage]
+type OnStateParticipantFuncBoxes = map[string]*OnStateParticipantFuncBox
 type OnUserFuncBox = messagerCallbackBox[*proto.UserMessage]
 type OnUserFuncBoxes = map[string]*OnUserFuncBox
 type OnUserAckFuncBox = messagerCallbackBox[*proto.UserAckMessage]
 type OnUserAckFuncBoxes = map[string]*OnUserAckFuncBox
 
 type Messager struct {
-	global             *Global
-	nodeName           string
-	kafka              *KafkaClient
-	onStateMutex       sync.RWMutex
-	onStateCallbacks   *PatternMap[OnStateFuncBoxes]
-	onWantMutex        sync.RWMutex
-	onWantCallbacks    *PatternMap[OnWantFuncBoxes]
-	onSelectMutex      sync.RWMutex
-	onSelectCallbacks  *PatternMap[OnSelectFuncBoxes]
-	onUserMutex        sync.RWMutex
-	onUserCallbacks    *PatternMap[OnUserFuncBoxes]
-	onUserAckMutex     sync.RWMutex
-	onUserAckCallbacks *PatternMap[OnUserAckFuncBoxes]
-	logger             *zap.Logger
-	sugar              *zap.SugaredLogger
+	global                      *Global
+	nodeName                    string
+	kafka                       *KafkaClient
+	onStateMutex                sync.RWMutex
+	onStateCallbacks            *PatternMap[OnStateFuncBoxes]
+	onWantMutex                 sync.RWMutex
+	onWantCallbacks             *PatternMap[OnWantFuncBoxes]
+	onSelectMutex               sync.RWMutex
+	onSelectCallbacks           *PatternMap[OnSelectFuncBoxes]
+	onWantParticipantMutex      sync.RWMutex
+	onWantParticipantCallbacks  *PatternMap[OnWantParticipantFuncBoxes]
+	onStateParticipantMutex     sync.RWMutex
+	onStateParticipantCallbacks *PatternMap[OnStateParticipantFuncBoxes]
+	onUserMutex                 sync.RWMutex
+	onUserCallbacks             *PatternMap[OnUserFuncBoxes]
+	onUserAckMutex              sync.RWMutex
+	onUserAckCallbacks          *PatternMap[OnUserAckFuncBoxes]
+	logger                      *zap.Logger
+	sugar                       *zap.SugaredLogger
 }
 
 type GinLike interface {
@@ -63,44 +73,52 @@ type GinLike interface {
 }
 
 const (
-	TOPIC_STATE    = "cluster_state"
-	TOPIC_WANT     = "cluster_want"
-	TOPIC_SELECT   = "cluster_select"
-	TOPIC_USER     = "cluster_user"
-	TOPIC_USER_ACK = "cluster_user_ack"
+	TOPIC_STATE             = "cluster_state"
+	TOPIC_WANT              = "cluster_want"
+	TOPIC_SELECT            = "cluster_select"
+	TOPIC_WANT_PARTICIPANT  = "cluster_want_participant"
+	TOPIC_STATE_PARTICIPANT = "cluster_state_participant"
+	TOPIC_USER              = "cluster_user"
+	TOPIC_USER_ACK          = "cluster_user_ack"
 )
 
 func NewMessager(global *Global) (*Messager, error) {
 	clusterConfig := &global.Conf().Cluster
 	logger := log.Logger().With(zap.String("tag", "messager"))
 	messager := &Messager{
-		global:             global,
-		onStateCallbacks:   NewPatternMap[OnStateFuncBoxes](),
-		onWantCallbacks:    NewPatternMap[OnWantFuncBoxes](),
-		onSelectCallbacks:  NewPatternMap[OnSelectFuncBoxes](),
-		onUserCallbacks:    NewPatternMap[OnUserFuncBoxes](),
-		onUserAckCallbacks: NewPatternMap[OnUserAckFuncBoxes](),
-		logger:             logger,
-		sugar:              logger.Sugar(),
+		global:                      global,
+		onStateCallbacks:            NewPatternMap[OnStateFuncBoxes](),
+		onWantCallbacks:             NewPatternMap[OnWantFuncBoxes](),
+		onSelectCallbacks:           NewPatternMap[OnSelectFuncBoxes](),
+		onWantParticipantCallbacks:  NewPatternMap[OnWantParticipantFuncBoxes](),
+		onStateParticipantCallbacks: NewPatternMap[OnStateParticipantFuncBoxes](),
+		onUserCallbacks:             NewPatternMap[OnUserFuncBoxes](),
+		onUserAckCallbacks:          NewPatternMap[OnUserAckFuncBoxes](),
+		logger:                      logger,
+		sugar:                       logger.Sugar(),
 	}
 	if clusterConfig.Enable {
 		messager.nodeName = clusterConfig.GetNodeName()
 		topicState := MakeKafkaTopic(global.Conf(), TOPIC_STATE)
 		topicWant := MakeKafkaTopic(global.Conf(), TOPIC_WANT)
 		topicSelect := MakeKafkaTopic(global.Conf(), TOPIC_SELECT)
+		topicWantParticipant := MakeKafkaTopic(global.Conf(), TOPIC_WANT_PARTICIPANT)
+		topicStateParticipant := MakeKafkaTopic(global.Conf(), TOPIC_STATE_PARTICIPANT)
 		topicUser := MakeKafkaTopic(global.Conf(), TOPIC_USER)
 		topicUserAck := MakeKafkaTopic(global.Conf(), TOPIC_USER_ACK)
 		workers := map[string]func(*kgo.Record){
-			topicState:   messager.onTopicState,
-			topicWant:    messager.onTopicWant,
-			topicSelect:  messager.onTopicSelect,
-			topicUser:    messager.onTopicUser,
-			topicUserAck: messager.onTopicUserAck,
+			topicState:            messager.onTopicState,
+			topicWant:             messager.onTopicWant,
+			topicSelect:           messager.onTopicSelect,
+			topicWantParticipant:  messager.onTopicWantParticipant,
+			topicStateParticipant: messager.onTopicStateParticipant,
+			topicUser:             messager.onTopicUser,
+			topicUserAck:          messager.onTopicUserAck,
 		}
 		kafka, err := NewKafkaClient(
 			global,
 			KafkaOptGroup(clusterConfig.GetNodeName()),
-			KafkaOptTopics(topicState, topicWant, topicSelect),
+			KafkaOptTopics(topicState, topicWant, topicSelect, topicWantParticipant, topicStateParticipant, topicUser, topicUserAck),
 			KafkaOptWorkers(workers),
 		)
 		if err != nil {
@@ -174,6 +192,36 @@ func (m *Messager) onTopicSelect(record *kgo.Record) {
 	}
 	if msg.Router.NodeFrom != m.nodeName {
 		m.consumeSelect(&msg)
+	}
+}
+
+func (m *Messager) onTopicWantParticipant(record *kgo.Record) {
+	var msg proto.WantParticipantMessage
+	err := gproto.Unmarshal(record.Value, &msg)
+	if err != nil {
+		m.Sugar().Errorf("unable to unmarshal the select record: %v", record)
+		return
+	}
+	if msg.Router == nil {
+		m.Sugar().Errorf("accept a message without router")
+	}
+	if msg.Router.NodeFrom != m.nodeName {
+		m.consumeWantParticipant(&msg)
+	}
+}
+
+func (m *Messager) onTopicStateParticipant(record *kgo.Record) {
+	var msg proto.StateParticipantMessage
+	err := gproto.Unmarshal(record.Value, &msg)
+	if err != nil {
+		m.Sugar().Errorf("unable to unmarshal the select record: %v", record)
+		return
+	}
+	if msg.Router == nil {
+		m.Sugar().Errorf("accept a message without router")
+	}
+	if msg.Router.NodeFrom != m.nodeName {
+		m.consumeStateParticipant(&msg)
 	}
 }
 
@@ -334,6 +382,52 @@ func (m *Messager) consumeSelect(msg *proto.SelectMessage) {
 	}
 }
 
+func (m *Messager) OnWantParticipant(funId string, fun OnWantParticipantFunc, roomPattern ...string) {
+	m.onWantParticipantMutex.Lock()
+	defer m.onWantParticipantMutex.Unlock()
+	onMessage(m.onWantParticipantCallbacks, funId, fun, roomPattern...)
+}
+
+func (m *Messager) OffWantParticipant(funId string, roomPattern ...string) {
+	m.onWantParticipantMutex.Lock()
+	defer m.onWantParticipantMutex.Unlock()
+	offMessage(m.onWantParticipantCallbacks, funId, roomPattern...)
+}
+
+func (m *Messager) consumeWantParticipant(msg *proto.WantParticipantMessage) {
+	funs := func() []OnWantParticipantFunc {
+		m.onWantParticipantMutex.RLock()
+		defer m.onWantParticipantMutex.RUnlock()
+		return consumeMessage(m.onWantParticipantCallbacks, msg, m.sugar, m.nodeName)
+	}()
+	for _, fun := range funs {
+		go fun(msg)
+	}
+}
+
+func (m *Messager) OnStateParticipant(funId string, fun OnStateParticipantFunc, roomPattern ...string) {
+	m.onStateParticipantMutex.Lock()
+	defer m.onStateParticipantMutex.Unlock()
+	onMessage(m.onStateParticipantCallbacks, funId, fun, roomPattern...)
+}
+
+func (m *Messager) OffStateParticipant(funId string, roomPattern ...string) {
+	m.onStateParticipantMutex.Lock()
+	defer m.onStateParticipantMutex.Unlock()
+	offMessage(m.onStateParticipantCallbacks, funId, roomPattern...)
+}
+
+func (m *Messager) consumeStateParticipant(msg *proto.StateParticipantMessage) {
+	funs := func() []OnStateParticipantFunc {
+		m.onStateParticipantMutex.RLock()
+		defer m.onStateParticipantMutex.RUnlock()
+		return consumeMessage(m.onStateParticipantCallbacks, msg, m.sugar, m.nodeName)
+	}()
+	for _, fun := range funs {
+		go fun(msg)
+	}
+}
+
 func (m *Messager) OnUser(funId string, fun OnUserFunc, roomPattern ...string) {
 	m.onUserMutex.Lock()
 	defer m.onUserMutex.Unlock()
@@ -486,6 +580,14 @@ func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
 		topic = MakeKafkaTopic(m.Conf(), TOPIC_SELECT)
 		m.logEmitMsg(msg, "select")
 		m.consumeSelect(typedMsg)
+	case *WantParticipantMessage:
+		topic = MakeKafkaTopic(m.Conf(), TOPIC_WANT_PARTICIPANT)
+		m.logEmitMsg(msg, "want-participant")
+		m.consumeWantParticipant(typedMsg)
+	case *StateParticipantMessage:
+		topic = MakeKafkaTopic(m.Conf(), TOPIC_STATE_PARTICIPANT)
+		m.logEmitMsg(msg, "state-participant")
+		m.consumeStateParticipant(typedMsg)
 	case *UserMessage:
 		topic = MakeKafkaTopic(m.Conf(), TOPIC_USER)
 		m.logEmitMsg(msg, "user")

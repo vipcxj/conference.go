@@ -46,8 +46,7 @@ func SocketIOAuthHandler(global *signal.Global) func(*socket.Socket, func(*socke
 			next(socket.NewExtendedError("Unauthorized", err))
 			return
 		}
-		sCtx = signal.SetAuthInfoAndId(s, authInfo, signalId)
-		sCtx.Global = global
+		signal.SetAuthInfoAndId(s, authInfo, signalId, global)
 		next(nil)
 	}
 }

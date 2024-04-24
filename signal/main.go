@@ -33,6 +33,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		ctx.Sugar().Debugf("the signal context already initialized, return directly")
 		return ctx, nil
 	}
+
 	ctx.inited = true
 	defer ctx.inited_mux.Unlock()
 	auth := ctx.AuthInfo
@@ -49,25 +50,34 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	if err != nil {
 		msg := fmt.Sprintf("start callback invoked failed with error %v, so close the singal context.", err)
 		ctx.Sugar().Warn(msg)
-		ctx.Close(true)
+		ctx.SelfClose(true)
 		return nil, errors.FatalError(msg)
 	}
 	if st != 0 && st != http.StatusOK {
 		msg := fmt.Sprintf("start callback return status code %v, so close the singal context.", st)
 		ctx.Sugar().Warn(msg)
-		ctx.Close(true)
+		ctx.SelfClose(true)
 		return nil, errors.FatalError(msg)
 	}
 	ctx.Metrics().OnSignalConnectStart(ctx)
 	ctx.SetCloseCallback(NewConferenceCallback("close", ctx.Global.Conf().Callback.OnClose, ctx))
 	ctx.Global.RegisterSignalContext(ctx)
+	ctx.Messager().OnState(ctx.Id, ctx.AcceptTrack, ctx.RoomPaterns()...)
+	ctx.Messager().OnWant(ctx.Id, ctx.StateWant, ctx.RoomPaterns()...)
+	ctx.Messager().OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
+	ctx.Messager().OnWantParticipant(ctx.Id, ctx.StateParticipants, ctx.RoomPaterns()...)
+	ctx.Messager().OnStateParticipant(ctx.Id, ctx.AcceptParticipants, ctx.RoomPaterns()...)
+	ctx.Messager().OnUser(ctx.Id, ctx.OnUserMessage, ctx.RoomPaterns()...)
+	ctx.Messager().OnUserAck(ctx.Id, ctx.OnUserAckMessage, ctx.RoomPaterns()...)
 	s.On("disconnect", func(args ...any) {
 		ctx.Metrics().OnSignalConnectClose(ctx)
 		reason := args[0].(string)
 		ctx.Sugar().Infof("socket disconnect because %s", reason)
 		if reason != "ping timeout" {
-			ctx.Sugar().Infof("close the socket")
-			ctx.Close(false)
+			go func() {
+				ctx.Sugar().Infof("close the socket")
+				ctx.Close()
+			}()
 		}
 	})
 	s.On("join", func(args ...any) {
@@ -233,11 +243,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			panic(err)
 		}
 	})
-	ctx.Messager().OnState(ctx.Id, ctx.AcceptTrack, ctx.RoomPaterns()...)
-	ctx.Messager().OnWant(ctx.Id, ctx.StateWant, ctx.RoomPaterns()...)
-	ctx.Messager().OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
-	ctx.Messager().OnUser(ctx.Id, ctx.OnUserMessage, ctx.RoomPaterns()...)
-	ctx.Messager().OnUserAck(ctx.Id, ctx.OnUserAckMessage, ctx.RoomPaterns()...)
+	ctx.ClusterEmit(context.TODO(), &WantParticipantMessage{})
 	ctx.Sugar().Debugf("the signal context initialized")
 	return ctx, nil
 }

@@ -80,15 +80,15 @@ func (m *Mongo) RecordCollection() *mongo.Collection {
 }
 
 type Global struct {
-	sig_map  map[string]*SignalContext
+	sig_map         map[string]*SignalContext
 	sig_map_by_user map[string][]*SignalContext
-	sig_mux  sync.RWMutex
-	conf     *config.ConferenceConfigure
-	promReg  *prometheus.Registry
-	router   *Router
-	messager *Messager
-	metrics  *Metrics
-	mongo    *Mongo
+	sig_mux         sync.RWMutex
+	conf            *config.ConferenceConfigure
+	promReg         *prometheus.Registry
+	router          *Router
+	messager        *Messager
+	metrics         *Metrics
+	mongo           *Mongo
 }
 
 func NewGlobal(conf *config.ConferenceConfigure) (*Global, error) {
@@ -136,7 +136,7 @@ func (g *Global) RegisterSignalContext(ctx *SignalContext) {
 	}
 	ctxs, found := g.sig_map_by_user[ctx.AuthInfo.UID]
 	if !found {
-		g.sig_map_by_user[ctx.AuthInfo.UID] = []*SignalContext {ctx}
+		g.sig_map_by_user[ctx.AuthInfo.UID] = []*SignalContext{ctx}
 	} else {
 		g.sig_map_by_user[ctx.AuthInfo.UID] = append(ctxs, ctx)
 	}
@@ -152,7 +152,7 @@ func (g *Global) CloseSignalContext(id string, disableCloseCallback bool) {
 	ctx, ok := g.sig_map[id]
 	if ok {
 		delete(g.sig_map, id)
-		ctxs, found := g.sig_map_by_user[ctx.AuthInfo.UID];
+		ctxs, found := g.sig_map_by_user[ctx.AuthInfo.UID]
 		if found {
 			ctxs = utils.SliceRemoveIfIgnoreOrder(ctxs, func(v *SignalContext) bool { return v.Id == id })
 			if len(ctxs) == 0 {
@@ -161,14 +161,25 @@ func (g *Global) CloseSignalContext(id string, disableCloseCallback bool) {
 				g.sig_map_by_user[ctx.AuthInfo.UID] = ctxs
 			}
 		}
-		ctx.Close(disableCloseCallback)
+		ctx.SelfClose(disableCloseCallback)
 	}
 }
 
-func (g *Global) FindSignalContextByUser(uid string) (res []*SignalContext)  {
+func (g *Global) FindSignalContextById(id string) (res *SignalContext) {
 	g.sig_mux.RLock()
 	defer g.sig_mux.RUnlock()
-	ctxs, found := g.sig_map_by_user[uid];
+	ctx, found := g.sig_map[id]
+	if found {
+		return ctx
+	} else {
+		return nil
+	}
+}
+
+func (g *Global) FindSignalContextByUser(uid string) (res []*SignalContext) {
+	g.sig_mux.RLock()
+	defer g.sig_mux.RUnlock()
+	ctxs, found := g.sig_map_by_user[uid]
 	if found {
 		res = append(res, ctxs...)
 	}

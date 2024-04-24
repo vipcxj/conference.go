@@ -112,6 +112,16 @@ interface ErrorMessage extends SignalMessage {
     callFrames?: CallFrame[]
 }
 
+interface ParticipantMessage extends SignalMessage {
+    userId: string
+    userName: string
+}
+
+interface Participant {
+    userId: string
+    userName: string
+}
+
 interface Track {
     type: string;
     pubId: string;
@@ -211,6 +221,7 @@ interface ListenEventMap {
     want: (msg: any) => void;
     state: (msg: any) => void;
     select: (msg: any) => void;
+    participant: (msg: ParticipantMessage) => void;
 }
 
 interface EmitEventMap {
@@ -268,6 +279,7 @@ export class ConferenceClient {
     private emitter: Emittery<EventData>;
     private sdpMsgId: number;
     private negMux: Mutex;
+    private participants: Participant[];
     private _id: string;
 
     constructor(config: Configuration) {
@@ -281,6 +293,7 @@ export class ConferenceClient {
         this.ignoreOffer = false;
         this.pendingCandidates = [];
         this.onTrasksCallbacks = [];
+        this.participants = [];
         this.sdpMsgId = 1;
         this.negMux = new Mutex();
         this.peer = this.createPeer();
@@ -345,6 +358,18 @@ export class ConferenceClient {
                 return
             }
             await this.addCandidate(this.peer, msg);
+        });
+        this.socket.on("participant", (msg: ParticipantMessage, ark?: Ack) => {
+            this.ack(ark);
+            if (!this.participants.some((v) => v.userId == msg.userId)) {
+                this.logger().debug(`accept new participant ${msg.userName} (${msg.userId}).`)
+                this.participants.push({
+                    userId: msg.userId,
+                    userName: msg.userName,
+                });
+            } else {
+                this.logger().debug(`accept repeated participant ${msg.userName} (${msg.userId}).`)
+            }
         });
     }
 

@@ -65,6 +65,10 @@ type StateMessage = proto.StateMessage
 //	}
 type SelectMessage = proto.SelectMessage
 
+type WantParticipantMessage = proto.WantParticipantMessage
+
+type StateParticipantMessage = proto.StateParticipantMessage
+
 type UserMessage = proto.UserMessage
 
 type UserAckMessage = proto.UserAckMessage
