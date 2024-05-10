@@ -121,7 +121,7 @@ export const Video = (pros: VideoProps) => {
         <div className="Video-Container">
             <video className="Video" ref={videoRef} autoPlay controls/>
             <div className="Video-Title">
-                {`${auth.room}, pub: ${publish.labels['uid']}, sub: ${subscribe.labels['uid']}`} <br />
+                {`${auth.room}, pub: ${publish.labels['key']}, sub: ${subscribe.labels['key']}`} <br />
                 {`${client?.id()}`} <br/>
             </div>
         </div>

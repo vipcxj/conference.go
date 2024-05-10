@@ -64,12 +64,12 @@ function App() {
       },
       publish: {
         labels: {
-          uid: `${i + ub}`,
+          key: `${i + ub}`,
         },
       },
       subscribe: {
         labels: {
-          uid: `${ub + ((i + row) % (row * col))}`,
+          key: `${ub + ((i + row) % (row * col))}`,
         },
       },
       signalHost: `http://${config.signalHost || 'localhost'}:${signalPort}`,
