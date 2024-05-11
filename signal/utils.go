@@ -38,28 +38,36 @@ func ErrToMsg(err any, cause string) *ErrorMessage {
 	switch typedErr := err.(type) {
 	case *errors.ConferenceError:
 		return &ErrorMessage{
-			Msg: typedErr.Msg,
-			Fatal: typedErr.Code == errors.ERR_FATAL,
+			Msg:        typedErr.Msg,
+			Fatal:      typedErr.Code == errors.ERR_FATAL,
 			CallFrames: typedErr.CallFrames,
-			Cause: cause,
+			Cause:      cause,
 		}
 	case error:
 		return &ErrorMessage{
-			Msg: typedErr.Error(),
+			Msg:   typedErr.Error(),
 			Cause: cause,
 		}
 	default:
 		return &ErrorMessage{
-			Msg: ErrToString(err),
+			Msg:   ErrToString(err),
 			Cause: cause,
 		}
 	}
 }
 
-func FinallyResponse(s *socket.Socket, ark func([]any, error), arkArgs []any, cause string, onlyErr bool) {
+func ArgsToString(args []any) string {
+	arg_list := strings.Join(utils.MapSlice(args, func(arg any) (mapped string, remove bool) {
+		return fmt.Sprintf("%v", arg), false
+	}), ",")
+	return fmt.Sprintf("[%s]", arg_list)
+}
+
+func FinallyResponse(s *SignalContext, ark func([]any, error), arkArgs []any, cause string, onlyErr bool) {
 	rawErr := recover()
 	if rawErr != nil {
 		if ark != nil {
+			s.Sugar().Debugf("send ack \"%v\" of %v msg", rawErr, cause)
 			switch err := rawErr.(type) {
 			case error:
 				ark(nil, err)
@@ -68,11 +76,16 @@ func FinallyResponse(s *socket.Socket, ark func([]any, error), arkArgs []any, ca
 				ark(nil, e)
 			}
 		} else {
-			FatalErrorAndClose(s, ErrToString(rawErr), cause)
+			FatalErrorAndClose(s.Socket, ErrToString(rawErr), cause)
 		}
 	} else if !onlyErr {
 		if ark != nil {
-			ark(arkArgs, nil)
+			s.Sugar().Debugf("send ack %s of %v msg", ArgsToString(arkArgs), cause)
+			if len(arkArgs) > 0 {
+				ark(arkArgs, nil)
+			} else {
+				ark([]any{"ack"}, nil)
+			}
 		}
 	}
 }

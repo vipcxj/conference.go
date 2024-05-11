@@ -19,7 +19,11 @@ func SocketIOAuthHandler(global *signal.Global) func(*socket.Socket, func(*socke
 			next(nil)
 			return
 		}
-		authData := s.Handshake().Auth.(map[string]interface{})
+		authData, ok := s.Handshake().Auth.(map[string]interface{})
+		if !ok {
+			next(socket.NewExtendedError("Unauthorized", nil))
+			return
+		}
 		tokenAny, ok := authData["token"]
 		if !ok {
 			next(socket.NewExtendedError("Unauthorized", nil))

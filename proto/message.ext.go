@@ -11,11 +11,44 @@ type RoomMessage interface {
 	CopyPlain() RoomMessage
 }
 
-func ToClientMessage(message RoomMessage) RoomMessage {
-	msg := message.CopyPlain()
-	msg.GetRouter().NodeFrom = ""
-	msg.GetRouter().NodeTo = ""
-	return msg
+type CanToMap interface {
+	ToMap() map[string]any
+}
+
+func ToClientMessage(message RoomMessage) any {
+	can_to_map, ok := message.(CanToMap)
+	if ok {
+		msg_map := can_to_map.ToMap()
+		if msg_map != nil {
+			router, ok := msg_map["router"]
+			if ok {
+				router_map, ok := router.(map[string]any)
+				if ok {
+					delete(router_map, "nodeFrom")
+					delete(router_map, "nodeTo")
+				}
+			}
+		}
+		return msg_map
+	} else {
+		msg := message.CopyPlain()
+		msg.GetRouter().NodeFrom = ""
+		msg.GetRouter().NodeTo = ""
+		return msg
+	}
+}
+
+func (x *Router) ToMap() map[string]any {
+	if x == nil {
+		return nil
+	}
+	return map[string]any{
+		"room":     x.GetRoom(),
+		"nodeFrom": x.GetNodeFrom(),
+		"nodeTo":   x.GetNodeTo(),
+		"userFrom": x.GetUserFrom(),
+		"userTo":   x.GetUserTo(),
+	}
 }
 
 func (x *Router) CopyPlain() *Router {
@@ -117,6 +150,17 @@ func (x *StateParticipantMessage) FixRouter(room string, user string, node strin
 		x.Router = &Router{}
 	}
 	fixRouter(x.Router, room, user, node)
+}
+
+func (x *StateParticipantMessage) ToMap() map[string]any {
+	if x == nil {
+		return nil
+	}
+	return map[string]any{
+		"router":   x.GetRouter().ToMap(),
+		"userId":   x.GetUserId(),
+		"userName": x.GetUserName(),
+	}
 }
 
 func (x *StateParticipantMessage) CopyPlain() RoomMessage {

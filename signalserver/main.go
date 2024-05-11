@@ -14,6 +14,7 @@ import (
 	healthchecks "github.com/tavsec/gin-healthcheck/checks"
 	healthconfig "github.com/tavsec/gin-healthcheck/config"
 	"go.uber.org/zap"
+	elog "github.com/zishang520/engine.io/v2/log"
 
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
@@ -24,11 +25,15 @@ import (
 )
 
 func Run(conf *config.ConferenceConfigure, ch chan error) {
+	elog.DEBUG = true
 	if !conf.Signal.Enable {
 		ch <- errors.Ok()
 		return
 	}
 	var err error
+
+	ctx, stop := ossignal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	if conf.Signal.Gin.Debug {
 		gin.SetMode(gin.DebugMode)
@@ -58,7 +63,7 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 		g.Use(gin.Logger())
 	}
 
-	global, err := signal.NewGlobal(conf)
+	global, err := signal.NewGlobal(ctx, conf)
 	if err != nil {
 		ch <- err
 		return
@@ -102,9 +107,6 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 		id := gctx.Param("id")
 		global.CloseSignalContext(id, true)
 	})
-
-	ctx, stop := ossignal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	go global.GetMessager().Run(ctx)
 

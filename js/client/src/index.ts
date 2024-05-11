@@ -88,6 +88,8 @@ interface SignalMessage {
     router?: MessageRouter
 }
 
+interface SetupMessage extends SignalMessage {}
+
 interface SdpMessage extends SignalMessage {
     type: RTCSdpType;
     sdp: string;
@@ -225,10 +227,11 @@ interface ListenEventMap {
 }
 
 interface EmitEventMap {
-    join: (msg: JoinMessage, ark: (res: any) => void) => void;
-    leave: (msg: LeaveMessage, ark: (res: any) => void) => void;
-    subscribe: (msg: SubscribeAddMessage | SubscribeRemoveMessage, ark: (res: SubscribeResultMessage) => void) => void;
-    publish: (msg: PublishAddMessage | PublishRemoveMessage, ark: (res: PublishResultMessage) => void) => void;
+    setup: (msg: SetupMessage, ack: (res: any) => void) => void;
+    join: (msg: JoinMessage, ack: (res: any) => void) => void;
+    leave: (msg: LeaveMessage, ack: (res: any) => void) => void;
+    subscribe: (msg: SubscribeAddMessage | SubscribeRemoveMessage, ack: (res: SubscribeResultMessage) => void) => void;
+    publish: (msg: PublishAddMessage | PublishRemoveMessage, ack: (res: PublishResultMessage) => void) => void;
     sdp: (msg: SdpMessage) => void;
     candidate: (msg: CandidateMessage) => void;
     want: (msg: any) => void;
@@ -464,7 +467,7 @@ export class ConferenceClient {
         return peer;
     }
 
-    private makeSureSocket = async (stopEmitter?: Emittery<StopEmitEventMap>) => {
+    private makeSureSocket = async (timeout: number, stopEmitter?: Emittery<StopEmitEventMap>) => {
         if (this.socket.connected) {
             this.logger().debug('already connected.');
             return;
@@ -484,6 +487,7 @@ export class ConferenceClient {
             throw new Error(data.reason);
         } else {
             this.logger().info("socket connected.");
+            await this.socket.timeout(timeout).emitWithAck("setup", {});
         }
     }
 
@@ -537,16 +541,16 @@ export class ConferenceClient {
         }
     }
 
-    join = async (...rooms: string[]) => {
-        await this.makeSureSocket();
-        const res = await this.socket.emitWithAck('join', {
+    join = async (timeout: number, ...rooms: string[]) => {
+        await this.makeSureSocket(timeout);
+        await this.socket.timeout(timeout).emitWithAck('join', {
             rooms,
         });
     }
 
-    leave = async (...rooms: string[]) => {
-        await this.makeSureSocket();
-        await this.socket.emitWithAck('leave', {
+    leave = async (timeout: number, ...rooms: string[]) => {
+        await this.makeSureSocket(timeout);
+        await this.socket.timeout(timeout).emitWithAck('leave', {
             rooms,
         });
     }
@@ -744,6 +748,9 @@ export class ConferenceClient {
     }
 
     publish = async (stream: LocalStream, timeout: number = 0) => {
+        if (timeout <= 0) {
+            timeout = 12000;
+        }
         const cleaner = {
             stop: false,
             stopEmitter: new Emittery<StopEmitEventMap>(),
@@ -753,7 +760,7 @@ export class ConferenceClient {
             this.logger().debug('There is another publish or subscribe task running, wait it finished.');
         }
         const task = this.negMux.runExclusive(async () => {
-            await this.makeSureSocket(cleaner.stopEmitter);
+            await this.makeSureSocket(timeout, cleaner.stopEmitter);
             const peer = this.peer;
             this.logger().debug('start publish');
             const tracks: TrackToPublish[] = [];
@@ -960,7 +967,7 @@ export class ConferenceClient {
             this.logger().debug('There is another publish or subscribe task running, wait it finished.');
         }
         const task = this.negMux.runExclusive(async () => {
-            await this.makeSureSocket(cleaner.stopEmitter);
+            await this.makeSureSocket(timeout, cleaner.stopEmitter);
             if (cleaner.stop) {
                 return {
                     subId: "",

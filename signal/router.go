@@ -294,7 +294,7 @@ func (a *Accepter) Write(buf []byte) error {
 		return io.ErrClosedPipe
 	}
 	for _, sub := range a.subs {
-		sub.ctx.Metrics().OnWebrtcRtpWrite(sub.ctx, len(buf))
+		sub.sctx.Metrics().OnWebrtcRtpWrite(sub.sctx, len(buf))
 	}
 	_, err := a.track.Write(buf)
 	return err
@@ -330,10 +330,10 @@ var ROUTER *Router = &Router{}
 
 func NewRouter(global *Global) (*Router, error) {
 	router := &Router{
-		global: global,
-		track2transports: haxmap.New[string, *haxmap.Map[string, int]](),
-		track2accepters: haxmap.New[string, *Accepter](),
-		addrMap: haxmap.New[string, string](),
+		global:             global,
+		track2transports:   haxmap.New[string, *haxmap.Map[string, int]](),
+		track2accepters:    haxmap.New[string, *Accepter](),
+		addrMap:            haxmap.New[string, string](),
 		externalTransports: map[string]*net.UDPConn{},
 	}
 	id, err := uuid.NewRandom()

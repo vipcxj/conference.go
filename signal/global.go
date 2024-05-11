@@ -8,10 +8,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.uber.org/zap"
 )
 
 type Node struct {
@@ -84,14 +86,18 @@ type Global struct {
 	sig_map_by_user map[string][]*SignalContext
 	sig_mux         sync.RWMutex
 	conf            *config.ConferenceConfigure
+	ctx             context.Context
+	cancel          context.CancelCauseFunc
 	promReg         *prometheus.Registry
 	router          *Router
 	messager        *Messager
 	metrics         *Metrics
 	mongo           *Mongo
+	logger          *zap.Logger
+	sugar           *zap.SugaredLogger
 }
 
-func NewGlobal(conf *config.ConferenceConfigure) (*Global, error) {
+func NewGlobal(ctx context.Context, conf *config.ConferenceConfigure) (*Global, error) {
 	reg := prometheus.NewRegistry()
 	promConf := conf.GetProm()
 	if promConf.Enable {
@@ -100,9 +106,15 @@ func NewGlobal(conf *config.ConferenceConfigure) (*Global, error) {
 			reg.MustRegister(collectors.NewGoCollector())
 		}
 	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	logger := log.Logger().With(zap.String("tag", "global"))
 	global := &Global{
 		promReg: reg,
 		conf:    conf,
+		ctx:     ctx,
+		cancel:  cancel,
+		logger:  logger,
+		sugar:   log.Sugar(),
 	}
 	router, err := NewRouter(global)
 	if err != nil {
@@ -126,6 +138,14 @@ func NewGlobal(conf *config.ConferenceConfigure) (*Global, error) {
 	}
 	global.mongo = mongo
 	return global, nil
+}
+
+func (g *Global) Logger() *zap.Logger {
+	return g.logger
+}
+
+func (g *Global) Sugar() *zap.SugaredLogger {
+	return g.sugar
 }
 
 func (g *Global) RegisterSignalContext(ctx *SignalContext) {

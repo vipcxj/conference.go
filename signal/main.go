@@ -1,7 +1,6 @@
 package signal
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
@@ -73,17 +72,26 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		ctx.Metrics().OnSignalConnectClose(ctx)
 		reason := args[0].(string)
 		ctx.Sugar().Infof("socket disconnect because %s", reason)
-		if reason != "ping timeout" {
-			go func() {
-				ctx.Sugar().Infof("close the socket")
-				ctx.Close()
-			}()
+		go func() {
+			ctx.Sugar().Infof("close the socket")
+			ctx.Close()
+		}()
+	})
+	s.On("setup", func(args ...any) {
+		ctx.Sugar().Debugf("receive setup msg")
+		msg := SetupMessage{}
+		ark, err := parseArgs(&msg, args...)
+		defer FinallyResponse(ctx, ark, nil, "setup", false)
+		if err != nil {
+			panic(err)
 		}
+		go ctx.MarkSetup()
 	})
 	s.On("join", func(args ...any) {
+		ctx.Sugar().Debugf("receive join msg")
 		msg := JoinMessage{}
 		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "join", false)
+		defer FinallyResponse(ctx, ark, nil, "join", false)
 		if err != nil {
 			panic(err)
 		}
@@ -93,18 +101,20 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		}
 	})
 	s.On("leave", func(args ...any) {
+		ctx.Sugar().Debugf("receive leave msg")
 		msg := LeaveMessage{}
 		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "leave", false)
+		defer FinallyResponse(ctx, ark, nil, "leave", false)
 		if err != nil {
 			panic(err)
 		}
 		ctx.LeaveRoom(msg.Rooms...)
 	})
 	s.On("sdp", func(args ...any) {
+		ctx.Sugar().Debugf("receive sdp msg")
 		msg := SdpMessage{}
 		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "sdp", true)
+		defer FinallyResponse(ctx, ark, nil, "sdp", true)
 		if err != nil {
 			panic(err)
 		}
@@ -114,7 +124,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		}
 		ctx.Sugar().Infof("accept %s sdp msg with id %d", msg.Type, msg.Mid)
 		go func() {
-			defer FinallyResponse(ctx.Socket, ark, nil, "sdp", false)
+			defer FinallyResponse(ctx, ark, nil, "sdp", false)
 			locked := ctx.neg_mux.TryLock()
 			if locked {
 				ctx.Sugar().Debug("neg mux locked")
@@ -159,9 +169,10 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		}()
 	})
 	s.On("candidate", func(args ...any) {
+		ctx.Sugar().Debugf("receive candidate msg")
 		msg := CandidateMessage{}
 		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx.Socket, ark, nil, "candidate", false)
+		defer FinallyResponse(ctx, ark, nil, "candidate", false)
 		if err != nil {
 			panic(err)
 		}
@@ -186,64 +197,74 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		}
 	})
 	s.On("publish", func(args ...any) {
+		ctx.Sugar().Debugf("receive publish msg")
 		msg := PublishMessage{}
 		ark, err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx.Socket, ark, arkArgs, "publish", false)
+		defer FinallyResponse(ctx, ark, arkArgs, "publish", true)
 		if err != nil {
 			panic(err)
 		}
-		pubId, err := ctx.Publish(&msg)
-		if err != nil {
-			panic(err)
-		}
-		arkArgs[0] = &PublishResultMessage{
-			Id: pubId,
-		}
+		go func() {
+			defer FinallyResponse(ctx, ark, arkArgs, "publish", false)
+			pubId, err := ctx.Publish(&msg)
+			if err != nil {
+				panic(err)
+			}
+			arkArgs[0] = &PublishResultMessage{
+				Id: pubId,
+			}
+		}()
 	})
 	s.On("subscribe", func(args ...any) {
+		ctx.Sugar().Debugf("receive subscribe msg")
 		msg := SubscribeMessage{}
 		ark, err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx.Socket, ark, arkArgs, "subscribe", false)
+		defer FinallyResponse(ctx, ark, arkArgs, "subscribe", true)
 		if err != nil {
 			panic(err)
 		}
-		subId, err := ctx.Subscribe(&msg)
-		if err != nil {
-			panic(err)
-		}
-		arkArgs[0] = &SubscribeResultMessage{
-			Id: subId,
-		}
+		go func() {
+			defer FinallyResponse(ctx, ark, arkArgs, "subscribe", false)
+			subId, err := ctx.Subscribe(&msg)
+			if err != nil {
+				panic(err)
+			}
+			arkArgs[0] = &SubscribeResultMessage{
+				Id: subId,
+			}	
+		}()
 	})
 	s.On("user", func(args ...any) {
+		ctx.Sugar().Debugf("receive user msg")
 		msg := UserMessage{}
 		ark, err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx.Socket, ark, arkArgs, "user", false)
+		defer FinallyResponse(ctx, ark, arkArgs, "user", false)
 		if err != nil {
 			panic(err)
 		}
-		err = ctx.ClusterEmit(context.TODO(), &msg)
+		err = ctx.ClusterEmit(&msg)
 		if err != nil {
 			panic(err)
 		}
 	})
 	s.On("user-ack", func(args ...any) {
+		ctx.Sugar().Debugf("receive user-ack msg")
 		msg := UserAckMessage{}
 		ark, err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx.Socket, ark, arkArgs, "user", false)
+		defer FinallyResponse(ctx, ark, arkArgs, "user", false)
 		if err != nil {
 			panic(err)
 		}
-		err = ctx.ClusterEmit(context.TODO(), &msg)
+		err = ctx.ClusterEmit(&msg)
 		if err != nil {
 			panic(err)
 		}
 	})
-	ctx.ClusterEmit(context.TODO(), &WantParticipantMessage{})
+	ctx.ClusterEmit(&WantParticipantMessage{})
 	ctx.Sugar().Debugf("the signal context initialized")
 	return ctx, nil
 }
