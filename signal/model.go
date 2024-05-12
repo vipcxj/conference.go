@@ -742,6 +742,33 @@ func (te timeoutError) Error() string {
 // 	Name string
 // }
 
+type emitProxy struct {
+	ack     bool
+	ackFunc AckFunc
+	evt     string
+	args    []any
+	err     error
+	timeout time.Duration
+}
+
+func newCommonEmit(timeout time.Duration, evt string, args []any) *emitProxy {
+	return &emitProxy{
+		ack: false,
+		evt: evt,
+		args: args,
+		timeout: timeout,
+	}
+}
+
+func newAckEmit(ackFunc AckFunc, err error, args []any) *emitProxy {
+	return &emitProxy{
+		ack: true,
+		ackFunc: ackFunc,
+		args: args,
+		err: err,
+	}
+}
+
 type SignalContext struct {
 	Id                string
 	Global            *Global
@@ -753,6 +780,9 @@ type SignalContext struct {
 	setup_ch          chan interface{}
 	setup             bool
 	setup_mux         sync.Mutex
+	msg_ch            chan *emitProxy
+	msg_mux           sync.Mutex
+	msg_closed        bool
 	rooms             []string
 	rooms_mux         sync.RWMutex
 	pendingCandidates []*CandidateMessage
@@ -786,6 +816,8 @@ func newSignalContext(global *Global, socket *socket.Socket, authInfo *auth.Auth
 		cancel:        cancel,
 		setup:         false,
 		setup_ch:      make(chan interface{}),
+		msg_ch:        make(chan *emitProxy),
+		msg_closed:    false,
 		subscriptions: haxmap.New[string, *Subscription](),
 		publications:  haxmap.New[string, *Publication](),
 		logger:        logger,
@@ -860,6 +892,35 @@ func (ctx *SignalContext) WaitSetup() bool {
 	}
 }
 
+func (sctx *SignalContext) socketMsg(timeout time.Duration, evt string, args []any) {
+	sctx.msg_ch <- newCommonEmit(timeout, evt, args)
+}
+
+func (sctx *SignalContext) socketAck(ackFunc AckFunc, err error, args []any) {
+	sctx.msg_ch <- newAckEmit(ackFunc, err, args)
+}
+
+func (sctx *SignalContext) socketMsgLoop() {
+	for {
+		select {
+		case <- sctx.ctx.Done():
+			return
+		case msg_proxy := <- sctx.msg_ch:
+			if msg_proxy.ack {
+				msg_proxy.ackFunc(msg_proxy.args, msg_proxy.err)
+			} else {
+				var socket *socket.Socket
+				if msg_proxy.timeout > 0 {
+					socket = sctx.Socket.Timeout(msg_proxy.timeout)
+				} else {
+					socket = sctx.Socket
+				}
+				socket.Emit(msg_proxy.evt, msg_proxy.args...)
+			}
+		}
+	}
+}
+
 func (sctx *SignalContext) clusterEmit(message RoomMessage) {
 	for _, room := range sctx.Rooms() {
 		msg_copy := message.CopyPlain()
@@ -882,10 +943,6 @@ type resWithError struct {
 }
 
 func (ctx *SignalContext) _emit(retries int, resCh chan *resWithError, cb func(re *resWithError), timeout time.Duration, ev string, args ...any) error {
-	socket := ctx.Socket
-	if timeout > 0 {
-		socket = socket.Timeout(timeout)
-	}
 	o_args := args
 	args = append(args, func(res []any, err error) {
 		if err != nil {
@@ -925,7 +982,8 @@ func (ctx *SignalContext) _emit(retries int, resCh chan *resWithError, cb func(r
 			}
 		}
 	})
-	return socket.Emit(ev, args...)
+	ctx.socketMsg(timeout, ev, args)
+	return nil
 }
 
 func (ctx *SignalContext) emit(ev string, args ...any) error {

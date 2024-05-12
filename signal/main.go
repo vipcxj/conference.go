@@ -35,6 +35,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 
 	ctx.inited = true
 	defer ctx.inited_mux.Unlock()
+	ctx.socketMsgLoop()
 	auth := ctx.AuthInfo
 	if auth == nil {
 		return ctx, errors.ThisIsImpossible().GenCallStacks(0)

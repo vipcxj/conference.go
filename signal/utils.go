@@ -15,6 +15,8 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
+type AckFunc = func([]any, error)
+
 func FatalErrorAndClose(s *socket.Socket, err any, cause string) {
 	err_msg := ErrToMsg(err, cause)
 	err_msg.Fatal = true
@@ -63,34 +65,38 @@ func ArgsToString(args []any) string {
 	return fmt.Sprintf("[%s]", arg_list)
 }
 
-func FinallyResponse(s *SignalContext, ark func([]any, error), arkArgs []any, cause string, onlyErr bool) {
+func FinallyResponse(s *SignalContext, ack AckFunc, arkArgs []any, cause string, onlyErr bool) {
 	rawErr := recover()
 	if rawErr != nil {
-		if ark != nil {
+		if ack != nil {
 			s.Sugar().Debugf("send ack \"%v\" of %v msg", rawErr, cause)
 			switch err := rawErr.(type) {
 			case error:
-				ark(nil, err)
+				// ack(nil, err)
+				s.socketAck(ack, err, nil)
 			default:
 				e := errors.FatalError("%v", rawErr)
-				ark(nil, e)
+				// ack(nil, e)
+				s.socketAck(ack, e, nil)
 			}
 		} else {
 			FatalErrorAndClose(s.Socket, ErrToString(rawErr), cause)
 		}
 	} else if !onlyErr {
-		if ark != nil {
+		if ack != nil {
 			s.Sugar().Debugf("send ack %s of %v msg", ArgsToString(arkArgs), cause)
 			if len(arkArgs) > 0 {
-				ark(arkArgs, nil)
+				// ack(arkArgs, nil)
+				s.socketAck(ack, nil, arkArgs)
 			} else {
-				ark([]any{"ack"}, nil)
+				// ack([]any{"ack"}, nil)
+				s.socketAck(ack, nil, []any{"ack"})
 			}
 		}
 	}
 }
 
-func parseArgs[R any, PR *R](out PR, args ...any) (func([]any, error), error) {
+func parseArgs[R any, PR *R](out PR, args ...any) (AckFunc, error) {
 	if len(args) == 0 {
 		if out == nil {
 			return nil, nil
@@ -99,9 +105,9 @@ func parseArgs[R any, PR *R](out PR, args ...any) (func([]any, error), error) {
 		}
 	}
 	last := args[len(args)-1]
-	var ark func([]any, error) = nil
+	var ark AckFunc = nil
 	if reflect.TypeOf(last).Kind() == reflect.Func {
-		ark = last.(func([]any, error))
+		ark = last.(AckFunc)
 		args = args[0 : len(args)-1]
 	}
 	if len(args) == 0 {
