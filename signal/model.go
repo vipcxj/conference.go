@@ -781,8 +781,6 @@ type SignalContext struct {
 	setup             bool
 	setup_mux         sync.Mutex
 	msg_ch            chan *emitProxy
-	msg_mux           sync.Mutex
-	msg_closed        bool
 	rooms             []string
 	rooms_mux         sync.RWMutex
 	pendingCandidates []*CandidateMessage
@@ -817,7 +815,6 @@ func newSignalContext(global *Global, socket *socket.Socket, authInfo *auth.Auth
 		setup:         false,
 		setup_ch:      make(chan interface{}),
 		msg_ch:        make(chan *emitProxy),
-		msg_closed:    false,
 		subscriptions: haxmap.New[string, *Subscription](),
 		publications:  haxmap.New[string, *Publication](),
 		logger:        logger,
