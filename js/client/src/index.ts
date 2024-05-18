@@ -14,7 +14,7 @@ import { off } from "process";
 export const PT = PATTERN;
 
 export class TimeOutError extends Error {
-    cleaned: boolean
+    cleaned: boolean;
 
     constructor() {
         super();
@@ -25,12 +25,23 @@ export class TimeOutError extends Error {
 
 export class ServerError extends Error {
 
-    data: ErrorMessage
+    data: ErrorMessage;
 
     constructor(msg: ErrorMessage) {
         super(msg.msg);
         Object.setPrototypeOf(this, ServerError.prototype);
         this.data = msg;
+    }
+}
+
+export class SocketCloseError extends Error {
+
+    reason: string;
+
+    constructor(reason: string) {
+        super(reason);
+        Object.setPrototypeOf(this, SocketCloseError.prototype);
+        this.reason = reason;
     }
 }
 
@@ -304,8 +315,8 @@ export class ConferenceClient {
             },
             path,
             autoConnect: false,
-            reconnection: true,
-            reconnectionDelay: 500,
+            reconnection: false,
+            // reconnectionDelay: 500,
             rememberUpgrade: true,
         });
         this.socket.on('connect', () => {
@@ -360,7 +371,7 @@ export class ConferenceClient {
         });
         this.socket.on("participant", (msg: ParticipantMessage, ark?: Ack) => {
             this.ack(ark);
-            if (!this.participants.some((v) => v.userId == msg.userId)) {
+            if (!this.participants.some((v) => v.userId === msg.userId)) {
                 this.logger().debug(`accept new participant ${msg.userName} (${msg.userId}).`)
                 this.participants.push({
                     userId: msg.userId,
@@ -488,7 +499,7 @@ export class ConferenceClient {
 
     private addCandidate = async (peer: RTCPeerConnection, msg: CandidateMessage) => {
         try {
-            if (msg.op == "end") {
+            if (msg.op === "end") {
                 this.logger().log(`Received candidate completed`);
                 await peer.addIceCandidate();
             } else {
@@ -508,7 +519,7 @@ export class ConferenceClient {
         } else {
             const transceivers = peer.getTransceivers();
             const pos = transceivers.indexOf(transceiver);
-            if (pos == -1) {
+            if (pos === -1) {
                 throw new Error("This is impossible.");
             }
             return `pos:${pos}`;
@@ -528,7 +539,7 @@ export class ConferenceClient {
             return transceivers[pos];
         } else {
             for (const t of transceivers) {
-                if (t.mid == bindId) {
+                if (t.mid === bindId) {
                     return t;
                 }
             }
@@ -624,10 +635,18 @@ export class ConferenceClient {
         }
     };
 
-    private negotiate = async (sdpId: number, active: boolean, sdpEvts: AsyncIterableIterator<NamedEvent<'sdp', SdpMessage>> | null = null, stopEvts: AsyncIterableIterator<NamedEvent<'stop', undefined>> | null = null, localStreamConstraints: StreamConstraint[] = []) => {
+    private negotiate = async (
+        sdpId: number, 
+        active: boolean, 
+        sdpEvts: AsyncIterableIterator<NamedEvent<'sdp', SdpMessage>> | null = null, 
+        stopEvts: AsyncIterableIterator<
+            NamedEvent<'stop', undefined> | NamedEvent<'disconnect', SocketConnectState> | NamedEvent<'error', ErrorMessage>
+        > | null = null, 
+        localStreamConstraints: StreamConstraint[] = []
+    ) => {
         const peer = this.peer;
         await this.waitForNotConnecting();
-        if (peer.connectionState == 'closed') {
+        if (peer.connectionState === 'closed') {
             throw ERR_PEER_CLOSED;
         }
         if (active) {
@@ -657,8 +676,8 @@ export class ConferenceClient {
                 let sdpMsg: SdpMessage;
                 for await (const evt of evts) {
                     if (evt.name === 'sdp') {
-                        if (evt.data.mid == sdpId) {
-                            if (evt.data.type == 'answer' || evt.data.type == 'pranswer') {
+                        if (evt.data.mid === sdpId) {
+                            if (evt.data.type === 'answer' || evt.data.type === 'pranswer') {
                                 this.logger().debug(`receive remote ${evt.data.type} sdp`);
                                 sdpMsg = evt.data;
                                 break;
@@ -669,6 +688,12 @@ export class ConferenceClient {
                     } else if (evt.name === 'stop') {
                         evts.return();
                         throw new TimeOutError();
+                    } else if (evt.name === 'disconnect') {
+                        evts.return();
+                        throw new SocketCloseError(evt.data.reason);
+                    } else if (evt.name === 'error' && evt.data.fatal) {
+                        evts.return();
+                        throw new ServerError(evt.data);
                     }
                 }
                 this.logger().debug('set remote desc');
@@ -683,7 +708,7 @@ export class ConferenceClient {
                     await this.addCandidate(peer, pending);
                 }
                 this.pendingCandidates = [];
-                if (sdpMsg.type == 'answer') {
+                if (sdpMsg.type === 'answer') {
                     await evts.return();
                     this.logger().debug('the remote desc is answer, so break out');
                     break;
@@ -697,7 +722,7 @@ export class ConferenceClient {
             let sdpMsg: SdpMessage;
             for await (const evt of evts) {
                 if (evt.name === 'sdp') {
-                    if (evt.data.mid == sdpId) {
+                    if (evt.data.mid === sdpId) {
                         if (evt.data.type === 'offer') {
                             this.logger().debug(`receive remote ${evt.data.type} sdp`);
                             sdpMsg = evt.data;
@@ -710,6 +735,12 @@ export class ConferenceClient {
                 } else if (evt.name === 'stop') {
                     await evts.return();
                     throw new TimeOutError();
+                } else if (evt.name === 'disconnect') {
+                    evts.return();
+                    throw new SocketCloseError(evt.data.reason);
+                } else if (evt.name === 'error' && evt.data.fatal) {
+                    evts.return();
+                    throw new ServerError(evt.data);
                 }
             }
             this.logger().debug('set remote desc');
@@ -775,7 +806,7 @@ export class ConferenceClient {
                 senders.push(transceiver.sender);
                 this.logger().debug(`add track ${JSON.stringify(t)}`);
             }
-            if (tracks.length == 0) {
+            if (tracks.length === 0) {
                 return "";
             }
             const cleanTracks = () => {
@@ -816,14 +847,17 @@ export class ConferenceClient {
                 await cleanAll();
                 return "";  
             }
-            const evts = combineAsyncIterable([this.emitter.events(['published', 'connectState', 'error']), stopEvt]);
+            const evts = combineAsyncIterable([this.emitter.events(['published', 'connectState', 'disconnect', 'error']), stopEvt]);
             try {
-                stopEvt = cleaner.stopEmitter.events('stop');
                 if (cleaner.stop) {
                     await cleanAll();
                     return "";  
                 }
-                await this.negotiate(sdpId, true, null, stopEvt, stream.constraints);
+                await this.negotiate(
+                    sdpId, true, null, 
+                    combineAsyncIterable([this.emitter.events(['disconnect', 'error']), cleaner.stopEmitter.events('stop')]), 
+                    stream.constraints
+                );
             } catch (e) {
                 await cleanAll();
                 throw e;
@@ -847,14 +881,18 @@ export class ConferenceClient {
                     await cleanAll();
                     this.logger().debug('receive timeout msg, so return.');
                     return ""
+                } else if (evt.name === 'disconnect') {
+                    await evts.return();
+                    await cleanAll();
+                    throw new SocketCloseError(evt.data.reason);
                 } else if (evt.name === 'error') {
                     await evts.return();
                     await cleanAll();
                     throw new ServerError(evt.data);
                 } else {
-                    if (evt.data.track.pubId == pubId) {
+                    if (evt.data.track.pubId === pubId) {
                         const t = this.findTransceiverByBindId(evt.data.track.bindId);
-                        if (t == null) {
+                        if (t === null) {
                             this.logger().error('receive a unknown published track');
                             await evts.return();
                             await cleanAll();
@@ -868,7 +906,7 @@ export class ConferenceClient {
                         }
                         this.logger().debug(`track ${t.sender.track.id} is published`);
                         pubNum++;
-                        if (pubNum == tracks.length) {
+                        if (pubNum === tracks.length) {
                             await evts.return();
                             break;
                         }
@@ -942,7 +980,7 @@ export class ConferenceClient {
         if (track.bindId.startsWith("pos:")) {
             const transceivers = this.peer.getTransceivers();
             const pos = transceivers.indexOf(transceiver);
-            if (pos == -1) {
+            if (pos === -1) {
                 return false;
             } else {
                 return track.bindId === `pos:${pos}`;
@@ -972,9 +1010,9 @@ export class ConferenceClient {
             this.logger().debug('start subscribe');
             const sdpEvts = this.emitter.events('sdp');
             let stopEvt = cleaner.stopEmitter.events('stop');
-            const subEvts = combineAsyncIterable([this.emitter.events(['subscribed', 'error']), stopEvt]);
+            const subEvts = combineAsyncIterable([this.emitter.events(['subscribed', 'error', 'disconnect']), stopEvt]);
             stopEvt = cleaner.stopEmitter.events('stop');
-            const trackOrStateEvts = combineAsyncIterable([this.emitter.events(['track', 'connectState', 'error']), stopEvt]);
+            const trackOrStateEvts = combineAsyncIterable([this.emitter.events(['track', 'connectState', 'error', 'disconnect']), stopEvt]);
             this.logger().debug('send sub msg');
             let subId: string = '';
             try {
@@ -1004,7 +1042,7 @@ export class ConferenceClient {
             let subedMsg: SubscribedMessage;
             for await (const subEvt of subEvts) {
                 if (subEvt.name === 'subscribed') {
-                    if (subEvt.data.subId == subId) {
+                    if (subEvt.data.subId === subId) {
                         subedMsg = subEvt.data;
                         subEvts.return();
                         break;
@@ -1017,6 +1055,10 @@ export class ConferenceClient {
                         subId: "",
                         stream: undefined as MediaStream,
                     };
+                } else if (subEvt.name === 'disconnect') {
+                    subEvts.return();
+                    await clean();
+                    throw new SocketCloseError(subEvt.data.reason);
                 } else {
                     if (subEvt.data.fatal) {
                         subEvts.return();
@@ -1028,7 +1070,6 @@ export class ConferenceClient {
             const { tracks, sdpId } = subedMsg;
             this.logger().debug(`accept subed msg with sub id ${subedMsg.subId}`)
             try {
-                stopEvt = cleaner.stopEmitter.events('stop');
                 if (cleaner.stop) {
                     await clean();
                     return {
@@ -1036,7 +1077,10 @@ export class ConferenceClient {
                         stream: undefined as MediaStream,
                     };
                 }
-                await this.negotiate(sdpId, false, sdpEvts, stopEvt);
+                await this.negotiate(sdpId, false, sdpEvts, combineAsyncIterable([
+                    this.emitter.events(['error', 'disconnect']), 
+                    cleaner.stopEmitter.events('stop')
+                ]));
             } catch (e) {
                 await clean();
                 throw e;
@@ -1062,19 +1106,24 @@ export class ConferenceClient {
                         }
                     }
                 } else if (evt.name === 'stop') {
+                    this.logger().debug('receive timeout msg, so return.');
                     trackOrStateEvts.return();
                     await clean();
                     return {
                         subId: "",
                         stream: undefined as MediaStream,
                     };
+                } else if (evt.name === 'disconnect') {
+                    subEvts.return();
+                    await clean();
+                    throw new SocketCloseError(evt.data.reason);
                 } else {
                     if (evt.data.fatal) {
                         trackOrStateEvts.return();
                         throw new ServerError(evt.data);
                     }
                 }
-                if (resolved.length == tracks.length) {
+                if (resolved.length === tracks.length) {
                     trackOrStateEvts.return();
                     break
                 }
