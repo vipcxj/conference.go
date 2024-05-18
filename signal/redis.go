@@ -140,7 +140,7 @@ func MakeRedisClient(redisConfig config.RedisConfigure) (redis.UniversalClient, 
 	if clusterOpts != nil {
 		addrs = clusterOpts.Addrs
 	} else {
-		for addr, _ := range addrsMap {
+		for addr := range addrsMap {
 			addrs = append(addrs, addr)
 		}
 	}
