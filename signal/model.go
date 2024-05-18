@@ -777,9 +777,6 @@ type SignalContext struct {
 	Peer              *webrtc.PeerConnection
 	ctx               context.Context
 	cancel            context.CancelCauseFunc
-	setup_ch          chan interface{}
-	setup             bool
-	setup_mux         sync.Mutex
 	msg_ch            chan *emitProxy
 	rooms             []string
 	rooms_mux         sync.RWMutex
@@ -812,8 +809,6 @@ func newSignalContext(global *Global, socket *socket.Socket, authInfo *auth.Auth
 		AuthInfo:      authInfo,
 		ctx:           ctx,
 		cancel:        cancel,
-		setup:         false,
-		setup_ch:      make(chan interface{}),
 		msg_ch:        make(chan *emitProxy),
 		subscriptions: haxmap.New[string, *Subscription](),
 		publications:  haxmap.New[string, *Publication](),
@@ -858,35 +853,6 @@ func (ctx *SignalContext) NextSdpMsgId() int {
 
 func (ctx *SignalContext) CurrentSdpMsgId() int {
 	return int(ctx.sdpMsgId.Load())
-}
-
-func (ctx *SignalContext) MarkSetup() {
-	if ctx.setup {
-		ctx.Sugar().Debugf("have setup, pass")
-		return
-	}
-	ctx.setup_mux.Lock()
-	defer ctx.setup_mux.Unlock()
-	if ctx.setup {
-		ctx.Sugar().Debugf("have setup, pass")
-		return
-	}
-	ctx.Sugar().Debugf("setting up")
-	ctx.setup = true
-	close(ctx.setup_ch)
-	ctx.Sugar().Debugf("set up completed")
-}
-
-func (ctx *SignalContext) WaitSetup() bool {
-	if ctx.setup {
-		return true
-	}
-	select {
-	case <-ctx.ctx.Done():
-		return false
-	case <-ctx.setup_ch:
-		return true
-	}
 }
 
 func (sctx *SignalContext) socketMsg(timeout time.Duration, evt string, args []any) {
@@ -984,9 +950,6 @@ func (ctx *SignalContext) _emit(retries int, resCh chan *resWithError, cb func(r
 }
 
 func (ctx *SignalContext) emit(ev string, args ...any) error {
-	if !ctx.WaitSetup() {
-		return errors.SignalContextClosed()
-	}
 	return ctx._emit(0, nil, nil, 0, ev, args...)
 }
 
@@ -995,9 +958,6 @@ func (ctx *SignalContext) Emit(ev string, args ...any) error {
 }
 
 func (ctx *SignalContext) emitWithAck(ev string, args ...any) ([]any, error) {
-	if !ctx.WaitSetup() {
-		return nil, errors.SignalContextClosed()
-	}
 	signalConf := &ctx.Global.Conf().Signal
 	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
 	if timeout <= 0 {
@@ -1038,9 +998,6 @@ func (ctx *SignalContext) MustEmitWithAck(ev string, cause string, args ...any) 
 }
 
 func (ctx *SignalContext) emitWithAckCb(ev string, cb func(res []any, err error), args ...any) error {
-	if !ctx.WaitSetup() {
-		return errors.SignalContextClosed()
-	}
 	signalConf := &ctx.Global.Conf().Signal
 	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
 	if timeout <= 0 {

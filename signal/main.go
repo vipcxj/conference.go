@@ -78,16 +78,6 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			ctx.Close()
 		}()
 	})
-	s.On("setup", func(args ...any) {
-		ctx.Sugar().Debugf("receive setup msg")
-		msg := SetupMessage{}
-		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx, ark, nil, "setup", false)
-		if err != nil {
-			panic(err)
-		}
-		go ctx.MarkSetup()
-	})
 	s.On("join", func(args ...any) {
 		ctx.Sugar().Debugf("receive join msg")
 		msg := JoinMessage{}

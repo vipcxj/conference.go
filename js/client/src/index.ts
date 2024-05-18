@@ -87,9 +87,6 @@ interface MessageRouter {
 interface SignalMessage {
     router?: MessageRouter
 }
-
-interface SetupMessage extends SignalMessage {}
-
 interface SdpMessage extends SignalMessage {
     type: RTCSdpType;
     sdp: string;
@@ -227,7 +224,6 @@ interface ListenEventMap {
 }
 
 interface EmitEventMap {
-    setup: (msg: SetupMessage, ack: (res: any) => void) => void;
     join: (msg: JoinMessage, ack: (res: any) => void) => void;
     leave: (msg: LeaveMessage, ack: (res: any) => void) => void;
     subscribe: (msg: SubscribeAddMessage | SubscribeRemoveMessage, ack: (res: SubscribeResultMessage) => void) => void;
@@ -487,7 +483,6 @@ export class ConferenceClient {
             throw new Error(data.reason);
         } else {
             this.logger().info("socket connected.");
-            await this.socket.timeout(timeout).emitWithAck("setup", {});
         }
     }
 
