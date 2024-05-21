@@ -97,7 +97,7 @@ interface EmitEventMap {
     join: (msg: JoinMessage, ack: (res: any) => void) => void;
     leave: (msg: LeaveMessage, ack: (res: any) => void) => void;
     subscribe: (msg: SubscribeAddMessage | SubscribeRemoveMessage, ack: (res: SubscribeResultMessage) => void) => void;
-    publish: (msg: PublishAddMessage | PublishRemoveMessage, ack: (res: PublishResultMessage) => void) => void;
+    publish: ((msg: PublishAddMessage | PublishRemoveMessage, ack: (res: PublishResultMessage) => void) => void) | ((msg: PublishAddMessage | PublishRemoveMessage) => void);
     sdp: (msg: SdpMessage) => void;
     candidate: (msg: CandidateMessage) => void;
     user: (msg: CustomMessage) => void;
@@ -451,7 +451,7 @@ export class ConferenceClient {
         } : undefined;
         const evts = combineAsyncIterable([this.emitter.events(['customAckMsg', 'disconnect', 'error']), timeouter.stopEvt()]);
         const msgId = this.nextCustomMsgId();
-        await this.socketWithTimeout(timeouter.left()).emit('user', {
+        this.socket.emit('user', {
             msgId,
             content: JSON.stringify(msg),
             router,
@@ -489,9 +489,10 @@ export class ConferenceClient {
                 throw new TimeOutError();
             } else {
                 const msg = evt.data;
-                const content = JSON.parse(msg.content);
+                const content = msg.content ? JSON.parse(msg.content) : undefined;
                 if (checker(content, msg.router?.userFrom, msg.router?.userTo)) {
                     await evts.return();
+                    this.socket.emit('user-ack', { msgId: msg.msgId });
                     return content;
                 }
             }
@@ -770,7 +771,7 @@ export class ConferenceClient {
             }
             const cleanAll = async () => {
                 cleanTracks();
-                await this._unpublish(pubId);
+                await this._unpublish(pubId, false, -1);
             }
             this.logger().debug(`accept publish id ${pubId}`);
             const sdpId = this.nextSdpMsgId();
@@ -878,7 +879,7 @@ export class ConferenceClient {
                     });
                     this.logger().debug('send stop msg.');
                     if (resHandler.pubId) {
-                        await this._unpublish(resHandler.pubId);
+                        await this._unpublish(resHandler.pubId, false, -1);
                     }
                 }
                 throw e;
@@ -888,17 +889,26 @@ export class ConferenceClient {
         }
     };
 
-    private _unpublish = async (pubId: string) => {
-        const res = await this.socket.emitWithAck('publish', {
-            op: PUB_OP_REMOVE,
-            id: pubId,
-        });
-        return res.id !== "";
+    private _unpublish = async (pubId: string, ack: boolean, timeout: number) => {
+        if (ack) {
+            const timeouter = new Timeouter(timeout);
+            const res = await this.socketWithTimeout(timeouter.left()).emitWithAck('publish', {
+                op: PUB_OP_REMOVE,
+                id: pubId,
+            });
+            return res.id !== "";
+        } else {
+            this.socket.emit('publish', {
+                op: PUB_OP_REMOVE,
+                id: pubId,
+            });
+            return true;
+        }
     };
 
-    unpublish = async (pubId: string) => {
+    unpublish = async (pubId: string, timeout: number = -1) => {
         return this.negMux.runExclusive(() => {
-            return this._unpublish(pubId);
+            return this._unpublish(pubId, true, timeout);
         });
     }
 
