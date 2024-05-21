@@ -14,7 +14,7 @@ import (
 	healthchecks "github.com/tavsec/gin-healthcheck/checks"
 	healthconfig "github.com/tavsec/gin-healthcheck/config"
 	"go.uber.org/zap"
-	elog "github.com/zishang520/engine.io/v2/log"
+	_ "github.com/zishang520/engine.io/v2/log"
 
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
@@ -25,7 +25,7 @@ import (
 )
 
 func Run(conf *config.ConferenceConfigure, ch chan error) {
-	elog.DEBUG = true
+	// elog.DEBUG = true
 	if !conf.Signal.Enable {
 		ch <- errors.Ok()
 		return
