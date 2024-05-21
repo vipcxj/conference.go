@@ -171,6 +171,17 @@ func (x *StateParticipantMessage) CopyPlain() RoomMessage {
 	}
 }
 
+func (x *UserMessage) ToMap() map[string]any {
+	if x == nil {
+		return nil
+	}
+	return map[string]any{
+		"router":  x.GetRouter().ToMap(),
+		"content": x.GetContent(),
+		"msgId":   x.GetMsgId(),
+	}
+}
+
 func (x *UserMessage) FixRouter(room string, user string, node string) {
 	if x == nil {
 		return
@@ -186,6 +197,16 @@ func (x *UserMessage) CopyPlain() RoomMessage {
 		Router:  x.GetRouter().CopyPlain(),
 		Content: x.GetContent(),
 		MsgId:   x.GetMsgId(),
+	}
+}
+
+func (x *UserAckMessage) ToMap() map[string]any {
+	if x == nil {
+		return nil
+	}
+	return map[string]any{
+		"router":  x.GetRouter().ToMap(),
+		"msgId":   x.GetMsgId(),
 	}
 }
 
