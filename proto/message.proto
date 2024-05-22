@@ -156,6 +156,8 @@ message UserMessage {
 	string content = 2;
 	// @gotags: mapstructure:"msgId"
 	uint32 msgId = 3;
+	// @gotags: mapstructure:"ack"
+	bool ack = 4;
 }
 
 message UserAckMessage {
