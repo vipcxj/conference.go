@@ -179,6 +179,7 @@ func (x *UserMessage) ToMap() map[string]any {
 		"router":  x.GetRouter().ToMap(),
 		"content": x.GetContent(),
 		"msgId":   x.GetMsgId(),
+		"ack":     x.GetAck(),
 	}
 }
 
@@ -197,6 +198,7 @@ func (x *UserMessage) CopyPlain() RoomMessage {
 		Router:  x.GetRouter().CopyPlain(),
 		Content: x.GetContent(),
 		MsgId:   x.GetMsgId(),
+		Ack:     x.GetAck(),
 	}
 }
 
@@ -205,8 +207,8 @@ func (x *UserAckMessage) ToMap() map[string]any {
 		return nil
 	}
 	return map[string]any{
-		"router":  x.GetRouter().ToMap(),
-		"msgId":   x.GetMsgId(),
+		"router": x.GetRouter().ToMap(),
+		"msgId":  x.GetMsgId(),
 	}
 }
 

@@ -443,7 +443,7 @@ export class ConferenceClient {
         });
     }
 
-    sendCustomMessage = async (msg: any, to?: string, timeout: number = -1) => {
+    sendCustomMessageWithAck = async (msg: any, to?: string, timeout: number = -1) => {
         const timeouter = new Timeouter(timeout);
         await this.makeSureSocket(timeouter.left());
         const router: MessageRouter = to ? {
@@ -455,6 +455,7 @@ export class ConferenceClient {
             msgId,
             content: JSON.stringify(msg),
             router,
+            ack: true,
         });
         for await (const evt of evts) {
             if (evt.name === 'disconnect') {
@@ -471,6 +472,19 @@ export class ConferenceClient {
                 return;
             }
         }
+    };
+
+    sendCustomMessage = (msg: any, to?: string) => {
+        const router: MessageRouter = to ? {
+            userTo: to,
+        } : undefined;
+        const msgId = this.nextCustomMsgId();
+        this.socket.emit('user', {
+            msgId,
+            content: JSON.stringify(msg),
+            router,
+            ack: false,
+        });
     };
 
     waitCustomMessage = async (checker: (msg: any, from?: string, to?: string) => boolean, timeout: number = -1): Promise<any> => {
@@ -492,7 +506,9 @@ export class ConferenceClient {
                 const content = msg.content ? JSON.parse(msg.content) : undefined;
                 if (checker(content, msg.router?.userFrom, msg.router?.userTo)) {
                     await evts.return();
-                    this.socket.emit('user-ack', { msgId: msg.msgId });
+                    if (msg.ack) {
+                        this.socket.emit('user-ack', { msgId: msg.msgId });
+                    }
                     return content;
                 }
             }

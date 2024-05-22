@@ -122,6 +122,7 @@ export interface SubscribedMessage extends SignalMessage {
 export interface CustomMessage extends SignalMessage {
     content: string;
     msgId: number;
+    ack: boolean;
 }
 
 export interface CustomAckMessage extends SignalMessage {
