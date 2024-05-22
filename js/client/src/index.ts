@@ -507,7 +507,12 @@ export class ConferenceClient {
                 if (checker(content, msg.router?.userFrom, msg.router?.userTo)) {
                     await evts.return();
                     if (msg.ack) {
-                        this.socket.emit('user-ack', { msgId: msg.msgId });
+                        this.socket.emit('user-ack', {
+                            router: {
+                                userTo: msg.router?.userFrom,
+                            },
+                            msgId: msg.msgId,
+                        });
                     }
                     return content;
                 }
