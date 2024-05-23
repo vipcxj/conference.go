@@ -36,9 +36,10 @@ import { getLogger } from './log';
 import { combineAsyncIterable } from "./async";
 import { Timeouter, TimeoutHandler, makeTimeoutPromise, stopTimeoutHandler, StopEmitEventMap } from './timeout';
 import { NamedEvent } from './types';
-import { off } from "process";
 
 export const PT = PATTERN;
+export type { Track } from './message';
+export { TimeOutError, ServerError, SocketCloseError } from './errors';
 
 function splitUrl(url: string) {
     const spos = url.indexOf('://');
@@ -54,33 +55,33 @@ function splitUrl(url: string) {
     }
 }
 
-interface StreamConstraint {
+export interface StreamConstraint {
     type?: string;
     codec?: {
         profileLevelId?: string;
     };
 }
 
-interface LocalStream {
+export interface LocalStream {
     stream: MediaStream;
     labels?: Labels;
     constraints?: StreamConstraint[];
 }
 
-interface Participant {
+export interface Participant {
     userId: string
     userName: string
 }
 
 type Ack = (...args: any[]) => any;
 
-interface TrackEvent {
+export interface TrackEvent {
     tracks: Track[];
     add: Track[];
     remove: Track[];
 }
 
-type OnTrack = (tracks: TrackEvent) => any;
+export type OnTrack = (tracks: TrackEvent) => any;
 
 interface ListenEventMap {
     subscribed: (msg: SubscribedMessage) => void;
@@ -538,14 +539,6 @@ export class ConferenceClient {
             'connectState',
             (evt) => evt.data !== 'connecting',
             () => this.peer.connectionState !== 'connecting',
-        );
-    };
-
-    private waitForStableConnectionState = async () => {
-        return await this.waitForEvt(
-            'connectState',
-            (evt) => evt.data === 'failed' || evt.data === 'closed' || evt.data === 'connected',
-            () => this.peer.connectionState === 'failed' || this.peer.connectionState  === 'closed' || this.peer.connectionState === 'connected',
         );
     };
 
