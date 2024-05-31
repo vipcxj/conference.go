@@ -2,6 +2,7 @@ package signal
 
 import (
 	"net/http"
+	nu "net/url"
 	"strconv"
 
 	"github.com/valyala/fasttemplate"
@@ -9,7 +10,7 @@ import (
 
 type ConferenceCallback struct {
 	name string
-	url string
+	url  string
 }
 
 func NewConferenceCallback(name string, template string, ctx *SignalContext) *ConferenceCallback {
@@ -18,16 +19,18 @@ func NewConferenceCallback(name string, template string, ctx *SignalContext) *Co
 	if template != "" {
 		urlTemplate := fasttemplate.New(template, "{{", "}}")
 		url = urlTemplate.ExecuteString(map[string]interface{}{
-			"key":           authInfo.Key,
-			"uid":           authInfo.UID,
-			"uname":         authInfo.UName,
+			"key":           nu.QueryEscape(authInfo.Key),
+			"uid":           nu.QueryEscape(authInfo.UID),
+			"uname":         nu.QueryEscape(authInfo.UName),
 			"nonce":         strconv.FormatInt(int64(authInfo.Nonce), 10),
-			"closeCallback": CloseCallback(ctx.Global.Conf(), ctx.Id),
+			"usage":         nu.QueryEscape(authInfo.Usage),
+			"role":          nu.QueryEscape(authInfo.Role),
+			"closeCallback": nu.QueryEscape(CloseCallback(ctx.Global.Conf(), ctx.Id)),
 		})
 	}
 	return &ConferenceCallback{
 		name: name,
-		url: url,
+		url:  url,
 	}
 }
 
@@ -38,10 +41,10 @@ func (me *ConferenceCallback) Call(ctx *SignalContext) (int, error) {
 	}
 	resp, err := http.Get(me.url)
 	if err != nil {
-		ctx.Sugar().Warnf("callback %s invoked failed, %v", me.name, err)
+		ctx.Sugar().Warnf("callback %s:%s invoked failed, %v", me.name, me.url, err)
 		return 0, err
 	} else {
-		ctx.Sugar().Debugf("callback %s return status code %d", me.name, resp.StatusCode)
+		ctx.Sugar().Debugf("callback %s:%s return status code %d", me.name, me.url, resp.StatusCode)
 	}
 	return resp.StatusCode, nil
 }

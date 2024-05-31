@@ -3,6 +3,8 @@ package signal
 import (
 	"fmt"
 	"net/http"
+	nu "net/url"
+	"strings"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/config"
@@ -13,7 +15,7 @@ import (
 const CLOSE_CALLBACK_PREFIX = "/conference/close"
 
 func CloseCallback(conf *config.ConferenceConfigure, id string) string {
-	return fmt.Sprintf("%v%v/%v", conf.SignalExternalAddress(), CLOSE_CALLBACK_PREFIX, id)
+	return fmt.Sprintf("%v%v/%v", conf.SignalExternalAddress(), CLOSE_CALLBACK_PREFIX, nu.QueryEscape(id))
 }
 
 func InitSignal(s *socket.Socket) (*SignalContext, error) {
@@ -40,6 +42,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	if auth == nil {
 		return ctx, errors.ThisIsImpossible().GenCallStacks(0)
 	}
+	ctx.Sugar().Debugf("Auth info: key=%v; uid=%v; uname=%v; room=%v; nonce=%v", auth.Key, auth.UID, auth.UName, strings.Join(auth.Rooms, ","), auth.Nonce)
 	if auth.AutoJoin {
 		if err := ctx.JoinRoom(); err != nil {
 			return ctx, err
@@ -224,7 +227,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			}
 			arkArgs[0] = &SubscribeResultMessage{
 				Id: subId,
-			}	
+			}
 		}()
 	})
 	s.On("user", func(args ...any) {
