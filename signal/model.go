@@ -769,6 +769,21 @@ func newAckEmit(ackFunc AckFunc, err error, args []any) *emitProxy {
 	}
 }
 
+func (msg_proxy * emitProxy) emit(sctx *SignalContext) error {
+	if msg_proxy.ack {
+		msg_proxy.ackFunc(msg_proxy.args, msg_proxy.err)
+		return nil
+	} else {
+		var socket *socket.Socket
+		if msg_proxy.timeout > 0 {
+			socket = sctx.Socket.Timeout(msg_proxy.timeout)
+		} else {
+			socket = sctx.Socket
+		}
+		return socket.Emit(msg_proxy.evt, msg_proxy.args...)
+	}
+}
+
 type SignalContext struct {
 	Id                string
 	Global            *Global
@@ -855,12 +870,23 @@ func (ctx *SignalContext) CurrentSdpMsgId() int {
 	return int(ctx.sdpMsgId.Load())
 }
 
-func (sctx *SignalContext) socketMsg(timeout time.Duration, evt string, args []any) {
-	sctx.msg_ch <- newCommonEmit(timeout, evt, args)
+func (sctx *SignalContext) socketMsg(timeout time.Duration, evt string, args []any) error {
+	proxy := newCommonEmit(timeout, evt, args)
+	if sctx.Global.conf.Signal.AsyncSendMsg {
+		sctx.msg_ch <- proxy
+		return nil
+	} else {
+		return proxy.emit(sctx)
+	}
 }
 
 func (sctx *SignalContext) socketAck(ackFunc AckFunc, err error, args []any) {
-	sctx.msg_ch <- newAckEmit(ackFunc, err, args)
+	proxy := newAckEmit(ackFunc, err, args)
+	if sctx.Global.conf.Signal.AsyncSendMsg {
+		sctx.msg_ch <- proxy
+	} else {
+		proxy.emit(sctx)
+	}
 }
 
 func (sctx *SignalContext) socketMsgLoop() {
@@ -869,17 +895,7 @@ func (sctx *SignalContext) socketMsgLoop() {
 		case <- sctx.ctx.Done():
 			return
 		case msg_proxy := <- sctx.msg_ch:
-			if msg_proxy.ack {
-				msg_proxy.ackFunc(msg_proxy.args, msg_proxy.err)
-			} else {
-				var socket *socket.Socket
-				if msg_proxy.timeout > 0 {
-					socket = sctx.Socket.Timeout(msg_proxy.timeout)
-				} else {
-					socket = sctx.Socket
-				}
-				socket.Emit(msg_proxy.evt, msg_proxy.args...)
-			}
+			msg_proxy.emit(sctx)
 		}
 	}
 }
@@ -945,8 +961,7 @@ func (ctx *SignalContext) _emit(retries int, resCh chan *resWithError, cb func(r
 			}
 		}
 	})
-	ctx.socketMsg(timeout, ev, args)
-	return nil
+	return ctx.socketMsg(timeout, ev, args)
 }
 
 func (ctx *SignalContext) emit(ev string, args ...any) error {

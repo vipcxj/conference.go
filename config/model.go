@@ -162,6 +162,7 @@ type ConferenceConfigure struct {
 		HostOrIp string `mapstructure:"hostOrIp" json:"hostOrIp" default:"${CONF_SIGNAL_HOST_OR_IP}"`
 		Port     int    `mapstructure:"port" json:"port" default:"${CONF_SIGNAL_PORT | 0}"`
 		Cors     string `mapstructure:"cors" json:"cors" default:"${CONF_SIGNAL_CORS}"`
+		AsyncSendMsg bool `mapstructure:"asyncSendMsg" json:"asyncSendMsg" default:"${CONF_SIGNAL_ASYNC_SEND_MSG | false}"`
 		Tls      struct {
 			Enable bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_TLS_ENABLE | false}"`
 			Cert   string `mapstructure:"cert" json:"cert" default:"${CONF_SIGNAL_TLS_CERT}"`
@@ -447,6 +448,7 @@ var KEYS = []string{
 	"signal.tls.cert:string",
 	"signal.tls.key:string",
 	"signal.cors:string",
+	"signal.asyncSendMsg:bool",
 	"signal.msgTimeoutMs:int",
 	"signal.msgTimeoutRetries:int",
 	"signal.gin.debug:bool",
