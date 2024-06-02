@@ -15,8 +15,6 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
-type AckFunc = func([]any, error)
-
 func FatalErrorAndClose(s *socket.Socket, err any, cause string) {
 	err_msg := ErrToMsg(err, cause)
 	err_msg.Fatal = true

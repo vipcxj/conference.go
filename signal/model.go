@@ -916,11 +916,6 @@ func (sctx *SignalContext) ClusterEmit(message RoomMessage) error {
 	return nil
 }
 
-type resWithError struct {
-	res []any
-	err error
-}
-
 func (ctx *SignalContext) _emit(retries int, resCh chan *resWithError, cb func(re *resWithError), timeout time.Duration, ev string, args ...any) error {
 	o_args := args
 	args = append(args, func(res []any, err error) {
