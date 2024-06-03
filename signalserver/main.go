@@ -13,15 +13,12 @@ import (
 	healthcheck "github.com/tavsec/gin-healthcheck"
 	healthchecks "github.com/tavsec/gin-healthcheck/checks"
 	healthconfig "github.com/tavsec/gin-healthcheck/config"
-	"go.uber.org/zap"
 	_ "github.com/zishang520/engine.io/v2/log"
 
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
-	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/middleware"
 	"github.com/vipcxj/conference.go/signal"
-	"github.com/zishang520/socket.io/v2/socket"
 )
 
 func Run(conf *config.ConferenceConfigure, ch chan error) {
@@ -81,28 +78,11 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 		g.Use(middleware.Cors(cors))
 	}
 
-	io := socket.NewServer(nil, nil)
-	io.Use(middleware.SocketIOAuthHandler(global))
-	io.On("connection", func(clients ...any) {
-		fmt.Printf("on connection\n")
-		socket := clients[0].(*socket.Socket)
-		ctx, err := signal.InitSignal(socket)
-		var suger *zap.SugaredLogger
-		if ctx != nil {
-			suger = ctx.Sugar()
-		} else {
-			suger = log.Sugar()
-		}
-		if err != nil {
-			suger.Errorf("socket connect failed, %v", err)
-			signal.FatalErrorAndClose(socket, signal.ErrToString(err), "init signal")
-		} else {
-			suger.Info("socket connected")
-		}
-	})
-	handler := io.ServeHandler(nil)
-	g.GET("/socket.io/", gin.WrapH(handler))
-	g.POST("/socket.io/", gin.WrapH(handler))
+	err = signal.ConfigureSocketIOSingalServer(global, g)
+	if err != nil {
+		ch <- err
+		return
+	}
 	g.GET(fmt.Sprintf("%v/:id", signal.CLOSE_CALLBACK_PREFIX), func(gctx *gin.Context) {
 		id := gctx.Param("id")
 		global.CloseSignalContext(id, true)

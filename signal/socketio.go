@@ -1,4 +1,4 @@
-package middleware
+package signal
 
 import (
 	"fmt"
@@ -8,13 +8,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/log"
-	"github.com/vipcxj/conference.go/signal"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
-func SocketIOAuthHandler(global *signal.Global) func(*socket.Socket, func(*socket.ExtendedError)) {
+func SocketIOAuthHandler(global *Global) func(*socket.Socket, func(*socket.ExtendedError)) {
 	return func(s *socket.Socket, next func(*socket.ExtendedError)) {
-		sCtx := signal.GetSingalContext(s)
+		sCtx := GetSingalContext(s)
 		if sCtx != nil && sCtx.Authed() {
 			next(nil)
 			return
@@ -50,7 +49,7 @@ func SocketIOAuthHandler(global *signal.Global) func(*socket.Socket, func(*socke
 			next(socket.NewExtendedError("Unauthorized", err))
 			return
 		}
-		signal.SetAuthInfoAndId(s, authInfo, signalId, global)
+		SetAuthInfoAndId(s, authInfo, signalId, global)
 		next(nil)
 	}
 }

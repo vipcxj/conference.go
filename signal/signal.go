@@ -1,42 +1,53 @@
 package signal
 
 import (
+	"fmt"
 	"reflect"
 	"time"
 
+	"github.com/gin-contrib/graceful"
+	"github.com/gin-gonic/gin"
+	"github.com/vipcxj/conference.go/log"
 	"github.com/zishang520/socket.io/v2/socket"
+	"go.uber.org/zap"
 )
 
 type AckFunc = func([]any, error)
-
-type SignalServer interface {
-	OnSignal(cb func(signal Signal)) error
-}
 
 type Signal interface {
 	SendMsg(timeout time.Duration, ack bool, evt string, args ...any) (res []any, err error)
 	On(evt string, cb func(ack AckFunc, args ...any)) error
 	GetAuth() (any, error)
-	GetData() (any, error)
-	SetData(data any) error
+	GetContext() *SignalContext
 }
 
-type SocketIOSignalServer struct {
-	server *socket.Server
-}
-
-func NewSocketIOSingalServer() SignalServer {
+func ConfigureSocketIOSingalServer(global *Global, g *graceful.Graceful) error {
 	io := socket.NewServer(nil, nil)
-	return &SocketIOSignalServer{
-		server: io,
-	}
-}
-
-func (server *SocketIOSignalServer) OnSignal(cb func(signal Signal)) error {
-	return server.server.On("connection", func(clients ...any) {
+	io.Use(SocketIOAuthHandler(global))
+	err := io.On("connection", func(clients ...any) {
+		fmt.Printf("on connection\n")
 		socket := clients[0].(*socket.Socket)
-		cb(NewSocketIOSingal(socket))
+		ctx, err := InitSignal(socket)
+		var suger *zap.SugaredLogger
+		if ctx != nil {
+			suger = ctx.Sugar()
+		} else {
+			suger = log.Sugar()
+		}
+		if err != nil {
+			suger.Errorf("socket connect failed, %v", err)
+			FatalErrorAndClose(socket, ErrToString(err), "init signal")
+		} else {
+			suger.Info("socket connected")
+		}
 	})
+	if err != nil {
+		return err
+	}
+	handler := io.ServeHandler(nil)
+	g.GET("/socket.io/", gin.WrapH(handler))
+	g.POST("/socket.io/", gin.WrapH(handler))
+	return nil
 }
 
 type SocketIOSignal struct {
@@ -62,7 +73,7 @@ func (signal *SocketIOSignal) SendMsg(timeout time.Duration, ack bool, evt strin
 		socket = signal.socket
 	}
 	if ack {
-		ch := make(chan *resWithError, 0)
+		ch := make(chan *resWithError)
 		args = append(args, func(res []any, err error) {
 			ch <- &resWithError{
 				res: res,
@@ -112,10 +123,12 @@ func (signal *SocketIOSignal) GetAuth() (any, error) {
 	return signal.socket.Handshake().Auth, nil
 }
 
-func (signal *SocketIOSignal) GetData() (any, error) {
-	return signal.GetData()
+func (signal *SocketIOSignal) GetContext() *SignalContext {
+	d := signal.socket.Data()
+	if d != nil {
+		return d.(*SignalContext)
+	} else {
+		return nil
+	}
 }
 
-func (signal *SocketIOSignal) SetData(data any) error {
-	return signal.SetData(data)
-}
