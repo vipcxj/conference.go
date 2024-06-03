@@ -168,6 +168,8 @@ export class ConferenceClient {
                 id: this._id,
             },
             path,
+            transports: ['websocket'],
+            upgrade: false,
             autoConnect: false,
             reconnection: false,
             // reconnectionDelay: 500,
