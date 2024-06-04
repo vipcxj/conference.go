@@ -119,6 +119,8 @@ func decodeWsTextData(s string) (evt string, msg_id uint64, flag WsMsgFlag, data
 func newWebSocketSignal(conn *websocket.Conn) *WebSocketSignal {
 	signal := &WebSocketSignal{
 		conn: conn,
+		msg_cbs: make(map[string]func(ack AckFunc, args ...any)),
+		acks: make(map[uint64]chan *ackArgs),
 	}
 	conn.OnMessage(func(c *websocket.Conn, mt websocket.MessageType, b []byte) {
 		if mt == websocket.TextMessage {
