@@ -3,13 +3,18 @@ package signal
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/gin-contrib/graceful"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/lesismal/nbio/nbhttp/websocket"
+	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/utils"
@@ -296,12 +301,65 @@ func (signal *WebSocketSignal) On(evt string, cb func(ack AckFunc, args ...any))
 	return nil
 }
 
-func newUpgrader() *websocket.Upgrader {
-	u := websocket.NewUpgrader()
-	u.OnOpen(func(c *websocket.Conn) {
-
-		// echo
-		fmt.Println("OnOpen:", c.RemoteAddr().String())
-	})
-	return u
+func ConfigureWebsocketSingalServer(global *Global, g *graceful.Graceful) error {
+	handler := func (gctx *gin.Context)  {
+		w := gctx.Writer
+		r := gctx.Request
+		auth_header, ok := r.Header["Authorization"]
+		if !ok {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var authInfo auth.AuthInfo
+		authed := false
+		for _, auth_str := range auth_header {
+			auth_arr := strings.SplitN(auth_str, " ", 2)
+			var token_str string
+			if len(auth_arr) == 0 {
+				continue
+			} else if len(auth_arr) == 1 {
+				token_str = auth_arr[0]
+			} else {
+				token_str = auth_arr[1]
+			}
+			var _authInfo auth.AuthInfo
+			err := auth.Decode(token_str, &_authInfo)
+			if err == nil {
+				authed = true
+				authInfo = _authInfo
+				break
+			}
+		}
+		if !authed {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var signal_id string
+		signal_id_header, ok := r.Header["Signal-Id"]
+		if ok && len(signal_id_header) > 0 {
+			signal_id = signal_id_header[0]
+		} else {
+			signal_id = uuid.NewString()
+		}
+		upgrader := websocket.NewUpgrader()
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			conn.CloseAndClean(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteString(err.Error())
+			return
+		}
+		signal := newWebSocketSignal(conn)
+		ctx := newSignalContext(global, signal, &authInfo, signal_id)
+		signal.ctx = ctx
+		_, err = InitSignal(signal)
+		if err != nil {
+			conn.CloseAndClean(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteString(err.Error())
+			return
+		}
+	}
+	g.GET("/ws", handler)
+	return nil
 }

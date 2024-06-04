@@ -83,6 +83,11 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 		ch <- err
 		return
 	}
+	err = signal.ConfigureWebsocketSingalServer(global, g)
+	if err != nil {
+		ch <- err
+		return
+	}
 	g.GET(fmt.Sprintf("%v/:id", signal.CLOSE_CALLBACK_PREFIX), func(gctx *gin.Context) {
 		id := gctx.Param("id")
 		global.CloseSignalContext(id, true)
