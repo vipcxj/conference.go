@@ -12,6 +12,8 @@ const (
 	ERR_OK    = 0
 	ERR_FATAL = 1000
 
+	CLIENT_ERR = 5000
+
 	BAD_PACKET          = 10000
 	INVALID_PUB_PATTERN = 11000
 	SUB_NOT_EXIST       = 12000
@@ -117,6 +119,10 @@ func FatalError(msg string, args ...any) *ConferenceError {
 
 func BadPacket(msg string, args ...any) *ConferenceError {
 	return NewError(BAD_PACKET, msg, args...)
+}
+
+func ClientError(arg any) *ConferenceError {
+	return NewError(CLIENT_ERR, fmt.Sprintf("%v", arg))
 }
 
 func InvalidPubPattern(msg string, args ...any) *ConferenceError {

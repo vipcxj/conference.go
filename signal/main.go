@@ -9,7 +9,6 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
-	"github.com/zishang520/socket.io/v2/socket"
 )
 
 const CLOSE_CALLBACK_PREFIX = "/conference/close"
@@ -18,8 +17,8 @@ func CloseCallback(conf *config.ConferenceConfigure, id string) string {
 	return fmt.Sprintf("%v%v/%v", conf.SignalExternalAddress(), CLOSE_CALLBACK_PREFIX, nu.QueryEscape(id))
 }
 
-func InitSignal(s *socket.Socket) (*SignalContext, error) {
-	ctx := GetSingalContext(s)
+func InitSignal(s Signal) (*SignalContext, error) {
+	ctx := s.GetContext()
 	if ctx == nil {
 		return ctx, errors.FatalError("unable to find the signal context")
 	}
@@ -37,7 +36,6 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 
 	ctx.inited = true
 	defer ctx.inited_mux.Unlock()
-	go ctx.socketMsgLoop()
 	auth := ctx.AuthInfo
 	if auth == nil {
 		return ctx, errors.ThisIsImpossible().GenCallStacks(0)
@@ -72,7 +70,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	ctx.Messager().OnStateParticipant(ctx.Id, ctx.AcceptParticipants, ctx.RoomPaterns()...)
 	ctx.Messager().OnUser(ctx.Id, ctx.OnUserMessage, ctx.RoomPaterns()...)
 	ctx.Messager().OnUserAck(ctx.Id, ctx.OnUserAckMessage, ctx.RoomPaterns()...)
-	s.On("disconnect", func(args ...any) {
+	s.On("disconnect", func(ack AckFunc, args ...any) {
 		ctx.Metrics().OnSignalConnectClose(ctx)
 		reason := args[0].(string)
 		ctx.Sugar().Infof("socket disconnect because %s", reason)
@@ -81,11 +79,11 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			ctx.Close()
 		}()
 	})
-	s.On("join", func(args ...any) {
+	s.On("join", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive join msg")
 		msg := JoinMessage{}
-		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx, ark, nil, "join", false)
+		err := parseArgs(&msg, args...)
+		defer FinallyResponse(ctx, ack, nil, "join", false)
 		if err != nil {
 			panic(err)
 		}
@@ -94,21 +92,21 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			panic(err)
 		}
 	})
-	s.On("leave", func(args ...any) {
+	s.On("leave", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive leave msg")
 		msg := LeaveMessage{}
-		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx, ark, nil, "leave", false)
+		err := parseArgs(&msg, args...)
+		defer FinallyResponse(ctx, ack, nil, "leave", false)
 		if err != nil {
 			panic(err)
 		}
 		ctx.LeaveRoom(msg.Rooms...)
 	})
-	s.On("sdp", func(args ...any) {
+	s.On("sdp", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive sdp msg")
 		msg := SdpMessage{}
-		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx, ark, nil, "sdp", true)
+		err := parseArgs(&msg, args...)
+		defer FinallyResponse(ctx, ack, nil, "sdp", true)
 		if err != nil {
 			panic(err)
 		}
@@ -118,7 +116,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 		}
 		ctx.Sugar().Infof("accept %s sdp msg with id %d", msg.Type, msg.Mid)
 		go func() {
-			defer FinallyResponse(ctx, ark, nil, "sdp", false)
+			defer FinallyResponse(ctx, ack, nil, "sdp", false)
 			locked := ctx.neg_mux.TryLock()
 			if locked {
 				ctx.Sugar().Debug("neg mux locked")
@@ -135,7 +133,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 				ctx.Sugar().Warn(err)
 				return
 			}
-			err = processPendingCandidateMsg(s, peer, ctx)
+			err = processPendingCandidateMsg(ctx)
 			if err != nil {
 				panic(err)
 			}
@@ -149,7 +147,7 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 					panic(err)
 				}
 				desc := peer.LocalDescription()
-				err = s.Emit("sdp", SdpMessage{
+				err = ctx.emit("sdp", SdpMessage{
 					Type: desc.Type.String(),
 					Sdp:  desc.SDP,
 					Mid:  msg.Mid,
@@ -162,11 +160,11 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			}
 		}()
 	})
-	s.On("candidate", func(args ...any) {
+	s.On("candidate", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive candidate msg")
 		msg := CandidateMessage{}
-		ark, err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx, ark, nil, "candidate", false)
+		err := parseArgs(&msg, args...)
+		defer FinallyResponse(ctx, ack, nil, "candidate", false)
 		if err != nil {
 			panic(err)
 		}
@@ -185,22 +183,22 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 				ctx.cand_mux.Unlock()
 			}
 		}
-		err = processCandidateMsg(s, peer, &msg)
+		err = _processCandidateMsg(ctx, &msg)
 		if err != nil {
 			panic(err)
 		}
 	})
-	s.On("publish", func(args ...any) {
+	s.On("publish", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive publish msg")
 		msg := PublishMessage{}
-		ark, err := parseArgs(&msg, args...)
+		err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx, ark, arkArgs, "publish", true)
+		defer FinallyResponse(ctx, ack, arkArgs, "publish", true)
 		if err != nil {
 			panic(err)
 		}
 		go func() {
-			defer FinallyResponse(ctx, ark, arkArgs, "publish", false)
+			defer FinallyResponse(ctx, ack, arkArgs, "publish", false)
 			pubId, err := ctx.Publish(&msg)
 			if err != nil {
 				panic(err)
@@ -210,17 +208,17 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			}
 		}()
 	})
-	s.On("subscribe", func(args ...any) {
+	s.On("subscribe", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive subscribe msg")
 		msg := SubscribeMessage{}
-		ark, err := parseArgs(&msg, args...)
+		err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx, ark, arkArgs, "subscribe", true)
+		defer FinallyResponse(ctx, ack, arkArgs, "subscribe", true)
 		if err != nil {
 			panic(err)
 		}
 		go func() {
-			defer FinallyResponse(ctx, ark, arkArgs, "subscribe", false)
+			defer FinallyResponse(ctx, ack, arkArgs, "subscribe", false)
 			subId, err := ctx.Subscribe(&msg)
 			if err != nil {
 				panic(err)
@@ -230,12 +228,12 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			}
 		}()
 	})
-	s.On("user", func(args ...any) {
+	s.On("user", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive user msg")
 		msg := UserMessage{}
-		ark, err := parseArgs(&msg, args...)
+		err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx, ark, arkArgs, "user", false)
+		defer FinallyResponse(ctx, ack, arkArgs, "user", false)
 		if err != nil {
 			panic(err)
 		}
@@ -244,12 +242,12 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 			panic(err)
 		}
 	})
-	s.On("user-ack", func(args ...any) {
+	s.On("user-ack", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive user-ack msg")
 		msg := UserAckMessage{}
-		ark, err := parseArgs(&msg, args...)
+		err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx, ark, arkArgs, "user", false)
+		defer FinallyResponse(ctx, ack, arkArgs, "user", false)
 		if err != nil {
 			panic(err)
 		}
@@ -263,12 +261,12 @@ func InitSignal(s *socket.Socket) (*SignalContext, error) {
 	return ctx, nil
 }
 
-func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, ctx *SignalContext) error {
+func processPendingCandidateMsg(ctx *SignalContext) error {
 	ctx.cand_mux.Lock()
 	defer ctx.cand_mux.Unlock()
 	var err error
 	for _, msg := range ctx.pendingCandidates {
-		if e := processCandidateMsg(s, peer, msg); e != nil {
+		if e := _processCandidateMsg(ctx, msg); e != nil {
 			err = e
 		}
 	}
@@ -276,15 +274,14 @@ func processPendingCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, c
 	return err
 }
 
-func processCandidateMsg(s *socket.Socket, peer *webrtc.PeerConnection, msg *CandidateMessage) error {
+func _processCandidateMsg(ctx *SignalContext, msg *CandidateMessage) error {
 	var err error
-	ctx := GetSingalContext(s)
 	if msg.Op == "add" {
 		ctx.Sugar().Debugf("received candidate ", msg.Candidate.Candidate)
-		err = peer.AddICECandidate(msg.Candidate)
+		err = ctx.Peer.AddICECandidate(msg.Candidate)
 	} else {
 		ctx.Sugar().Debugf("received candidate completed")
-		err = peer.AddICECandidate(webrtc.ICECandidateInit{})
+		err = ctx.Peer.AddICECandidate(webrtc.ICECandidateInit{})
 	}
 	return err
 }

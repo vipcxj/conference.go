@@ -2,25 +2,21 @@ package signal
 
 import (
 	"fmt"
-	"reflect"
 	"runtime/debug"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/utils"
-	"github.com/zishang520/socket.io/v2/socket"
 )
 
-func FatalErrorAndClose(s *socket.Socket, err any, cause string) {
+func FatalErrorAndClose(ctx *SignalContext, err any, cause string) {
 	err_msg := ErrToMsg(err, cause)
 	err_msg.Fatal = true
-	s.Timeout(time.Second*1).EmitWithAck("error", err_msg)(func(a []any, err error) {
-		s.Disconnect(true)
-	})
+	ctx.emit("error", err_msg)
+	ctx.Signal.Close()
 }
 
 func ErrToString(err any) string {
@@ -70,53 +66,38 @@ func FinallyResponse(s *SignalContext, ack AckFunc, arkArgs []any, cause string,
 			s.Sugar().Debugf("send ack \"%v\" of %v msg", rawErr, cause)
 			switch err := rawErr.(type) {
 			case error:
-				// ack(nil, err)
-				s.socketAck(ack, err, nil)
+				ack(nil, err)
 			default:
 				e := errors.FatalError("%v", rawErr)
-				// ack(nil, e)
-				s.socketAck(ack, e, nil)
+				ack(nil, e)
 			}
 		} else {
-			FatalErrorAndClose(s.Socket, ErrToString(rawErr), cause)
+			FatalErrorAndClose(s, ErrToString(rawErr), cause)
 		}
 	} else if !onlyErr {
 		if ack != nil {
 			s.Sugar().Debugf("send ack %s of %v msg", ArgsToString(arkArgs), cause)
 			if len(arkArgs) > 0 {
-				// ack(arkArgs, nil)
-				s.socketAck(ack, nil, arkArgs)
+				ack(arkArgs, nil)
 			} else {
-				// ack([]any{"ack"}, nil)
-				s.socketAck(ack, nil, []any{"ack"})
+				ack([]any{"ack"}, nil)
 			}
 		}
 	}
 }
 
-func parseArgs[R any, PR *R](out PR, args ...any) (AckFunc, error) {
+func parseArgs[R any, PR *R](out PR, args ...any) error {
 	if len(args) == 0 {
 		if out == nil {
-			return nil, nil
+			return nil
 		} else {
-			return nil, errors.FatalError("too little parameter")
+			return errors.FatalError("too little parameter")
 		}
-	}
-	last := args[len(args)-1]
-	var ark AckFunc = nil
-	if reflect.TypeOf(last).Kind() == reflect.Func {
-		ark = last.(AckFunc)
-		args = args[0 : len(args)-1]
-	}
-	if len(args) == 0 {
-		if out == nil {
-			return nil, nil
-		} else {
-			return nil, errors.FatalError("too little parameter")
-		}
+	} else if len(args) > 1 {
+		return errors.FatalError("too many parameter")
 	}
 	err := mapstructure.Decode(args[0], out)
-	return ark, err
+	return err
 }
 
 func NewUUID(id string, base string) string {

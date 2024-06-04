@@ -25,7 +25,6 @@ import (
 	sgt "github.com/vipcxj/conference.go/pkg/segmenter"
 	"github.com/vipcxj/conference.go/proto"
 	"github.com/vipcxj/conference.go/utils"
-	"github.com/zishang520/socket.io/v2/socket"
 	"go.uber.org/zap"
 )
 
@@ -641,37 +640,42 @@ func (pt *PublishedTrack) Bind() bool {
 	if err != nil {
 		panic(err)
 	}
-	pt.mu.Lock()
-	defer pt.mu.Unlock()
-	rt, t := ctx.findTracksRemoteByMidAndRid(peer, pt.StreamId(), pt.BindId(), pt.Rid())
-	if rt != nil {
-		if rt == pt.remote {
+	success := func () bool {
+		pt.mu.Lock()
+		defer pt.mu.Unlock()
+		rt, t := ctx.findTracksRemoteByMidAndRid(peer, pt.StreamId(), pt.BindId(), pt.Rid())
+		if rt != nil {
+			if rt == pt.remote {
+				return true
+			} else if pt.remote != nil {
+				ctx.Sugar().Debugf("rebind track, old track: %s/%s", pt.remote.ID(), pt.remote.Msid())
+			}
+			ctx.Sugar().Debugf("bind track with mid %s/%s", pt.BindId(), t.Mid())
+			codec := rt.Codec()
+			if codec.MimeType != "" {
+				ctx.Sugar().Debugf("track mime type gotten: %s", codec.MimeType)
+				pt.track.Codec = NewRTPCodecParameters(&codec)
+			} else {
+				ctx.Sugar().Debugf("no track mime type found, track with mid %s/%s bind failed", pt.BindId(), t.Mid())
+				return false
+			}
+			ctx.Sugar().Debugf("track with mid %s/%s bind successfully", pt.BindId(), t.Mid())
+			pt.remote = rt
+			pt.track.LocalId = rt.ID()
 			return true
-		} else if pt.remote != nil {
-			ctx.Sugar().Debugf("rebind track, old track: %s/%s", pt.remote.ID(), pt.remote.Msid())
 		}
-		ctx.Sugar().Debugf("bind track with mid %s/%s", pt.BindId(), t.Mid())
-		codec := rt.Codec()
-		if codec.MimeType != "" {
-			ctx.Sugar().Debugf("track mime type gotten: %s", codec.MimeType)
-			pt.track.Codec = NewRTPCodecParameters(&codec)
-		} else {
-			ctx.Sugar().Debugf("no track mime type found, track with mid %s/%s bind failed", pt.BindId(), t.Mid())
-			return false
-		}
-		ctx.Sugar().Debugf("track with mid %s/%s bind successfully", pt.BindId(), t.Mid())
-		pt.remote = rt
-		pt.track.LocalId = rt.ID()
-		ctx.mustEmitWithAckCb(
+		return false
+	}()
+	if success {
+		success = ctx.mustEmitWithAck(
 			"published",
 			"send published msg",
 			&PublishedMessage{
 				Track: pt.Track(),
 			},
-		)
-		return true
+		) == nil
 	}
-	return false
+	return success
 }
 
 func (me *PublishedTrack) SatifySelect(transportId string) bool {
@@ -731,68 +735,19 @@ func (me *PublishedTrack) SatifySelect(transportId string) bool {
 	}
 }
 
-type timeoutError string
-
-func (te timeoutError) Error() string {
-	return string(te)
-}
-
 // type Participant struct {
 // 	Id string
 // 	Name string
 // }
 
-type emitProxy struct {
-	ack     bool
-	ackFunc AckFunc
-	evt     string
-	args    []any
-	err     error
-	timeout time.Duration
-}
-
-func newCommonEmit(timeout time.Duration, evt string, args []any) *emitProxy {
-	return &emitProxy{
-		ack: false,
-		evt: evt,
-		args: args,
-		timeout: timeout,
-	}
-}
-
-func newAckEmit(ackFunc AckFunc, err error, args []any) *emitProxy {
-	return &emitProxy{
-		ack: true,
-		ackFunc: ackFunc,
-		args: args,
-		err: err,
-	}
-}
-
-func (msg_proxy * emitProxy) emit(sctx *SignalContext) error {
-	if msg_proxy.ack {
-		msg_proxy.ackFunc(msg_proxy.args, msg_proxy.err)
-		return nil
-	} else {
-		var socket *socket.Socket
-		if msg_proxy.timeout > 0 {
-			socket = sctx.Socket.Timeout(msg_proxy.timeout)
-		} else {
-			socket = sctx.Socket
-		}
-		return socket.Emit(msg_proxy.evt, msg_proxy.args...)
-	}
-}
-
 type SignalContext struct {
 	Id                string
 	Global            *Global
-	Socket            *socket.Socket
+	Signal            Signal
 	AuthInfo          *auth.AuthInfo
 	Peer              *webrtc.PeerConnection
 	ctx               context.Context
 	cancel            context.CancelCauseFunc
-	msg_ch            chan *emitProxy
 	rooms             []string
 	rooms_mux         sync.RWMutex
 	pendingCandidates []*CandidateMessage
@@ -814,17 +769,16 @@ type SignalContext struct {
 	sugar             *zap.SugaredLogger
 }
 
-func newSignalContext(global *Global, socket *socket.Socket, authInfo *auth.AuthInfo, id string) *SignalContext {
+func newSignalContext(global *Global, signal Signal, authInfo *auth.AuthInfo, id string) *SignalContext {
 	logger := log.Logger().With(zap.String("tag", "signal"), zap.String("id", id))
 	ctx, cancel := context.WithCancelCause(global.ctx)
 	return &SignalContext{
 		Global:        global,
 		Id:            id,
-		Socket:        socket,
+		Signal:        signal,
 		AuthInfo:      authInfo,
 		ctx:           ctx,
 		cancel:        cancel,
-		msg_ch:        make(chan *emitProxy),
 		subscriptions: haxmap.New[string, *Subscription](),
 		publications:  haxmap.New[string, *Publication](),
 		logger:        logger,
@@ -834,6 +788,10 @@ func newSignalContext(global *Global, socket *socket.Socket, authInfo *auth.Auth
 
 func (ctx *SignalContext) Messager() *Messager {
 	return ctx.Global.GetMessager()
+}
+
+func (ctx *SignalContext) Conf() *config.ConferenceConfigure {
+	return ctx.Global.conf
 }
 
 func (ctx *SignalContext) Metrics() *Metrics {
@@ -870,36 +828,6 @@ func (ctx *SignalContext) CurrentSdpMsgId() int {
 	return int(ctx.sdpMsgId.Load())
 }
 
-func (sctx *SignalContext) socketMsg(timeout time.Duration, evt string, args []any) error {
-	proxy := newCommonEmit(timeout, evt, args)
-	if sctx.Global.conf.Signal.AsyncSendMsg {
-		sctx.msg_ch <- proxy
-		return nil
-	} else {
-		return proxy.emit(sctx)
-	}
-}
-
-func (sctx *SignalContext) socketAck(ackFunc AckFunc, err error, args []any) {
-	proxy := newAckEmit(ackFunc, err, args)
-	if sctx.Global.conf.Signal.AsyncSendMsg {
-		sctx.msg_ch <- proxy
-	} else {
-		proxy.emit(sctx)
-	}
-}
-
-func (sctx *SignalContext) socketMsgLoop() {
-	for {
-		select {
-		case <- sctx.ctx.Done():
-			return
-		case msg_proxy := <- sctx.msg_ch:
-			msg_proxy.emit(sctx)
-		}
-	}
-}
-
 func (sctx *SignalContext) clusterEmit(message RoomMessage) {
 	for _, room := range sctx.Rooms() {
 		msg_copy := message.CopyPlain()
@@ -916,51 +844,28 @@ func (sctx *SignalContext) ClusterEmit(message RoomMessage) error {
 	return nil
 }
 
-func (ctx *SignalContext) _emit(retries int, resCh chan *resWithError, cb func(re *resWithError), timeout time.Duration, ev string, args ...any) error {
-	o_args := args
-	args = append(args, func(res []any, err error) {
-		if err != nil {
-			if retries > 0 {
-				emit_err := ctx._emit(retries-1, resCh, cb, timeout, ev, o_args...)
-				if emit_err != nil {
-					re := &resWithError{
-						err: emit_err,
-					}
-					if resCh != nil {
-						resCh <- re
-					}
-					if cb != nil {
-						cb(re)
-					}
-				}
-			} else {
-				re := &resWithError{
-					err: timeoutError("timeout"),
-				}
-				if resCh != nil {
-					resCh <- re
-				}
-				if cb != nil {
-					cb(re)
-				}
-			}
-		} else {
-			re := &resWithError{
-				res: res,
-			}
-			if resCh != nil {
-				resCh <- re
-			}
-			if cb != nil {
-				cb(re)
+func (ctx *SignalContext) _emit(ack bool, ev string, args ...any) (res []any, err error) {
+	timeout := time.Duration(ctx.Conf().Signal.MsgTimeoutMs) * time.Millisecond
+	if ack {
+		retries := ctx.Conf().Signal.MsgTimeoutRetries
+		if retries < 0 {
+			retries = 0
+		}
+		for i := 0; i <= retries; i++ {
+			res, err = ctx.Signal.SendMsg(timeout, ack, ev, args...)
+			if err == nil {
+				return
 			}
 		}
-	})
-	return ctx.socketMsg(timeout, ev, args)
+		return
+	} else {
+		return ctx.Signal.SendMsg(timeout, false, ev, args...)
+	}
 }
 
 func (ctx *SignalContext) emit(ev string, args ...any) error {
-	return ctx._emit(0, nil, nil, 0, ev, args...)
+	_, err := ctx._emit(false, ev, args...)
+	return err
 }
 
 func (ctx *SignalContext) Emit(ev string, args ...any) error {
@@ -968,26 +873,7 @@ func (ctx *SignalContext) Emit(ev string, args ...any) error {
 }
 
 func (ctx *SignalContext) emitWithAck(ev string, args ...any) ([]any, error) {
-	signalConf := &ctx.Global.Conf().Signal
-	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 6 * time.Millisecond
-	}
-	resCh := make(chan *resWithError)
-	err := ctx._emit(signalConf.MsgTimeoutRetries, resCh, nil, timeout, ev, args...)
-	if err != nil {
-		return nil, err
-	}
-	res := <-resCh
-	if res.err == nil {
-		return res.res, nil
-	} else {
-		if res.err.Error() == "timeout" {
-			return nil, errors.MsgTimeout("msg %s not received ack msg after %d retries with timeout %d ms", ev, signalConf.MsgTimeoutRetries, signalConf.MsgTimeoutMs)
-		} else {
-			return nil, res.err
-		}
-	}
+	return ctx._emit(true, ev, args...)
 }
 
 func (ctx *SignalContext) EmitWithAck(ev string, args ...any) ([]any, error) {
@@ -998,53 +884,13 @@ func (ctx *SignalContext) mustEmitWithAck(ev string, cause string, args ...any) 
 	_, err := ctx.emitWithAck(ev, args...)
 	if err != nil {
 		ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
-		FatalErrorAndClose(ctx.Socket, err, cause)
+		FatalErrorAndClose(ctx, err, cause)
 	}
 	return err
 }
 
 func (ctx *SignalContext) MustEmitWithAck(ev string, cause string, args ...any) error {
 	return ctx.mustEmitWithAck(ev, cause, args...)
-}
-
-func (ctx *SignalContext) emitWithAckCb(ev string, cb func(res []any, err error), args ...any) error {
-	signalConf := &ctx.Global.Conf().Signal
-	timeout := time.Duration(signalConf.MsgTimeoutMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 6 * time.Millisecond
-	}
-	return ctx._emit(
-		signalConf.MsgTimeoutRetries, nil,
-		func(re *resWithError) {
-			if re.err != nil && re.err.Error() == "timeout" {
-				cb(nil, errors.MsgTimeout("msg %s not received ack msg after %d retries with timeout %d ms", ev, signalConf.MsgTimeoutRetries, signalConf.MsgTimeoutMs))
-			} else {
-				cb(re.res, re.err)
-			}
-		},
-		timeout, ev, args...,
-	)
-}
-
-func (ctx *SignalContext) EmitWithAckCb(ev string, cb func(res []any, err error), args ...any) error {
-	return ctx.emitWithAckCb(ev, cb, args...)
-}
-
-func (ctx *SignalContext) mustEmitWithAckCb(ev string, cause string, args ...any) {
-	err := ctx.emitWithAckCb(ev, func(_ []any, err error) {
-		if err != nil {
-			ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
-			FatalErrorAndClose(ctx.Socket, err, cause)
-		}
-	}, args...)
-	if err != nil {
-		ctx.Sugar().Errorf("send %s msg with args %v failed: %v", ev, args, err)
-		FatalErrorAndClose(ctx.Socket, err, cause)
-	}
-}
-
-func (ctx *SignalContext) MustEmitWithAckCb(ev string, cause string, args ...any) {
-	ctx.mustEmitWithAckCb(ev, cause, args...)
 }
 
 func (ctx *SignalContext) SetCloseCallback(cb *ConferenceCallback) {
@@ -1098,7 +944,7 @@ func (ctx *SignalContext) SelfClose(disableCloseCallback bool) {
 		sub.Close()
 		return true
 	})
-	ctx.Socket.Disconnect(true)
+	ctx.Signal.Close()
 	ctx.close_cb_mux.Lock()
 	defer ctx.close_cb_mux.Unlock()
 	if !ctx.close_cb_disabled && ctx.close_cb != nil {
@@ -1678,24 +1524,3 @@ func (ctx *SignalContext) LeaveRoom(rooms ...string) {
 	ctx.rooms = utils.SliceRemoveByValues(ctx.rooms, false, rooms...)
 }
 
-func GetSingalContext(s *socket.Socket) *SignalContext {
-	d := s.Data()
-	if d != nil {
-		return s.Data().(*SignalContext)
-	} else {
-		return nil
-	}
-}
-
-func SetAuthInfoAndId(s *socket.Socket, authInfo *auth.AuthInfo, id string, global *Global) {
-	raw := s.Data()
-	if raw == nil {
-		ctx := global.FindSignalContextById(id)
-		if ctx != nil {
-			ctx.Sugar().Warnf("Found undestroyed context %v, destroy it and create a new one.", ctx.Id)
-			ctx.Close()
-		}
-		ctx = newSignalContext(global, s, authInfo, id)
-		s.SetData(ctx)
-	}
-}
