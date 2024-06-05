@@ -16,10 +16,10 @@ type Client interface {
 }
 
 type WebsocketClient struct {
-	signal Signal
+	signal          Signal
 	participant_mux sync.Mutex
-	participants map[string] model.Participant
-	participant_cb func(participants map[string] model.Participant)
+	participants    map[string]model.Participant
+	participant_cb  func(participants map[string]model.Participant)
 }
 
 func NewWebsocketClient(ctx context.Context, conf *WebSocketSignalConfigure, engine *nbhttp.Engine) Client {
@@ -36,7 +36,7 @@ func NewWebsocketClient(ctx context.Context, conf *WebSocketSignalConfigure, eng
 		client.participant_mux.Lock()
 		defer client.participant_mux.Unlock()
 		client.participants[msg.UserId] = model.Participant{
-			Id: msg.UserId,
+			Id:   msg.UserId,
 			Name: msg.UserName,
 		}
 		if client.participant_cb != nil {
@@ -53,4 +53,3 @@ func (c *WebsocketClient) OnCustomMsg(evt string, cb CustomMsgCb) {
 func (c *WebsocketClient) SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string) {
 	c.signal.SendCustomMsg(timeout, ack, evt, content, to)
 }
-
