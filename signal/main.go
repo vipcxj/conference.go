@@ -9,6 +9,7 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/model"
 )
 
 const CLOSE_CALLBACK_PREFIX = "/conference/close"
@@ -68,12 +69,12 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	ctx.Messager().OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
 	ctx.Messager().OnWantParticipant(ctx.Id, ctx.StateParticipants, ctx.RoomPaterns()...)
 	ctx.Messager().OnStateParticipant(ctx.Id, ctx.AcceptParticipants, ctx.RoomPaterns()...)
-	ctx.Messager().OnUser(ctx.Id, ctx.OnUserMessage, ctx.RoomPaterns()...)
-	ctx.Messager().OnUserAck(ctx.Id, ctx.OnUserAckMessage, ctx.RoomPaterns()...)
-	s.On("disconnect", func(ack AckFunc, args ...any) {
+	ctx.Messager().OnCustom(ctx.Id, ctx.OnCustomMessage, ctx.RoomPaterns()...)
+	ctx.Messager().OnCustomAck(ctx.Id, ctx.OnCustomAckMessage, ctx.RoomPaterns()...)
+	s.OnClose(func(args ...any) {
 		ctx.Metrics().OnSignalConnectClose(ctx)
-		reason := args[0].(string)
-		ctx.Sugar().Infof("socket disconnect because %s", reason)
+		reason := args[0]
+		ctx.Sugar().Infof("socket disconnect because %v", reason)
 		go func() {
 			ctx.Sugar().Infof("close the socket")
 			ctx.Close()
@@ -81,7 +82,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	})
 	s.On("join", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive join msg")
-		msg := JoinMessage{}
+		msg := model.JoinMessage{}
 		err := parseArgs(&msg, args...)
 		defer FinallyResponse(ctx, ack, nil, "join", false)
 		if err != nil {
@@ -94,7 +95,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	})
 	s.On("leave", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive leave msg")
-		msg := LeaveMessage{}
+		msg := model.LeaveMessage{}
 		err := parseArgs(&msg, args...)
 		defer FinallyResponse(ctx, ack, nil, "leave", false)
 		if err != nil {
@@ -104,7 +105,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	})
 	s.On("sdp", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive sdp msg")
-		msg := SdpMessage{}
+		msg := model.SdpMessage{}
 		err := parseArgs(&msg, args...)
 		defer FinallyResponse(ctx, ack, nil, "sdp", true)
 		if err != nil {
@@ -147,7 +148,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 					panic(err)
 				}
 				desc := peer.LocalDescription()
-				err = ctx.emit("sdp", SdpMessage{
+				err = ctx.emit("sdp", model.SdpMessage{
 					Type: desc.Type.String(),
 					Sdp:  desc.SDP,
 					Mid:  msg.Mid,
@@ -162,7 +163,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	})
 	s.On("candidate", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive candidate msg")
-		msg := CandidateMessage{}
+		msg := model.CandidateMessage{}
 		err := parseArgs(&msg, args...)
 		defer FinallyResponse(ctx, ack, nil, "candidate", false)
 		if err != nil {
@@ -190,7 +191,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	})
 	s.On("publish", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive publish msg")
-		msg := PublishMessage{}
+		msg := model.PublishMessage{}
 		err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
 		defer FinallyResponse(ctx, ack, arkArgs, "publish", true)
@@ -203,14 +204,14 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			if err != nil {
 				panic(err)
 			}
-			arkArgs[0] = &PublishResultMessage{
+			arkArgs[0] = &model.PublishResultMessage{
 				Id: pubId,
 			}
 		}()
 	})
 	s.On("subscribe", func(ack AckFunc, args ...any) {
 		ctx.Sugar().Debugf("receive subscribe msg")
-		msg := SubscribeMessage{}
+		msg := model.SubscribeMessage{}
 		err := parseArgs(&msg, args...)
 		arkArgs := make([]any, 1)
 		defer FinallyResponse(ctx, ack, arkArgs, "subscribe", true)
@@ -223,40 +224,29 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			if err != nil {
 				panic(err)
 			}
-			arkArgs[0] = &SubscribeResultMessage{
+			arkArgs[0] = &model.SubscribeResultMessage{
 				Id: subId,
 			}
 		}()
 	})
-	s.On("user", func(ack AckFunc, args ...any) {
-		ctx.Sugar().Debugf("receive user msg")
-		msg := UserMessage{}
-		err := parseArgs(&msg, args...)
-		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx, ack, arkArgs, "user", false)
-		if err != nil {
-			panic(err)
-		}
-		err = ctx.ClusterEmit(&msg)
+	s.OnCustom(func(evt string, msg *model.CustomMessage) {
+		ctx.Sugar().Debugf("receive custom msg with evt %s", evt)
+		err = ctx.ClusterEmit(&model.CustomClusterMessage{
+			Evt: evt,
+			Msg: msg,
+		})
 		if err != nil {
 			panic(err)
 		}
 	})
-	s.On("user-ack", func(ack AckFunc, args ...any) {
-		ctx.Sugar().Debugf("receive user-ack msg")
-		msg := UserAckMessage{}
-		err := parseArgs(&msg, args...)
-		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx, ack, arkArgs, "user", false)
-		if err != nil {
-			panic(err)
-		}
-		err = ctx.ClusterEmit(&msg)
+	s.OnCustomAck(func(msg *model.CustomAckMessage) {
+		ctx.Sugar().Debugf("receive custom-ack msg")
+		err = ctx.ClusterEmit(msg)
 		if err != nil {
 			panic(err)
 		}
 	})
-	ctx.ClusterEmit(&WantParticipantMessage{})
+	ctx.ClusterEmit(&model.WantParticipantMessage{})
 	ctx.Sugar().Debugf("the signal context initialized")
 	return ctx, nil
 }
@@ -274,7 +264,7 @@ func processPendingCandidateMsg(ctx *SignalContext) error {
 	return err
 }
 
-func _processCandidateMsg(ctx *SignalContext, msg *CandidateMessage) error {
+func _processCandidateMsg(ctx *SignalContext, msg *model.CandidateMessage) error {
 	var err error
 	if msg.Op == "add" {
 		ctx.Sugar().Debugf("received candidate ", msg.Candidate.Candidate)

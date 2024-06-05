@@ -171,7 +171,7 @@ func (x *StateParticipantMessage) CopyPlain() RoomMessage {
 	}
 }
 
-func (x *UserMessage) ToMap() map[string]any {
+func (x *CustomMessage) ToMap() map[string]any {
 	if x == nil {
 		return nil
 	}
@@ -183,7 +183,7 @@ func (x *UserMessage) ToMap() map[string]any {
 	}
 }
 
-func (x *UserMessage) FixRouter(room string, user string, node string) {
+func (x *CustomMessage) FixRouter(room string, user string, node string) {
 	if x == nil {
 		return
 	}
@@ -193,8 +193,8 @@ func (x *UserMessage) FixRouter(room string, user string, node string) {
 	fixRouter(x.Router, room, user, node)
 }
 
-func (x *UserMessage) CopyPlain() RoomMessage {
-	return &UserMessage{
+func (x *CustomMessage) CopyPlain() RoomMessage {
+	return &CustomMessage{
 		Router:  x.GetRouter().CopyPlain(),
 		Content: x.GetContent(),
 		MsgId:   x.GetMsgId(),
@@ -202,7 +202,48 @@ func (x *UserMessage) CopyPlain() RoomMessage {
 	}
 }
 
-func (x *UserAckMessage) ToMap() map[string]any {
+func (x *CustomClusterMessage) GetRouter() *Router {
+	if x == nil {
+		return nil
+	}
+	if x.Msg == nil {
+		return nil
+	}
+	return x.Msg.Router
+}
+
+func (x *CustomClusterMessage) ToMap() map[string]any {
+	if x == nil {
+		return nil
+	}
+	return map[string]any{
+		"evt": x.GetEvt(),
+		"msg": x.GetMsg().ToMap(),
+	}
+}
+
+func (x *CustomClusterMessage) FixRouter(room string, user string, node string) {
+	if x == nil {
+		return
+	}
+	if x.Msg == nil {
+		x.Msg = &CustomMessage{
+			Router: &Router{},
+		}
+	} else if x.Msg.Router == nil {
+		x.Msg.Router = &Router{}
+	}
+	fixRouter(x.Msg.Router, room, user, node)
+}
+
+func (x *CustomClusterMessage) CopyPlain() RoomMessage {
+	return &CustomClusterMessage{
+		Evt: x.GetEvt(),
+		Msg: x.GetMsg().CopyPlain().(*CustomMessage),
+	}
+}
+
+func (x *CustomAckMessage) ToMap() map[string]any {
 	if x == nil {
 		return nil
 	}
@@ -212,7 +253,7 @@ func (x *UserAckMessage) ToMap() map[string]any {
 	}
 }
 
-func (x *UserAckMessage) FixRouter(room string, user string, node string) {
+func (x *CustomAckMessage) FixRouter(room string, user string, node string) {
 	if x == nil {
 		return
 	}
@@ -222,8 +263,8 @@ func (x *UserAckMessage) FixRouter(room string, user string, node string) {
 	fixRouter(x.Router, room, user, node)
 }
 
-func (x *UserAckMessage) CopyPlain() RoomMessage {
-	return &UserAckMessage{
+func (x *CustomAckMessage) CopyPlain() RoomMessage {
+	return &CustomAckMessage{
 		Router: x.GetRouter().CopyPlain(),
 		MsgId:  x.GetMsgId(),
 	}

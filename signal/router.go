@@ -15,6 +15,7 @@ import (
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
+	"github.com/vipcxj/conference.go/model"
 )
 
 const MAGIC_SETUP = "consetup"
@@ -255,10 +256,10 @@ type Accepter struct {
 	mu     sync.Mutex
 }
 
-func NewAccepter(track *Track) *Accepter {
+func NewAccepter(track *model.Track) *Accepter {
 	var capability webrtc.RTPCodecCapability
 	if track.Codec != nil {
-		capability = RTPCodecParametersToWebrtc(track.Codec).RTPCodecCapability
+		capability = model.RTPCodecParametersToWebrtc(track.Codec).RTPCodecCapability
 	} else {
 		capability = webrtc.RTPCodecCapability{
 			MimeType: webrtc.MimeTypeVP8,
@@ -565,7 +566,7 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 	return
 }
 
-func (r *Router) AcceptTrack(track *Track) *Accepter {
+func (r *Router) AcceptTrack(track *model.Track) *Accepter {
 	accepter, _ := r.track2accepters.GetOrCompute(track.GlobalId, func() *Accepter {
 		return NewAccepter(track)
 	})

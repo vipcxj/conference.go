@@ -31,6 +31,7 @@ import {
     SubscribeResultMessage,
     Track,
     TrackToPublish,
+    CustomMessageWithEvt,
 } from './message';
 import { getLogger } from './log';
 import { combineAsyncIterable } from "./async";
@@ -90,8 +91,8 @@ interface ListenEventMap {
     sdp: (msg: SdpMessage) => void;
     candidate: (msg: CandidateMessage) => void;
     participant: (msg: ParticipantMessage) => void;
-    user: (msg: CustomMessage) => void;
-    'user-ack': (msg: CustomAckMessage) => void;
+    custom: (msg: CustomMessage) => void;
+    'custom-ack': (msg: CustomAckMessage) => void;
 }
 
 interface EmitEventMap {
@@ -101,8 +102,8 @@ interface EmitEventMap {
     publish: ((msg: PublishAddMessage | PublishRemoveMessage, ack: (res: PublishResultMessage) => void) => void) | ((msg: PublishAddMessage | PublishRemoveMessage) => void);
     sdp: (msg: SdpMessage) => void;
     candidate: (msg: CandidateMessage) => void;
-    user: (msg: CustomMessage) => void;
-    'user-ack': (msg: CustomAckMessage) => void;
+    custom: (msg: CustomMessage) => void;
+    'custom-ack': (msg: CustomAckMessage) => void;
 }
 
 interface SocketConnectState {
@@ -119,7 +120,7 @@ interface EventData {
     published: NamedEvent<'published', PublishedMessage>;
     sdp: NamedEvent<'sdp', SdpMessage>;
     error: NamedEvent<'error', ErrorMessage>;
-    customMsg: NamedEvent<'customMsg', CustomMessage>;
+    customMsg: NamedEvent<'customMsg', CustomMessageWithEvt>;
     customAckMsg: NamedEvent<'customAckMsg', CustomAckMessage>;
 }
 
@@ -237,13 +238,21 @@ export class ConferenceClient {
                 this.logger().debug(`accept repeated participant ${msg.userName} (${msg.userId}).`)
             }
         });
-        this.socket.on('user', (msg: CustomMessage) => {
-            this.emitter.emit('customMsg', {
-                name: 'customMsg',
-                data: msg,
-            });
+        this.socket.onAny((evt: string, msg: CustomMessage) => {
+            if (evt.startsWith("custom:")) {
+                evt = evt.substring(7);
+                if (evt) {
+                    this.emitter.emit('customMsg', {
+                        name: 'customMsg',
+                        data: {
+                            evt,
+                            msg,
+                        },
+                    });
+                }
+            }
         });
-        this.socket.on('user-ack', (msg: CustomAckMessage) => {
+        this.socket.on('custom-ack', (msg: CustomAckMessage) => {
             this.emitter.emit('customAckMsg', {
                 name: 'customAckMsg',
                 data: msg,
@@ -446,7 +455,7 @@ export class ConferenceClient {
         });
     }
 
-    sendCustomMessageWithAck = async (msg: any, to?: string, timeout: number = -1) => {
+    sendCustomMessageWithAck = async (evt: string, msg: any, to?: string, timeout: number = -1) => {
         const timeouter = new Timeouter(timeout);
         await this.makeSureSocket(timeouter.left());
         const router: MessageRouter = to ? {
@@ -454,7 +463,7 @@ export class ConferenceClient {
         } : undefined;
         const evts = combineAsyncIterable([this.emitter.events(['customAckMsg', 'disconnect', 'error']), timeouter.stopEvt()]);
         const msgId = this.nextCustomMsgId();
-        this.socket.emit('user', {
+        this.socket.emit(`custom:${evt}` as "custom", {
             msgId,
             content: JSON.stringify(msg),
             router,
@@ -477,12 +486,12 @@ export class ConferenceClient {
         }
     };
 
-    sendCustomMessage = (msg: any, to?: string) => {
+    sendCustomMessage = (evt: string, msg: any, to?: string) => {
         const router: MessageRouter = to ? {
             userTo: to,
         } : undefined;
         const msgId = this.nextCustomMsgId();
-        this.socket.emit('user', {
+        this.socket.emit(`custom:${evt}` as "custom", {
             msgId,
             content: JSON.stringify(msg),
             router,
@@ -490,7 +499,7 @@ export class ConferenceClient {
         });
     };
 
-    waitCustomMessage = async (checker: (msg: any, from?: string, to?: string) => boolean, timeout: number = -1): Promise<any> => {
+    waitCustomMessage = async (checker: (evt:string, from?: string, to?: string) => boolean, timeout: number = -1): Promise<any> => {
         const timeouter = new Timeouter(timeout);
         await this.makeSureSocket(timeouter.left());
         const evts = combineAsyncIterable([this.emitter.events(['customMsg', 'disconnect', 'error']), timeouter.stopEvt()]);
@@ -505,19 +514,23 @@ export class ConferenceClient {
                 await evts.return();
                 throw new TimeOutError();
             } else {
-                const msg = evt.data;
-                const content = msg.content ? JSON.parse(msg.content) : undefined;
-                if (checker(content, msg.router?.userFrom, msg.router?.userTo)) {
-                    await evts.return();
-                    if (msg.ack) {
-                        this.socket.emit('user-ack', {
-                            router: {
-                                userTo: msg.router?.userFrom,
-                            },
-                            msgId: msg.msgId,
-                        });
+                const msg_with_evt = evt.data;
+                const msg = msg_with_evt.msg;
+                const msg_evt = msg_with_evt.evt;
+                if (msg_evt && msg) {
+                    if (checker(msg_evt, msg.router?.userFrom, msg.router?.userTo)) {
+                        const content = msg.content ? JSON.parse(msg.content) : undefined;
+                        await evts.return();
+                        if (msg.ack) {
+                            this.socket.emit('custom-ack', {
+                                router: {
+                                    userTo: msg.router?.userFrom,
+                                },
+                                msgId: msg.msgId,
+                            });
+                        }
+                        return content;
                     }
-                    return content;
                 }
             }
         }

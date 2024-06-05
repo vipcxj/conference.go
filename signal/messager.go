@@ -10,41 +10,39 @@ import (
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
-	"github.com/vipcxj/conference.go/proto"
+	"github.com/vipcxj/conference.go/model"
 	"github.com/vipcxj/conference.go/utils"
 	"go.uber.org/zap"
 	gproto "google.golang.org/protobuf/proto"
 )
 
-type OnStateFunc = func(*proto.StateMessage)
-type OnWantFunc = func(*proto.WantMessage)
-type OnSelectFunc = func(*proto.SelectMessage)
-type OnWantParticipantFunc = func(*proto.WantParticipantMessage)
-type OnStateParticipantFunc = func(*proto.StateParticipantMessage)
-type OnUserFunc = func(*proto.UserMessage)
-type OnUserAckFunc = func(*proto.UserAckMessage)
+type OnStateFunc = func(*model.StateMessage)
+type OnWantFunc = func(*model.WantMessage)
+type OnSelectFunc = func(*model.SelectMessage)
+type OnWantParticipantFunc = func(*model.WantParticipantMessage)
+type OnStateParticipantFunc = func(*model.StateParticipantMessage)
+type OnCustomFunc = func(*model.CustomClusterMessage)
+type OnCustomAckFunc = func(*model.CustomAckMessage)
 
-type RoomMessage = proto.RoomMessage
-
-type messagerCallbackBox[M RoomMessage] struct {
+type messagerCallbackBox[M model.RoomMessage] struct {
 	id  string
 	fun func(M)
 }
 
-type OnStateFuncBox = messagerCallbackBox[*proto.StateMessage]
+type OnStateFuncBox = messagerCallbackBox[*model.StateMessage]
 type OnStateFuncBoxes = map[string]*OnStateFuncBox
-type OnWantFuncBox = messagerCallbackBox[*proto.WantMessage]
+type OnWantFuncBox = messagerCallbackBox[*model.WantMessage]
 type OnWantFuncBoxes = map[string]*OnWantFuncBox
-type OnSelectFuncBox = messagerCallbackBox[*proto.SelectMessage]
+type OnSelectFuncBox = messagerCallbackBox[*model.SelectMessage]
 type OnSelectFuncBoxes = map[string]*OnSelectFuncBox
-type OnWantParticipantFuncBox = messagerCallbackBox[*proto.WantParticipantMessage]
+type OnWantParticipantFuncBox = messagerCallbackBox[*model.WantParticipantMessage]
 type OnWantParticipantFuncBoxes = map[string]*OnWantParticipantFuncBox
-type OnStateParticipantFuncBox = messagerCallbackBox[*proto.StateParticipantMessage]
+type OnStateParticipantFuncBox = messagerCallbackBox[*model.StateParticipantMessage]
 type OnStateParticipantFuncBoxes = map[string]*OnStateParticipantFuncBox
-type OnUserFuncBox = messagerCallbackBox[*proto.UserMessage]
-type OnUserFuncBoxes = map[string]*OnUserFuncBox
-type OnUserAckFuncBox = messagerCallbackBox[*proto.UserAckMessage]
-type OnUserAckFuncBoxes = map[string]*OnUserAckFuncBox
+type OnCustomFuncBox = messagerCallbackBox[*model.CustomClusterMessage]
+type OnCustomFuncBoxes = map[string]*OnCustomFuncBox
+type OnCustomAckFuncBox = messagerCallbackBox[*model.CustomAckMessage]
+type OnCustomAckFuncBoxes = map[string]*OnCustomAckFuncBox
 
 type Messager struct {
 	global                      *Global
@@ -60,10 +58,10 @@ type Messager struct {
 	onWantParticipantCallbacks  *PatternMap[OnWantParticipantFuncBoxes]
 	onStateParticipantMutex     sync.RWMutex
 	onStateParticipantCallbacks *PatternMap[OnStateParticipantFuncBoxes]
-	onUserMutex                 sync.RWMutex
-	onUserCallbacks             *PatternMap[OnUserFuncBoxes]
-	onUserAckMutex              sync.RWMutex
-	onUserAckCallbacks          *PatternMap[OnUserAckFuncBoxes]
+	onCustomMutex               sync.RWMutex
+	onCustomCallbacks           *PatternMap[OnCustomFuncBoxes]
+	onCustomAckMutex            sync.RWMutex
+	onCustomAckCallbacks        *PatternMap[OnCustomAckFuncBoxes]
 	logger                      *zap.Logger
 	sugar                       *zap.SugaredLogger
 }
@@ -78,8 +76,8 @@ const (
 	TOPIC_SELECT            = "cluster_select"
 	TOPIC_WANT_PARTICIPANT  = "cluster_want_participant"
 	TOPIC_STATE_PARTICIPANT = "cluster_state_participant"
-	TOPIC_USER              = "cluster_user"
-	TOPIC_USER_ACK          = "cluster_user_ack"
+	TOPIC_CUSTOM            = "cluster_custom"
+	TOPIC_CUSTOM_ACK        = "cluster_custom_ack"
 )
 
 func NewMessager(global *Global) (*Messager, error) {
@@ -92,8 +90,8 @@ func NewMessager(global *Global) (*Messager, error) {
 		onSelectCallbacks:           NewPatternMap[OnSelectFuncBoxes](),
 		onWantParticipantCallbacks:  NewPatternMap[OnWantParticipantFuncBoxes](),
 		onStateParticipantCallbacks: NewPatternMap[OnStateParticipantFuncBoxes](),
-		onUserCallbacks:             NewPatternMap[OnUserFuncBoxes](),
-		onUserAckCallbacks:          NewPatternMap[OnUserAckFuncBoxes](),
+		onCustomCallbacks:           NewPatternMap[OnCustomFuncBoxes](),
+		onCustomAckCallbacks:        NewPatternMap[OnCustomAckFuncBoxes](),
 		logger:                      logger,
 		sugar:                       logger.Sugar(),
 	}
@@ -104,21 +102,21 @@ func NewMessager(global *Global) (*Messager, error) {
 		topicSelect := MakeKafkaTopic(global.Conf(), TOPIC_SELECT)
 		topicWantParticipant := MakeKafkaTopic(global.Conf(), TOPIC_WANT_PARTICIPANT)
 		topicStateParticipant := MakeKafkaTopic(global.Conf(), TOPIC_STATE_PARTICIPANT)
-		topicUser := MakeKafkaTopic(global.Conf(), TOPIC_USER)
-		topicUserAck := MakeKafkaTopic(global.Conf(), TOPIC_USER_ACK)
+		topicCustom := MakeKafkaTopic(global.Conf(), TOPIC_CUSTOM)
+		topicCustomAck := MakeKafkaTopic(global.Conf(), TOPIC_CUSTOM_ACK)
 		workers := map[string]func(*kgo.Record){
 			topicState:            messager.onTopicState,
 			topicWant:             messager.onTopicWant,
 			topicSelect:           messager.onTopicSelect,
 			topicWantParticipant:  messager.onTopicWantParticipant,
 			topicStateParticipant: messager.onTopicStateParticipant,
-			topicUser:             messager.onTopicUser,
-			topicUserAck:          messager.onTopicUserAck,
+			topicCustom:           messager.onTopicCustom,
+			topicCustomAck:        messager.onTopicCustomAck,
 		}
 		kafka, err := NewKafkaClient(
 			global,
 			KafkaOptGroup(clusterConfig.GetNodeName()),
-			KafkaOptTopics(topicState, topicWant, topicSelect, topicWantParticipant, topicStateParticipant, topicUser, topicUserAck),
+			KafkaOptTopics(topicState, topicWant, topicSelect, topicWantParticipant, topicStateParticipant, topicCustom, topicCustomAck),
 			KafkaOptWorkers(workers),
 		)
 		if err != nil {
@@ -151,7 +149,7 @@ func (m *Messager) Run(ctx context.Context) {
 }
 
 func (m *Messager) onTopicState(record *kgo.Record) {
-	var msg proto.StateMessage
+	var msg model.StateMessage
 	err := gproto.Unmarshal(record.Value, &msg)
 	if err != nil {
 		m.Sugar().Errorf("unable to unmarshal the state record: %v", record)
@@ -166,7 +164,7 @@ func (m *Messager) onTopicState(record *kgo.Record) {
 }
 
 func (m *Messager) onTopicWant(record *kgo.Record) {
-	var msg proto.WantMessage
+	var msg model.WantMessage
 	err := gproto.Unmarshal(record.Value, &msg)
 	if err != nil {
 		m.Sugar().Errorf("unable to unmarshal the want record: %v", record)
@@ -181,7 +179,7 @@ func (m *Messager) onTopicWant(record *kgo.Record) {
 }
 
 func (m *Messager) onTopicSelect(record *kgo.Record) {
-	var msg proto.SelectMessage
+	var msg model.SelectMessage
 	err := gproto.Unmarshal(record.Value, &msg)
 	if err != nil {
 		m.Sugar().Errorf("unable to unmarshal the select record: %v", record)
@@ -196,7 +194,7 @@ func (m *Messager) onTopicSelect(record *kgo.Record) {
 }
 
 func (m *Messager) onTopicWantParticipant(record *kgo.Record) {
-	var msg proto.WantParticipantMessage
+	var msg model.WantParticipantMessage
 	err := gproto.Unmarshal(record.Value, &msg)
 	if err != nil {
 		m.Sugar().Errorf("unable to unmarshal the select record: %v", record)
@@ -211,7 +209,7 @@ func (m *Messager) onTopicWantParticipant(record *kgo.Record) {
 }
 
 func (m *Messager) onTopicStateParticipant(record *kgo.Record) {
-	var msg proto.StateParticipantMessage
+	var msg model.StateParticipantMessage
 	err := gproto.Unmarshal(record.Value, &msg)
 	if err != nil {
 		m.Sugar().Errorf("unable to unmarshal the select record: %v", record)
@@ -225,23 +223,23 @@ func (m *Messager) onTopicStateParticipant(record *kgo.Record) {
 	}
 }
 
-func (m *Messager) onTopicUser(record *kgo.Record) {
-	var msg proto.UserMessage
+func (m *Messager) onTopicCustom(record *kgo.Record) {
+	var msg model.CustomClusterMessage
 	err := gproto.Unmarshal(record.Value, &msg)
 	if err != nil {
-		m.Sugar().Errorf("unable to unmarshal the user record: %v", record)
+		m.Sugar().Errorf("unable to unmarshal the custom record: %v", record)
 		return
 	}
-	if msg.Router == nil {
+	if msg.GetRouter() == nil {
 		m.Sugar().Errorf("accept a message without router")
 	}
-	if msg.Router.NodeFrom != m.nodeName {
-		m.consumeUser(&msg)
+	if msg.GetRouter().NodeFrom != m.nodeName {
+		m.consumeCustom(&msg)
 	}
 }
 
-func (m *Messager) onTopicUserAck(record *kgo.Record) {
-	var msg proto.UserAckMessage
+func (m *Messager) onTopicCustomAck(record *kgo.Record) {
+	var msg model.CustomAckMessage
 	err := gproto.Unmarshal(record.Value, &msg)
 	if err != nil {
 		m.Sugar().Errorf("unable to unmarshal the user ack record: %v", record)
@@ -251,11 +249,11 @@ func (m *Messager) onTopicUserAck(record *kgo.Record) {
 		m.Sugar().Errorf("accept a message without router")
 	}
 	if msg.Router.NodeFrom != m.nodeName {
-		m.consumeUserAck(&msg)
+		m.consumeCustomAck(&msg)
 	}
 }
 
-func onMessage[M RoomMessage](
+func onMessage[M model.RoomMessage](
 	pm *PatternMap[map[string]*messagerCallbackBox[M]],
 	funId string, fun func(M),
 	roomPattern ...string,
@@ -275,7 +273,7 @@ func onMessage[M RoomMessage](
 	}
 }
 
-func offMessage[M RoomMessage](
+func offMessage[M model.RoomMessage](
 	pm *PatternMap[map[string]*messagerCallbackBox[M]],
 	funId string,
 	roomPattern ...string,
@@ -290,7 +288,7 @@ func offMessage[M RoomMessage](
 	}
 }
 
-func consumeMessage[M RoomMessage](
+func consumeMessage[M model.RoomMessage](
 	pm *PatternMap[map[string]*messagerCallbackBox[M]],
 	msg M,
 	sugar *zap.SugaredLogger,
@@ -325,7 +323,7 @@ func (m *Messager) OffState(funId string, roomPattern ...string) {
 	offMessage(m.onStateCallbacks, funId, roomPattern...)
 }
 
-func (m *Messager) consumeState(msg *proto.StateMessage) {
+func (m *Messager) consumeState(msg *model.StateMessage) {
 	funs := func() []OnStateFunc {
 		m.onStateMutex.RLock()
 		defer m.onStateMutex.RUnlock()
@@ -348,7 +346,7 @@ func (m *Messager) OffWant(funId string, roomPattern ...string) {
 	offMessage(m.onWantCallbacks, funId, roomPattern...)
 }
 
-func (m *Messager) consumeWant(msg *proto.WantMessage) {
+func (m *Messager) consumeWant(msg *model.WantMessage) {
 	funs := func() []OnWantFunc {
 		m.onWantMutex.RLock()
 		defer m.onWantMutex.RUnlock()
@@ -371,7 +369,7 @@ func (m *Messager) OffSelect(funId string, roomPattern ...string) {
 	offMessage(m.onSelectCallbacks, funId, roomPattern...)
 }
 
-func (m *Messager) consumeSelect(msg *proto.SelectMessage) {
+func (m *Messager) consumeSelect(msg *model.SelectMessage) {
 	funs := func() []OnSelectFunc {
 		m.onSelectMutex.RLock()
 		defer m.onSelectMutex.RUnlock()
@@ -394,7 +392,7 @@ func (m *Messager) OffWantParticipant(funId string, roomPattern ...string) {
 	offMessage(m.onWantParticipantCallbacks, funId, roomPattern...)
 }
 
-func (m *Messager) consumeWantParticipant(msg *proto.WantParticipantMessage) {
+func (m *Messager) consumeWantParticipant(msg *model.WantParticipantMessage) {
 	funs := func() []OnWantParticipantFunc {
 		m.onWantParticipantMutex.RLock()
 		defer m.onWantParticipantMutex.RUnlock()
@@ -417,7 +415,7 @@ func (m *Messager) OffStateParticipant(funId string, roomPattern ...string) {
 	offMessage(m.onStateParticipantCallbacks, funId, roomPattern...)
 }
 
-func (m *Messager) consumeStateParticipant(msg *proto.StateParticipantMessage) {
+func (m *Messager) consumeStateParticipant(msg *model.StateParticipantMessage) {
 	funs := func() []OnStateParticipantFunc {
 		m.onStateParticipantMutex.RLock()
 		defer m.onStateParticipantMutex.RUnlock()
@@ -428,53 +426,53 @@ func (m *Messager) consumeStateParticipant(msg *proto.StateParticipantMessage) {
 	}
 }
 
-func (m *Messager) OnUser(funId string, fun OnUserFunc, roomPattern ...string) {
-	m.onUserMutex.Lock()
-	defer m.onUserMutex.Unlock()
-	onMessage(m.onUserCallbacks, funId, fun, roomPattern...)
+func (m *Messager) OnCustom(funId string, fun OnCustomFunc, roomPattern ...string) {
+	m.onCustomMutex.Lock()
+	defer m.onCustomMutex.Unlock()
+	onMessage(m.onCustomCallbacks, funId, fun, roomPattern...)
 }
 
-func (m *Messager) OffUser(funId string, roomPattern ...string) {
-	m.onUserMutex.Lock()
-	defer m.onUserMutex.Unlock()
-	offMessage(m.onUserCallbacks, funId, roomPattern...)
+func (m *Messager) OffCustom(funId string, roomPattern ...string) {
+	m.onCustomMutex.Lock()
+	defer m.onCustomMutex.Unlock()
+	offMessage(m.onCustomCallbacks, funId, roomPattern...)
 }
 
-func (m *Messager) consumeUser(msg *proto.UserMessage) {
-	funs := func() []OnUserFunc {
-		m.onUserMutex.RLock()
-		defer m.onUserMutex.RUnlock()
-		return consumeMessage(m.onUserCallbacks, msg, m.sugar, m.nodeName)
+func (m *Messager) consumeCustom(msg *model.CustomClusterMessage) {
+	funs := func() []OnCustomFunc {
+		m.onCustomMutex.RLock()
+		defer m.onCustomMutex.RUnlock()
+		return consumeMessage(m.onCustomCallbacks, msg, m.sugar, m.nodeName)
 	}()
 	for _, fun := range funs {
 		go fun(msg)
 	}
 }
 
-func (m *Messager) OnUserAck(funId string, fun OnUserAckFunc, roomPattern ...string) {
-	m.onUserAckMutex.Lock()
-	defer m.onUserAckMutex.Unlock()
-	onMessage(m.onUserAckCallbacks, funId, fun, roomPattern...)
+func (m *Messager) OnCustomAck(funId string, fun OnCustomAckFunc, roomPattern ...string) {
+	m.onCustomAckMutex.Lock()
+	defer m.onCustomAckMutex.Unlock()
+	onMessage(m.onCustomAckCallbacks, funId, fun, roomPattern...)
 }
 
-func (m *Messager) OffUserAck(funId string, roomPattern ...string) {
-	m.onUserAckMutex.Lock()
-	defer m.onUserAckMutex.Unlock()
-	offMessage(m.onUserAckCallbacks, funId, roomPattern...)
+func (m *Messager) OffCustomAck(funId string, roomPattern ...string) {
+	m.onCustomAckMutex.Lock()
+	defer m.onCustomAckMutex.Unlock()
+	offMessage(m.onCustomAckCallbacks, funId, roomPattern...)
 }
 
-func (m *Messager) consumeUserAck(msg *proto.UserAckMessage) {
-	funs := func() []OnUserAckFunc {
-		m.onUserAckMutex.RLock()
-		defer m.onUserAckMutex.RUnlock()
-		return consumeMessage(m.onUserAckCallbacks, msg, m.sugar, m.nodeName)
+func (m *Messager) consumeCustomAck(msg *model.CustomAckMessage) {
+	funs := func() []OnCustomAckFunc {
+		m.onCustomAckMutex.RLock()
+		defer m.onCustomAckMutex.RUnlock()
+		return consumeMessage(m.onCustomAckCallbacks, msg, m.sugar, m.nodeName)
 	}()
 	for _, fun := range funs {
 		go fun(msg)
 	}
 }
 
-func (m *Messager) logEmitMsg(msg RoomMessage, msgType string) {
+func (m *Messager) logEmitMsg(msg model.RoomMessage, msgType string) {
 	router := msg.GetRouter()
 	if router.GetNodeTo() != "" {
 		if router.GetUserFrom() != "" {
@@ -555,7 +553,7 @@ func (m *Messager) logEmitMsg(msg RoomMessage, msgType string) {
 	}
 }
 
-func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
+func (m *Messager) Emit(ctx context.Context, msg model.RoomMessage) error {
 	target := msg.GetRouter()
 	if target == nil || target.Room == "" {
 		return errors.InvalidMessage("invalid room message, router is nil or router without room")
@@ -568,34 +566,34 @@ func (m *Messager) Emit(ctx context.Context, msg RoomMessage) error {
 	var topic string
 	key := msg.GetRouter().Room
 	switch typedMsg := msg.(type) {
-	case *StateMessage:
+	case *model.StateMessage:
 		topic = MakeKafkaTopic(m.Conf(), TOPIC_STATE)
 		m.logEmitMsg(msg, "state")
 		m.consumeState(typedMsg)
-	case *WantMessage:
+	case *model.WantMessage:
 		topic = MakeKafkaTopic(m.Conf(), TOPIC_WANT)
 		m.logEmitMsg(msg, "want")
 		m.consumeWant(typedMsg)
-	case *SelectMessage:
+	case *model.SelectMessage:
 		topic = MakeKafkaTopic(m.Conf(), TOPIC_SELECT)
 		m.logEmitMsg(msg, "select")
 		m.consumeSelect(typedMsg)
-	case *WantParticipantMessage:
+	case *model.WantParticipantMessage:
 		topic = MakeKafkaTopic(m.Conf(), TOPIC_WANT_PARTICIPANT)
 		m.logEmitMsg(msg, "want-participant")
 		m.consumeWantParticipant(typedMsg)
-	case *StateParticipantMessage:
+	case *model.StateParticipantMessage:
 		topic = MakeKafkaTopic(m.Conf(), TOPIC_STATE_PARTICIPANT)
 		m.logEmitMsg(msg, "state-participant")
 		m.consumeStateParticipant(typedMsg)
-	case *UserMessage:
-		topic = MakeKafkaTopic(m.Conf(), TOPIC_USER)
-		m.logEmitMsg(msg, "user")
-		m.consumeUser(typedMsg)
-	case *UserAckMessage:
-		topic = MakeKafkaTopic(m.Conf(), TOPIC_USER_ACK)
-		m.logEmitMsg(msg, "user-ack")
-		m.consumeUserAck(typedMsg)
+	case *model.CustomClusterMessage:
+		topic = MakeKafkaTopic(m.Conf(), TOPIC_CUSTOM)
+		m.logEmitMsg(msg, "custom")
+		m.consumeCustom(typedMsg)
+	case *model.CustomAckMessage:
+		topic = MakeKafkaTopic(m.Conf(), TOPIC_CUSTOM_ACK)
+		m.logEmitMsg(msg, "custom-ack")
+		m.consumeCustomAck(typedMsg)
 	default:
 		return errors.InvalidMessage("invalid room message, unknown message type %v", reflect.TypeOf(msg))
 	}

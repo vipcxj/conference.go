@@ -3,14 +3,17 @@ package signal
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/graceful"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
+	"github.com/vipcxj/conference.go/model"
 	"github.com/zishang520/socket.io/v2/socket"
 	"go.uber.org/zap"
 )
@@ -31,7 +34,7 @@ func GetSingalContextFromSocketIO(s *socket.Socket) *SignalContext {
 
 type authAndId struct {
 	auth *auth.AuthInfo
-	id string
+	id   string
 }
 
 func SocketIOAuthHandler(global *Global) func(*socket.Socket, func(*socket.ExtendedError)) {
@@ -72,9 +75,9 @@ func SocketIOAuthHandler(global *Global) func(*socket.Socket, func(*socket.Exten
 			next(socket.NewExtendedError("Unauthorized", err))
 			return
 		}
-		s.SetData(&authAndId {
+		s.SetData(&authAndId{
 			auth: authInfo,
-			id: signalId,
+			id:   signalId,
 		})
 		next(nil)
 	}
@@ -184,6 +187,46 @@ func (signal *SocketIOSignal) On(evt string, cb func(ack AckFunc, args ...any)) 
 		} else {
 			cb(ark)
 		}
+	})
+}
+
+func (signal *SocketIOSignal) OnCustom(cb func(evt string, msg *model.CustomMessage)) error {
+	signal.socket.OnAny(func(args ...any) {
+		if len(args) > 0 {
+			evt, ok := args[0].(string)
+			if ok {
+				if strings.HasPrefix(evt, "custom:") {
+					evt = evt[7:]
+					if len(args) > 1 {
+						msg := model.CustomMessage{}
+						err := mapstructure.Decode(args[1], &msg)
+						if err != nil {
+							cb(evt, &msg)
+						}
+					}
+				}
+			}
+		}
+	})
+	return nil
+}
+
+func (signal *SocketIOSignal) OnCustomAck(cb func(msg *model.CustomAckMessage)) error {
+	signal.On("custom-ack", func(_ AckFunc, args ...any) {
+		if len(args) > 0 {
+			msg := model.CustomAckMessage{}
+			err := mapstructure.Decode(args[1], &msg)
+			if err != nil {
+				cb(&msg)
+			}
+		}
+	})
+	return nil
+}
+
+func (signal *SocketIOSignal) OnClose(cb func(args ...any)) {
+	signal.socket.On("disconnect", func(args ...any) {
+		cb(args...)
 	})
 }
 

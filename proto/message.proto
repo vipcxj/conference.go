@@ -149,7 +149,7 @@ message StateParticipantMessage {
 	string userName = 3;
 }
 
-message UserMessage {
+message CustomMessage {
 	// @gotags: mapstructure:"router"
     Router router = 1;
 	// @gotags: mapstructure:"content"
@@ -160,7 +160,14 @@ message UserMessage {
 	bool ack = 4;
 }
 
-message UserAckMessage {
+message CustomClusterMessage {
+	// @gotags: mapstructure:"evt"
+	string evt = 1;
+	// @gotags: mapstructure:"msg"
+	CustomMessage msg = 2;
+}
+
+message CustomAckMessage {
 	// @gotags: mapstructure:"router"
     Router router = 1;
 	// @gotags: mapstructure:"msgId"

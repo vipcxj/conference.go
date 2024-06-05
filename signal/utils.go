@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 	"github.com/vipcxj/conference.go/errors"
+	"github.com/vipcxj/conference.go/model"
 	"github.com/vipcxj/conference.go/utils"
 )
 
@@ -30,22 +31,22 @@ func ErrToString(err any) string {
 	return fmt.Sprintf("%s\n%s\n", msg, string(debug.Stack()))
 }
 
-func ErrToMsg(err any, cause string) *ErrorMessage {
+func ErrToMsg(err any, cause string) *model.ErrorMessage {
 	switch typedErr := err.(type) {
 	case *errors.ConferenceError:
-		return &ErrorMessage{
+		return &model.ErrorMessage{
 			Msg:        typedErr.Msg,
 			Fatal:      typedErr.Code == errors.ERR_FATAL,
 			CallFrames: typedErr.CallFrames,
 			Cause:      cause,
 		}
 	case error:
-		return &ErrorMessage{
+		return &model.ErrorMessage{
 			Msg:   typedErr.Error(),
 			Cause: cause,
 		}
 	default:
-		return &ErrorMessage{
+		return &model.ErrorMessage{
 			Msg:   ErrToString(err),
 			Cause: cause,
 		}

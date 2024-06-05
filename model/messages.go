@@ -1,4 +1,4 @@
-package signal
+package model
 
 import (
 	"github.com/pion/webrtc/v4"
@@ -41,6 +41,8 @@ type LeaveMessage struct {
 	Rooms         []string `json:"rooms" mapstructure:"rooms"`
 }
 
+type RouterMessage = proto.Router
+
 //	type WantMessage struct {
 //		SignalMessage `mapstructure:",squash"`
 //		ReqTypes      []string           `json:"reqTypes" mapstructure:"reqTypes"`
@@ -69,9 +71,11 @@ type WantParticipantMessage = proto.WantParticipantMessage
 
 type StateParticipantMessage = proto.StateParticipantMessage
 
-type UserMessage = proto.UserMessage
+type CustomMessage = proto.CustomMessage
 
-type UserAckMessage = proto.UserAckMessage
+type CustomClusterMessage = proto.CustomClusterMessage
+
+type CustomAckMessage = proto.CustomAckMessage
 
 type PublishOp int
 

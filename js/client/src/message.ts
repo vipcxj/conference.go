@@ -125,6 +125,11 @@ export interface CustomMessage extends SignalMessage {
     ack: boolean;
 }
 
+export interface CustomMessageWithEvt {
+    evt: string;
+    msg: CustomMessage;
+}
+
 export interface CustomAckMessage extends SignalMessage {
     msgId: number;
 }

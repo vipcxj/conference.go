@@ -1,9 +1,11 @@
-package signal
+package model
 
 import (
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/proto"
 )
+
+type RoomMessage = proto.RoomMessage
 
 // RTCPFeedback signals the connection to use additional RTCP packet types.
 // https://draft.ortc.org/#dom-rtcrtcpfeedback
@@ -250,3 +252,8 @@ func CopyTrack(src *Track) *Track {
 // 	}
 // 	return nil
 // }
+
+type Participant struct {
+	Id string
+	Name string
+}

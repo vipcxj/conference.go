@@ -21,6 +21,7 @@ import (
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
+	"github.com/vipcxj/conference.go/model"
 	"github.com/vipcxj/conference.go/pkg/common"
 	sgt "github.com/vipcxj/conference.go/pkg/segmenter"
 	"github.com/vipcxj/conference.go/proto"
@@ -34,7 +35,7 @@ func IsRTPClosedError(err error) bool {
 
 type SubscribedTrack struct {
 	sub      *Subscription
-	pubTrack *Track
+	pubTrack *model.Track
 	sid      string
 	accepter *Accepter
 	sender   *webrtc.RTPSender
@@ -53,13 +54,13 @@ type Subscription struct {
 	mu            sync.Mutex
 	closed        bool
 	reqTypes      []string
-	pattern       *PublicationPattern
+	pattern       *model.PublicationPattern
 	sctx          *SignalContext
 	acceptedPubId string
 	acceptedTrack map[string]*SubscribedTrack
 }
 
-func (s *Subscription) AcceptTrack(msg *StateMessage) {
+func (s *Subscription) AcceptTrack(msg *model.StateMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -68,7 +69,7 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 	if s.acceptedPubId != "" && s.acceptedPubId != msg.PubId {
 		return
 	}
-	matcheds, unmatcheds := MatchTracks(s.pattern, msg.Tracks, s.reqTypes)
+	matcheds, unmatcheds := model.MatchTracks(s.pattern, msg.Tracks, s.reqTypes)
 	if s.acceptedPubId == msg.PubId {
 		for _, unmatch := range unmatcheds {
 			subscribedTrack, ok := s.acceptedTrack[unmatch.GlobalId]
@@ -97,9 +98,9 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 		s.acceptedTrack = map[string]*SubscribedTrack{}
 	}
 	need_neg := false
-	var subTracks []*Track
+	var subTracks []*model.Track
 	for _, matched := range matcheds {
-		track := CopyTrack(matched)
+		track := model.CopyTrack(matched)
 		subscribedTrack, ok := s.acceptedTrack[track.GlobalId]
 		if !ok {
 			accepter := router.AcceptTrack(track)
@@ -146,14 +147,14 @@ func (s *Subscription) AcceptTrack(msg *StateMessage) {
 		sdpId := s.sctx.NextSdpMsgId()
 		s.sctx.Sugar().Infof("gen sdp id: %v", sdpId)
 
-		s.sctx.clusterEmit(&SelectMessage{
+		s.sctx.clusterEmit(&model.SelectMessage{
 			PubId:       msg.PubId,
 			Tracks:      matcheds,
 			TransportId: router.id.String(),
 		})
 		// s.ctx.Socket.To(s.ctx.Rooms()...).Emit("select", selMsg)
 		// s.ctx.Socket.Emit("select", selMsg)
-		respMsg := &SubscribedMessage{
+		respMsg := &model.SubscribedMessage{
 			SubId:  s.id,
 			PubId:  msg.PubId,
 			SdpId:  sdpId,
@@ -180,14 +181,14 @@ func (s *Subscription) UnbindAccepter(accepter *Accepter) {
 	}
 }
 
-func (s *Subscription) UpdatePattern(message *SubscribeMessage) {
+func (s *Subscription) UpdatePattern(message *model.SubscribeMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// when closed, s.acceptedTrack is empty, so no need check closed
-	tracks := utils.MapValuesTo(s.acceptedTrack, func(s string, st *SubscribedTrack) (mapped *Track, remove bool) {
+	tracks := utils.MapValuesTo(s.acceptedTrack, func(s string, st *SubscribedTrack) (mapped *model.Track, remove bool) {
 		return st.pubTrack, false
 	})
-	_, unmatched := MatchTracks(message.Pattern, tracks, message.ReqTypes)
+	_, unmatched := model.MatchTracks(message.Pattern, tracks, message.ReqTypes)
 	for _, track := range unmatched {
 		at, found := s.acceptedTrack[track.GlobalId]
 		if found {
@@ -485,7 +486,7 @@ func (me *Publication) Bind() bool {
 		tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *proto.Track, remove bool) {
 			return pt.track, false
 		})
-		me.ctx.clusterEmit(&StateMessage{
+		me.ctx.clusterEmit(&model.StateMessage{
 			PubId:  me.id,
 			Tracks: tracks,
 			Addr:   r.Addr(),
@@ -498,15 +499,15 @@ func (me *Publication) Bind() bool {
 	}
 }
 
-func (me *Publication) State(want *WantMessage) []*proto.Track {
-	tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *Track, remove bool) {
+func (me *Publication) State(want *model.WantMessage) []*proto.Track {
+	tracks := utils.MapValuesTo(me.tracks, func(s string, pt *PublishedTrack) (mapped *model.Track, remove bool) {
 		return pt.track, !pt.isBind()
 	})
-	matched, _ := MatchTracks(want.Pattern, tracks, want.ReqTypes)
+	matched, _ := model.MatchTracks(want.Pattern, tracks, want.ReqTypes)
 	return matched
 }
 
-func (me *Publication) SatifySelect(sel *SelectMessage) {
+func (me *Publication) SatifySelect(sel *model.SelectMessage) {
 	for _, t := range sel.Tracks {
 		pt, ok := me.tracks[t.GlobalId]
 		if ok {
@@ -534,7 +535,7 @@ type RTPConsumer func(ssrc webrtc.SSRC, data []byte, attrs interceptor.Attribute
 type PublishedTrack struct {
 	pub          *Publication
 	mu           sync.Mutex
-	track        *Track
+	track        *model.Track
 	remote       *webrtc.TrackRemote
 	consumers    []*RTPConsumer
 	consumerMu   sync.Mutex
@@ -545,7 +546,7 @@ func (me *PublishedTrack) Publication() *Publication {
 	return me.pub
 }
 
-func (me *PublishedTrack) Track() *Track {
+func (me *PublishedTrack) Track() *model.Track {
 	return me.track
 }
 
@@ -640,7 +641,7 @@ func (pt *PublishedTrack) Bind() bool {
 	if err != nil {
 		panic(err)
 	}
-	success := func () bool {
+	success := func() bool {
 		pt.mu.Lock()
 		defer pt.mu.Unlock()
 		rt, t := ctx.findTracksRemoteByMidAndRid(peer, pt.StreamId(), pt.BindId(), pt.Rid())
@@ -654,7 +655,7 @@ func (pt *PublishedTrack) Bind() bool {
 			codec := rt.Codec()
 			if codec.MimeType != "" {
 				ctx.Sugar().Debugf("track mime type gotten: %s", codec.MimeType)
-				pt.track.Codec = NewRTPCodecParameters(&codec)
+				pt.track.Codec = model.NewRTPCodecParameters(&codec)
 			} else {
 				ctx.Sugar().Debugf("no track mime type found, track with mid %s/%s bind failed", pt.BindId(), t.Mid())
 				return false
@@ -670,7 +671,7 @@ func (pt *PublishedTrack) Bind() bool {
 		success = ctx.mustEmitWithAck(
 			"published",
 			"send published msg",
-			&PublishedMessage{
+			&model.PublishedMessage{
 				Track: pt.Track(),
 			},
 		) == nil
@@ -750,7 +751,7 @@ type SignalContext struct {
 	cancel            context.CancelCauseFunc
 	rooms             []string
 	rooms_mux         sync.RWMutex
-	pendingCandidates []*CandidateMessage
+	pendingCandidates []*model.CandidateMessage
 	cand_mux          sync.Mutex
 	peer_mux          sync.Mutex
 	neg_mux           sync.Mutex
@@ -828,7 +829,7 @@ func (ctx *SignalContext) CurrentSdpMsgId() int {
 	return int(ctx.sdpMsgId.Load())
 }
 
-func (sctx *SignalContext) clusterEmit(message RoomMessage) {
+func (sctx *SignalContext) clusterEmit(message model.RoomMessage) {
 	for _, room := range sctx.Rooms() {
 		msg_copy := message.CopyPlain()
 		msg_copy.FixRouter(room, sctx.AuthInfo.UID, sctx.Messager().NodeName())
@@ -839,7 +840,7 @@ func (sctx *SignalContext) clusterEmit(message RoomMessage) {
 	}
 }
 
-func (sctx *SignalContext) ClusterEmit(message RoomMessage) error {
+func (sctx *SignalContext) ClusterEmit(message model.RoomMessage) error {
 	sctx.clusterEmit(message)
 	return nil
 }
@@ -932,8 +933,8 @@ func (ctx *SignalContext) SelfClose(disableCloseCallback bool) {
 	ctx.Messager().OffSelect(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffWantParticipant(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffStateParticipant(ctx.Id, ctx.RoomPaterns()...)
-	ctx.Messager().OffUser(ctx.Id, ctx.RoomPaterns()...)
-	ctx.Messager().OffUserAck(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffCustom(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffCustomAck(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Sugar().Debugf("signal context closing")
 	ctx.closePeer()
 	ctx.publications.ForEach(func(k string, pub *Publication) bool {
@@ -955,7 +956,7 @@ func (ctx *SignalContext) SelfClose(disableCloseCallback bool) {
 	ctx.Sugar().Debugf("the signal context closed")
 }
 
-func (ctx *SignalContext) AcceptTrack(msg *StateMessage) {
+func (ctx *SignalContext) AcceptTrack(msg *model.StateMessage) {
 	ctx.subscriptions.ForEach(func(k string, sub *Subscription) bool {
 		sub.AcceptTrack(msg)
 		return true
@@ -986,13 +987,13 @@ func getMidFromSender(peer *webrtc.PeerConnection, sender *webrtc.RTPSender) str
 	}
 }
 
-func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, err error) {
+func (ctx *SignalContext) Subscribe(message *model.SubscribeMessage) (subId string, err error) {
 	err = message.Validate()
 	if err != nil {
 		return
 	}
 	switch message.Op {
-	case SUB_OP_ADD:
+	case model.SUB_OP_ADD:
 		var loaded = true
 		for loaded {
 			subId = uuid.NewString()
@@ -1005,7 +1006,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 				}
 			})
 		}
-	case SUB_OP_UPDATE:
+	case model.SUB_OP_UPDATE:
 		sub, ok := ctx.subscriptions.Get(message.Id)
 		if !ok {
 			err = errors.SubNotExist(message.Id)
@@ -1013,7 +1014,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 		}
 		sub.UpdatePattern(message)
 		subId = sub.id
-	case SUB_OP_REMOVE:
+	case model.SUB_OP_REMOVE:
 		sub, ok := ctx.subscriptions.GetAndDel(message.Id)
 		if !ok {
 			err = errors.SubNotExist(message.Id)
@@ -1027,7 +1028,7 @@ func (ctx *SignalContext) Subscribe(message *SubscribeMessage) (subId string, er
 	}
 
 	r := ctx.Global.Router()
-	ctx.clusterEmit(&WantMessage{
+	ctx.clusterEmit(&model.WantMessage{
 		Pattern:     message.Pattern,
 		TransportId: r.id.String(),
 	})
@@ -1089,13 +1090,13 @@ func (ctx *SignalContext) findTracksRemoteByMidAndRid(peer *webrtc.PeerConnectio
 	return nil, nil
 }
 
-func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err error) {
+func (ctx *SignalContext) Publish(message *model.PublishMessage) (pubId string, err error) {
 	err = message.Validate()
 	if err != nil {
 		return
 	}
 	switch message.Op {
-	case PUB_OP_ADD:
+	case model.PUB_OP_ADD:
 		var loaded bool = true
 		for loaded {
 			pubId = uuid.NewString()
@@ -1110,7 +1111,7 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 					tid := uuid.NewString()
 					pub.tracks[tid] = &PublishedTrack{
 						pub: pub,
-						track: &Track{
+						track: &model.Track{
 							Type:     t.Type,
 							PubId:    pubId,
 							GlobalId: tid,
@@ -1124,7 +1125,7 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 				return pub
 			})
 		}
-	case PUB_OP_REMOVE:
+	case model.PUB_OP_REMOVE:
 		pub, ok := ctx.publications.Get(message.Id)
 		if ok {
 			pub.Close()
@@ -1138,12 +1139,12 @@ func (ctx *SignalContext) Publish(message *PublishMessage) (pubId string, err er
 	return
 }
 
-func (ctx *SignalContext) StateWant(message *WantMessage) {
+func (ctx *SignalContext) StateWant(message *model.WantMessage) {
 	r := ctx.Global.Router()
 	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
 		satified := pub.State(message)
 		if len(satified) > 0 {
-			ctx.clusterEmit(&StateMessage{
+			ctx.clusterEmit(&model.StateMessage{
 				PubId:  pub.id,
 				Tracks: satified,
 				Addr:   r.Addr(),
@@ -1153,21 +1154,21 @@ func (ctx *SignalContext) StateWant(message *WantMessage) {
 	})
 }
 
-func (ctx *SignalContext) SatifySelect(message *SelectMessage) {
+func (ctx *SignalContext) SatifySelect(message *model.SelectMessage) {
 	pub, found := ctx.publications.Get(message.PubId)
 	if found {
 		pub.SatifySelect(message)
 	}
 }
 
-func (ctx *SignalContext) StateParticipants(message *WantParticipantMessage) {
-	ctx.clusterEmit(&StateParticipantMessage{
+func (ctx *SignalContext) StateParticipants(message *model.WantParticipantMessage) {
+	ctx.clusterEmit(&model.StateParticipantMessage{
 		UserId:   ctx.AuthInfo.UID,
 		UserName: ctx.AuthInfo.UName,
 	})
 }
 
-func (ctx *SignalContext) AcceptParticipants(message *StateParticipantMessage) {
+func (ctx *SignalContext) AcceptParticipants(message *model.StateParticipantMessage) {
 	ctx.Sugar().Debugf("sending participant message")
 	ctx.emit("participant", proto.ToClientMessage(message))
 	ctx.Sugar().Debugf("participant message send.")
@@ -1183,24 +1184,24 @@ func (ctx *SignalContext) Bind() {
 	})
 }
 
-func (ctx *SignalContext) OnUserMessage(message *UserMessage) {
-	if message == nil || message.Router == nil {
+func (ctx *SignalContext) OnCustomMessage(message *model.CustomClusterMessage) {
+	if message == nil || message.GetRouter() == nil {
 		return
 	}
-	if message.Router.UserTo != "" && message.Router.UserTo != ctx.AuthInfo.UID {
+	if message.GetRouter().UserTo != "" && message.GetRouter().UserTo != ctx.AuthInfo.UID {
 		return
 	}
-	ctx.emit("user", proto.ToClientMessage(message))
+	ctx.emit(fmt.Sprintf("custom:%s", message.Evt), proto.ToClientMessage(message.Msg))
 }
 
-func (ctx *SignalContext) OnUserAckMessage(message *UserAckMessage) {
+func (ctx *SignalContext) OnCustomAckMessage(message *model.CustomAckMessage) {
 	if message == nil || message.Router == nil {
 		return
 	}
 	if message.Router.UserTo != "" && message.Router.UserTo != ctx.AuthInfo.UID {
 		return
 	}
-	ctx.emit("user-ack", proto.ToClientMessage(message))
+	ctx.emit("custom-ack", proto.ToClientMessage(message))
 }
 
 func (ctx *SignalContext) closePeer() {
@@ -1238,7 +1239,7 @@ func (ctx *SignalContext) StartNegotiate(peer *webrtc.PeerConnection, msgId int)
 		return
 	}
 	desc := peer.LocalDescription()
-	return ctx.mustEmitWithAck("sdp", "send sdp msg", SdpMessage{
+	return ctx.mustEmitWithAck("sdp", "send sdp msg", model.SdpMessage{
 		Type: desc.Type.String(),
 		Sdp:  desc.SDP,
 		Mid:  msgId,
@@ -1427,12 +1428,12 @@ func (ctx *SignalContext) makeSurePeer() (peer *webrtc.PeerConnection, err error
 		peer.OnICECandidate(func(i *webrtc.ICECandidate) {
 			if i == nil {
 				ctx.Sugar().Debug("can not find candidate any more")
-				ctx.MustEmitWithAck("candidate", "send candidate msg", CandidateMessage{
+				ctx.MustEmitWithAck("candidate", "send candidate msg", &model.CandidateMessage{
 					Op: "end",
 				})
 			} else {
 				ctx.Sugar().Debugf("find candidate %v", i)
-				ctx.MustEmitWithAck("candidate", "send candidate msg", &CandidateMessage{
+				ctx.MustEmitWithAck("candidate", "send candidate msg", &model.CandidateMessage{
 					Op:        "add",
 					Candidate: i.ToJSON(),
 				})
@@ -1523,4 +1524,3 @@ func (ctx *SignalContext) LeaveRoom(rooms ...string) {
 	defer ctx.rooms_mux.Unlock()
 	ctx.rooms = utils.SliceRemoveByValues(ctx.rooms, false, rooms...)
 }
-
