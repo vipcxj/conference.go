@@ -19,6 +19,7 @@ import (
 )
 
 type AckFunc = func([]any, error)
+type MsgCb = func(ack AckFunc, args ...any) (remained bool)
 
 type ackArgs struct {
 	arg any
@@ -51,7 +52,7 @@ type WebSocketSignal struct {
 	close_cb           func(error)
 	close_ch           chan any
 	msg_mux            sync.Mutex
-	msg_cbs            map[string]func(ack AckFunc, args ...any)
+	msg_cbs            map[string]MsgCb
 	custom_msg_mux     sync.Mutex
 	custom_msg_cb      func(evt string, msg *model.CustomMessage)
 	custom_ack_msg_mux sync.Mutex
@@ -147,7 +148,7 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 		mode:     mode,
 		conn_ch:  make(chan any),
 		close_ch: make(chan any),
-		msg_cbs:  make(map[string]func(ack AckFunc, args ...any)),
+		msg_cbs:  make(map[string]MsgCb),
 		acks:     make(map[uint64]chan *ackArgs),
 	}
 	if mode.IsClient() {
@@ -227,7 +228,6 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 				} else {
 					sig.msg_mux.Lock()
 					cb, ok := sig.msg_cbs[evt]
-					sig.msg_mux.Unlock()
 					if ok {
 						var ack_fun AckFunc = nil
 						if flag.need_ack() {
@@ -259,8 +259,11 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 								}
 							}
 						}
-						cb(ack_fun, data)
+						if !cb(ack_fun, data) {
+							delete(sig.msg_cbs, evt)
+						}
 					}
+					sig.msg_mux.Unlock()
 				}
 			}
 		} else {
@@ -382,7 +385,7 @@ func (signal *WebSocketSignal) SendMsg(timeout time.Duration, ack bool, evt stri
 	}
 }
 
-func (signal *WebSocketSignal) On(evt string, cb func(ack AckFunc, args ...any)) error {
+func (signal *WebSocketSignal) On(evt string, cb MsgCb) error {
 	signal.msg_mux.Lock()
 	defer signal.msg_mux.Unlock()
 	signal.msg_cbs[evt] = cb

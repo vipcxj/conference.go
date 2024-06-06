@@ -8,6 +8,8 @@ import (
 )
 
 type AckFunc = func([]any, error)
+type MsgCb = func(ack AckFunc, args ...any)
+type CustomMsgCb = func(evt string, msg *model.CustomMessage)
 
 type Signal interface {
 	SendMsg(timeout time.Duration, ack bool, evt string, args ...any) (res []any, err error)

@@ -53,8 +53,11 @@ func (signal *WebSocketSignal) SendMsg(timeout time.Duration, ack bool, evt stri
 	return signal.signal.SendMsg(timeout, ack, evt, args...)
 }
 
-func (signal *WebSocketSignal) On(evt string, cb func(ack AckFunc, args ...any)) error {
-	return signal.signal.On(evt, cb)
+func (signal *WebSocketSignal) On(evt string, cb MsgCb) error {
+	return signal.signal.On(evt, func(ack websocket.AckFunc, args ...any) (remained bool) {
+		cb(ack, args...)
+		return true
+	})
 }
 
 func (signal *WebSocketSignal) OnCustom(cb func(evt string, msg *model.CustomMessage)) error {

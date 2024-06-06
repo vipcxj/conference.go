@@ -32,7 +32,8 @@ func NewWebsocketClient(ctx context.Context, conf *WebSocketSignalConfigure, eng
 	client := &WebsocketClient{
 		signal: signal,
 	}
-	signal.On("participant", func(ack AckFunc, arg any) {
+	signal.On("participant", func(ack AckFunc, arg any) (remained bool) {
+		remained = true
 		msg := model.StateParticipantMessage{}
 		err := mapstructure.Decode(arg, &msg)
 		if err != nil {
@@ -49,6 +50,7 @@ func NewWebsocketClient(ctx context.Context, conf *WebSocketSignalConfigure, eng
 		if !exist && client.participant_join_cb != nil {
 			client.participant_join_cb(&participant)
 		}
+		return
 	})
 	return client
 }

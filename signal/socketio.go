@@ -113,6 +113,7 @@ func ConfigureSocketIOSingalServer(global *Global, g *graceful.Graceful) error {
 
 type SocketIOSignal struct {
 	socket *socket.Socket
+
 }
 
 func NewSocketIOSingal(socket *socket.Socket) Signal {
@@ -161,7 +162,16 @@ func (signal *SocketIOSignal) SendMsg(timeout time.Duration, ack bool, evt strin
 	}
 }
 
-func (signal *SocketIOSignal) On(evt string, cb func(ack AckFunc, args ...any)) error {
+func (signal *SocketIOSignal) On(evt string, cb MsgCb) error {
+	if evt == "disconnect" {
+		panic("use OnClose instead")
+	}
+	if strings.HasPrefix(evt, "custom:") {
+		panic("use OnCustom instead.")
+	}
+	if evt == "custom-ack" {
+		panic("use OnCustomAck instead.")
+	}
 	return signal.socket.On(evt, func(args ...any) {
 		if len(args) == 0 {
 			cb(nil)
