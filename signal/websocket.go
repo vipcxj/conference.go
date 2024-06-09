@@ -3,6 +3,7 @@ package signal
 import (
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-contrib/graceful"
@@ -17,14 +18,23 @@ import (
 )
 
 type WebSocketSignal struct {
-	signal *websocket.WebSocketSignal
-	ctx    *SignalContext
+	signal  *websocket.WebSocketSignal
+	ctx     *SignalContext
+	msg_cbs *MsgCbs
+	custom_msg_cbs map[string][]CustomMsgCb
+	custom_msg_mux sync.Mutex
 }
 
 func newWebSocketSignal(upgrader *nbws.Upgrader) *WebSocketSignal {
-	return &WebSocketSignal{
-		signal: websocket.NewWebSocketSignal(websocket.WS_SIGNAL_MODE_SERVER, upgrader),
+	signal := websocket.NewWebSocketSignal(websocket.WS_SIGNAL_MODE_SERVER, upgrader)
+	ws := &WebSocketSignal{
+		signal:  signal,
+		msg_cbs: NewMsgCbs(),
 	}
+	signal.On(func(evt string, ack websocket.AckFunc, args ...any) {
+		ws.msg_cbs.Run(evt, ack, args...)
+	})
+	return ws
 }
 
 func (signal *WebSocketSignal) GetContext() *SignalContext {
@@ -54,13 +64,11 @@ func (signal *WebSocketSignal) SendMsg(timeout time.Duration, ack bool, evt stri
 }
 
 func (signal *WebSocketSignal) On(evt string, cb MsgCb) error {
-	return signal.signal.On(evt, func(ack websocket.AckFunc, args ...any) (remained bool) {
-		cb(ack, args...)
-		return true
-	})
+	signal.msg_cbs.AddCallback(evt, cb)
+	return nil
 }
 
-func (signal *WebSocketSignal) OnCustom(cb func(evt string, msg *model.CustomMessage)) error {
+func (signal *WebSocketSignal) OnCustom(cb CustomMsgCb) error {
 	return signal.signal.OnCustom(cb)
 }
 

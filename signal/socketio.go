@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-contrib/graceful"
@@ -112,14 +113,101 @@ func ConfigureSocketIOSingalServer(global *Global, g *graceful.Graceful) error {
 }
 
 type SocketIOSignal struct {
-	socket *socket.Socket
-
+	socket             *socket.Socket
+	msg_cbs            *MsgCbs
+	custom_msg_cb      CustomMsgCb
+	custom_msg_mux     sync.Mutex
+	custom_ack_msg_cb  CustomAckMsgCb
+	custom_ack_msg_mux sync.Mutex
+	on_panic           func(custom_msg bool, err any, evt string, args ...any) (recover bool)
 }
 
 func NewSocketIOSingal(socket *socket.Socket) Signal {
-	return &SocketIOSignal{
+	ss := &SocketIOSignal{
 		socket: socket,
 	}
+	ss.socket.OnAny(func(args ...any) {
+		if len(args) > 0 {
+			evt, ok := args[0].(string)
+			if ok {
+				if strings.HasPrefix(evt, "custom:") {
+					evt = evt[7:]
+					if len(args) > 1 {
+						msg := model.CustomMessage{}
+						err := mapstructure.Decode(args[1], &msg)
+						if err == nil {
+							func() {
+								defer func() {
+									if ss.on_panic != nil {
+										if err := recover(); err != nil {
+											if !ss.on_panic(true, err, evt, &msg) {
+												panic(err)
+											}
+										}
+									}
+								}()
+								ss.custom_msg_mux.Lock()
+								defer ss.custom_msg_mux.Unlock()
+								if ss.custom_msg_cb != nil {
+									ss.custom_msg_cb(evt, &msg)
+								}
+							}()
+						}
+					}
+				} else if evt == "custom-ack" {
+					if len(args) > 1 {
+						msg := model.CustomAckMessage{}
+						err := mapstructure.Decode(args[1], &msg)
+						if err == nil {
+							func() {
+								defer func() {
+									if ss.on_panic != nil {
+										if err := recover(); err != nil {
+											if !ss.on_panic(true, err, evt, &msg) {
+												panic(err)
+											}
+										}
+									}
+								}()
+								ss.custom_ack_msg_mux.Lock()
+								defer ss.custom_ack_msg_mux.Unlock()
+								if ss.custom_ack_msg_cb != nil {
+									ss.custom_ack_msg_cb(&msg)
+								}
+							}()
+						}
+					}
+				} else {
+					var real_args []any
+					var ack AckFunc
+					if len(args) == 1 {
+						real_args = nil
+					} else {
+						last := args[len(args)-1]
+						lastType := reflect.TypeOf(last)
+						if lastType != nil && lastType.Kind() == reflect.Func {
+							ok := false
+							ack, ok = last.(AckFunc)
+							if !ok {
+								panic("Invalid ack param")
+							}
+							if len(args) > 2 {
+								real_args = args[1 : len(args)-1]
+							} else {
+								real_args = nil
+							}
+						}
+					}
+					if real_args == nil {
+						ss.msg_cbs.Run(evt, ack)
+					} else {
+						ss.msg_cbs.Run(evt, ack, real_args...)
+					}
+				}
+			}
+		}
+	})
+	return ss
 }
 
 type resWithError struct {
@@ -163,74 +251,21 @@ func (signal *SocketIOSignal) SendMsg(timeout time.Duration, ack bool, evt strin
 }
 
 func (signal *SocketIOSignal) On(evt string, cb MsgCb) error {
-	if evt == "disconnect" {
-		panic("use OnClose instead")
-	}
-	if strings.HasPrefix(evt, "custom:") {
-		panic("use OnCustom instead.")
-	}
-	if evt == "custom-ack" {
-		panic("use OnCustomAck instead.")
-	}
-	return signal.socket.On(evt, func(args ...any) {
-		if len(args) == 0 {
-			cb(nil)
-			return
-		}
-		last := args[len(args)-1]
-		var ark AckFunc = nil
-		lastType := reflect.TypeOf(last)
-		if lastType != nil && lastType.Kind() == reflect.Func {
-			ok := false
-			ark, ok = last.(AckFunc)
-			if !ok {
-				panic("Invalid ack param")
-			}
-			if len(args) > 1 {
-				args = args[0 : len(args)-1]
-			} else {
-				args = nil
-			}
-		}
-		if args != nil {
-			cb(ark, args...)
-		} else {
-			cb(ark)
-		}
-	})
-}
-
-func (signal *SocketIOSignal) OnCustom(cb func(evt string, msg *model.CustomMessage)) error {
-	signal.socket.OnAny(func(args ...any) {
-		if len(args) > 0 {
-			evt, ok := args[0].(string)
-			if ok {
-				if strings.HasPrefix(evt, "custom:") {
-					evt = evt[7:]
-					if len(args) > 1 {
-						msg := model.CustomMessage{}
-						err := mapstructure.Decode(args[1], &msg)
-						if err != nil {
-							cb(evt, &msg)
-						}
-					}
-				}
-			}
-		}
-	})
+	signal.msg_cbs.AddCallback(evt, cb)
 	return nil
 }
 
-func (signal *SocketIOSignal) OnCustomAck(cb func(msg *model.CustomAckMessage)) error {
-	signal.On("custom-ack", func(_ AckFunc, args ...any) {
-		if len(args) > 0 {
-			msg := model.CustomAckMessage{}
-			err := mapstructure.Decode(args[1], &msg)
-			if err != nil {
-				cb(&msg)
-			}
-		}
-	})
+func (signal *SocketIOSignal) OnCustom(cb CustomMsgCb) error {
+	signal.custom_msg_mux.Lock()
+	defer signal.custom_msg_mux.Unlock()
+	signal.custom_msg_cb = cb
+	return nil
+}
+
+func (signal *SocketIOSignal) OnCustomAck(cb CustomAckMsgCb) error {
+	signal.custom_ack_msg_mux.Lock()
+	defer signal.custom_ack_msg_mux.Unlock()
+	signal.custom_ack_msg_cb = cb
 	return nil
 }
 

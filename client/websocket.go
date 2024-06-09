@@ -13,6 +13,7 @@ import (
 	nbws "github.com/lesismal/nbio/nbhttp/websocket"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/model"
+	sg "github.com/vipcxj/conference.go/signal"
 	"github.com/vipcxj/conference.go/websocket"
 )
 
@@ -39,8 +40,7 @@ type WebsocketSignal struct {
 
 	next_custom_msg_id atomic.Uint32
 
-	msg_mux                  sync.Mutex
-	msg_cbs                  map[string][]MsgCb
+	msg_cbs                  *sg.MsgCbs
 	custom_msg_mux           sync.Mutex
 	custom_msg_cbs           map[string][]CustomMsgCb
 	custom_ack_msg_mux       sync.Mutex
@@ -52,49 +52,9 @@ func NewWebsocketSignal(ctx context.Context, conf *WebSocketSignalConfigure, eng
 		conf:    conf,
 		engine:  engine,
 		ctx:     ctx,
-		msg_cbs: make(map[string][]MsgCb),
+		msg_cbs: sg.NewMsgCbs(),
 		custom_msg_cbs: make(map[string][]CustomMsgCb),
 	}
-}
-
-func (signal *WebsocketSignal) installMsgCb(evt string) {
-	signal.signal.On(evt, func(ack websocket.AckFunc, args ...any) (remained bool) {
-		my_ack := func(arg any, err error) {
-			ack([]any{arg}, err)
-		}
-		signal.msg_mux.Lock()
-		defer signal.msg_mux.Unlock()
-		cbs, ok := signal.msg_cbs[evt]
-		if ok {
-			new_cbs := make([]MsgCb, 0)
-			for i, cb := range cbs {
-				remianed := false
-				var arg any
-				if len(args) == 0 {
-					arg = nil
-				} else {
-					arg = args[0]
-				}
-				if i == len(cbs) - 1 {
-					remianed = cb(my_ack, arg)
-				} else {
-					remianed = cb(nil, arg)
-				}
-				if remianed {
-					new_cbs = append(new_cbs, cb)
-				}
-			}
-			if len(new_cbs) > 0 {
-				signal.msg_cbs[evt] = new_cbs
-				return true
-			} else {
-				delete(signal.msg_cbs, evt)
-				return false
-			}
-		} else {
-			return false
-		}
-	})
 }
 
 func (signal *WebsocketSignal) PushCustomAckMsgCh(to string, id uint32) chan any {
@@ -156,15 +116,9 @@ func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error
 	u := nbws.NewUpgrader()
 	signal.signal = websocket.NewWebSocketSignal(websocket.WS_SIGNAL_MODE_CLIENT, u)
 
-	signal.msg_mux.Lock()
-	msg_cbs_keys := make([]string, 0, len(signal.msg_cbs))
-	for evt := range signal.msg_cbs {
-		msg_cbs_keys = append(msg_cbs_keys, evt)
-	}
-	signal.msg_mux.Unlock()
-	for _, evt := range msg_cbs_keys {
-		signal.installMsgCb(evt)
-	}
+	signal.signal.On(func(evt string, ack websocket.AckFunc, args ...any) {
+		signal.msg_cbs.Run(evt, ack, args...)
+	})
 
 	signal.signal.OnCustom(func(evt string, msg *model.CustomMessage) {
 		signal.custom_msg_mux.Lock()
@@ -279,25 +233,21 @@ func (signal *WebsocketSignal) SendCustomMsg(timeout time.Duration, ack bool, ev
 	}
 }
 
-func (signal *WebsocketSignal) On(evt string, cb MsgCb) error {
-	need_install := false
-	signal.msg_mux.Lock()
-	cbs, ok := signal.msg_cbs[evt]
-	if ok {
-		cbs = append(cbs, cb)
-		signal.msg_cbs[evt] = cbs
+func args2arg(args ...any) (arg any) {
+	if len(args) == 0 {
+		return nil
 	} else {
-		signal.msg_cbs[evt] = []MsgCb {cb}
-		need_install = true
+		return args[0]
 	}
-	signal.msg_mux.Unlock()
-	if need_install {
-		signal.signal_mux.Lock()
-		defer signal.signal_mux.Unlock()
-		if signal.signal != nil {
-			signal.installMsgCb(evt)
-		}	
-	}
+}
+
+func (signal *WebsocketSignal) On(evt string, cb MsgCb) error {
+	signal.msg_cbs.AddCallback(evt, func(ack sg.AckFunc, args ...any) (remained bool) {
+		my_ack := func (arg any, err error)  {
+			ack([]any{arg}, err)
+		}
+		return cb(my_ack, args2arg(args...))
+	})
 	return nil
 }
 

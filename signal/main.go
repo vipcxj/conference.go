@@ -80,7 +80,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			ctx.Close()
 		}()
 	})
-	s.On("join", func(ack AckFunc, args ...any) {
+	s.On("join", func(ack AckFunc, args ...any) bool {
 		ctx.Sugar().Debugf("receive join msg")
 		msg := model.JoinMessage{}
 		err := parseArgs(&msg, args...)
@@ -92,8 +92,9 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		if err != nil {
 			panic(err)
 		}
+		return true
 	})
-	s.On("leave", func(ack AckFunc, args ...any) {
+	s.On("leave", func(ack AckFunc, args ...any) bool {
 		ctx.Sugar().Debugf("receive leave msg")
 		msg := model.LeaveMessage{}
 		err := parseArgs(&msg, args...)
@@ -102,8 +103,9 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			panic(err)
 		}
 		ctx.LeaveRoom(msg.Rooms...)
+		return true
 	})
-	s.On("sdp", func(ack AckFunc, args ...any) {
+	s.On("sdp", func(ack AckFunc, args ...any) bool {
 		ctx.Sugar().Debugf("receive sdp msg")
 		msg := model.SdpMessage{}
 		err := parseArgs(&msg, args...)
@@ -160,8 +162,9 @@ func InitSignal(s Signal) (*SignalContext, error) {
 				panic(errors.FatalError("the sdp type %v is not supported", msg.Type))
 			}
 		}()
+		return true
 	})
-	s.On("candidate", func(ack AckFunc, args ...any) {
+	s.On("candidate", func(ack AckFunc, args ...any) bool {
 		ctx.Sugar().Debugf("receive candidate msg")
 		msg := model.CandidateMessage{}
 		err := parseArgs(&msg, args...)
@@ -179,7 +182,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			if peer.RemoteDescription() == nil {
 				defer ctx.cand_mux.Unlock()
 				ctx.pendingCandidates = append(ctx.pendingCandidates, &msg)
-				return
+				return true
 			} else {
 				ctx.cand_mux.Unlock()
 			}
@@ -188,8 +191,9 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		if err != nil {
 			panic(err)
 		}
+		return true
 	})
-	s.On("publish", func(ack AckFunc, args ...any) {
+	s.On("publish", func(ack AckFunc, args ...any) bool {
 		ctx.Sugar().Debugf("receive publish msg")
 		msg := model.PublishMessage{}
 		err := parseArgs(&msg, args...)
@@ -208,8 +212,9 @@ func InitSignal(s Signal) (*SignalContext, error) {
 				Id: pubId,
 			}
 		}()
+		return true
 	})
-	s.On("subscribe", func(ack AckFunc, args ...any) {
+	s.On("subscribe", func(ack AckFunc, args ...any) bool {
 		ctx.Sugar().Debugf("receive subscribe msg")
 		msg := model.SubscribeMessage{}
 		err := parseArgs(&msg, args...)
@@ -228,6 +233,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 				Id: subId,
 			}
 		}()
+		return true
 	})
 	s.OnCustom(func(evt string, msg *model.CustomMessage) {
 		ctx.Sugar().Debugf("receive custom msg with evt %s", evt)
