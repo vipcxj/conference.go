@@ -10,4 +10,6 @@ type Signal interface {
 	SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string, room string) error
 	On(evt string, cb MsgCb) error
 	OnCustom(evt string, cb CustomMsgCb)
+	Join(timeout time.Duration, rooms ...string) error
+	Leave(timeout time.Duration, rooms ...string) error
 }

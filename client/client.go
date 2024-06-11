@@ -17,6 +17,8 @@ type Client interface {
 	OnParticipantLeave(cb ParticipantCb)
 	OnCustomMsg(evt string, cb CustomMsgCb)
 	SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string, room string)
+	Join(timeout time.Duration, rooms ...string) error
+	Leave(timeout time.Duration, rooms ...string) error
 }
 
 type WebsocketClient struct {
@@ -73,4 +75,12 @@ func (c *WebsocketClient) OnCustomMsg(evt string, cb CustomMsgCb) {
 
 func (c *WebsocketClient) SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string, room string) {
 	c.signal.SendCustomMsg(timeout, ack, evt, content, to, room)
+}
+
+func (c *WebsocketClient) Join(timeout time.Duration, rooms ...string) error {
+	return c.signal.Join(timeout, rooms...)
+}
+
+func (c *WebsocketClient) Leave(timeout time.Duration, rooms ...string) error {
+	return c.signal.Join(timeout, rooms...)
 }

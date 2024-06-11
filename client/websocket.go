@@ -263,3 +263,17 @@ func (signal *WebsocketSignal) OnCustom(evt string, cb CustomMsgCb) {
 		signal.custom_msg_cbs[evt] = []CustomMsgCb{cb}
 	}
 }
+
+func (signal *WebsocketSignal) Join(timeout time.Duration, rooms ...string) error {
+	_, err := signal.SendMsg(timeout, true, "join", &model.JoinMessage{
+		Rooms: rooms,
+	})
+	return err
+}
+
+func (signal *WebsocketSignal) Leave(timeout time.Duration, rooms ...string) error {
+	_, err := signal.SendMsg(timeout, true, "leave", &model.JoinMessage{
+		Rooms: rooms,
+	})
+	return err
+}
