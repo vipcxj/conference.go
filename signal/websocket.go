@@ -3,7 +3,6 @@ package signal
 import (
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-contrib/graceful"
@@ -21,8 +20,6 @@ type WebSocketSignal struct {
 	signal  *websocket.WebSocketSignal
 	ctx     *SignalContext
 	msg_cbs *MsgCbs
-	custom_msg_cbs map[string][]CustomMsgCb
-	custom_msg_mux sync.Mutex
 }
 
 func newWebSocketSignal(upgrader *nbws.Upgrader) *WebSocketSignal {

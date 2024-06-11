@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/aws"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
@@ -55,6 +56,7 @@ func (pc *pconsumer) consume(ctx context.Context) {
 }
 
 type KafkaClient struct {
+	conf      *config.KafkaConfigure
 	cl        *kgo.Client
 	consumers map[tp]*pconsumer
 	workers   map[string]func(record *kgo.Record)
@@ -73,10 +75,10 @@ func parseKafkaAddrs(addrs string) []string {
 	})
 }
 
-type KafkaOpt func(client *KafkaClient)
+type KafkaOpt func(client *KafkaClient, opts []kgo.Opt) []kgo.Opt
 
-func MakeKafkaTopic(conf *config.ConferenceConfigure, topic string) string {
-	prefix := conf.Cluster.Kafka.TopicPrefix
+func MakeKafkaTopic(conf *config.KafkaConfigure, topic string) string {
+	prefix := conf.TopicPrefix
 	prefix = strings.TrimSpace(prefix)
 	if prefix == "" {
 		return topic
@@ -86,25 +88,38 @@ func MakeKafkaTopic(conf *config.ConferenceConfigure, topic string) string {
 }
 
 func KafkaOptGroup(group string) KafkaOpt {
-	return func(client *KafkaClient) {
+	return func(client *KafkaClient, opts []kgo.Opt) []kgo.Opt {
 		client.group = group
+		return opts
 	}
 }
 
 func KafkaOptTopics(topics ...string) KafkaOpt {
-	return func(client *KafkaClient) {
+	return func(client *KafkaClient, opts []kgo.Opt) []kgo.Opt {
 		client.topics = topics
+		return opts
 	}
 }
 
 func KafkaOptWorkers(workers map[string]func(*kgo.Record)) KafkaOpt {
-	return func(client *KafkaClient) {
+	return func(client *KafkaClient, opts []kgo.Opt) []kgo.Opt {
 		client.workers = workers
+		return opts
 	}
 }
 
-func NewKafkaClient(global *Global, copts ...KafkaOpt) (*KafkaClient, error) {
-	conf := &global.Conf().Cluster.Kafka
+func KafkaOptPromReg(reg *prometheus.Registry) KafkaOpt {
+	return func(client *KafkaClient, opts []kgo.Opt) []kgo.Opt {
+		var metrics *kprom.Metrics
+		if client.conf.Prometheus.Enable {
+			metrics = kprom.NewMetrics(client.conf.Prometheus.Namespace, kprom.Registry(reg), kprom.Subsystem(client.conf.Prometheus.Subsystem))
+			opts = append(opts, kgo.WithHooks(metrics))
+		}
+		return opts
+	}
+}
+
+func NewKafkaClient(conf *config.KafkaConfigure, copts ...KafkaOpt) (*KafkaClient, error) {
 	var opts []kgo.Opt
 
 	addrs := parseKafkaAddrs(conf.Addrs)
@@ -126,11 +141,6 @@ func NewKafkaClient(global *Global, copts ...KafkaOpt) (*KafkaClient, error) {
 	}
 	if conf.NoIdempotency {
 		opts = append(opts, kgo.DisableIdempotentWrite())
-	}
-	var metrics *kprom.Metrics
-	if conf.Prometheus.Enable {
-		metrics = kprom.NewMetrics(conf.Prometheus.Namespace, kprom.Registry(global.GetPromReg()), kprom.Subsystem(conf.Prometheus.Subsystem))
-		opts = append(opts, kgo.WithHooks(metrics))
 	}
 	if conf.LingerMs > 0 {
 		opts = append(opts, kgo.ProducerLinger(time.Duration(conf.LingerMs*1000*1000)))
@@ -198,6 +208,7 @@ func NewKafkaClient(global *Global, copts ...KafkaOpt) (*KafkaClient, error) {
 		}
 	}
 	client := &KafkaClient{
+		conf:      conf,
 		consumers: make(map[tp]*pconsumer),
 	}
 	opts = append(
@@ -211,7 +222,7 @@ func NewKafkaClient(global *Global, copts ...KafkaOpt) (*KafkaClient, error) {
 	)
 
 	for _, copt := range copts {
-		copt(client)
+		opts = copt(client, opts)
 	}
 	if client.group != "" {
 		opts = append(opts, kgo.ConsumerGroup(client.group))
@@ -225,6 +236,10 @@ func NewKafkaClient(global *Global, copts ...KafkaOpt) (*KafkaClient, error) {
 	}
 	client.cl = cl
 	return client, nil
+}
+
+func (s *KafkaClient) MakeTopic(topic string) string {
+	return MakeKafkaTopic(s.conf, topic)
 }
 
 func (s *KafkaClient) sugar() *zap.SugaredLogger {

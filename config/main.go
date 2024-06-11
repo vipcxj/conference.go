@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/gookit/config/v2"
@@ -12,7 +13,7 @@ import (
 
 var CONFIGURE = &ConferenceConfigure{}
 
-func Init() error {
+func InitConfig(conf any, keys []string, conf_name string, secret_conf_name string) error {
 	config.WithOptions(config.ParseEnv, config.ParseTime, config.ParseDefault)
 	config.AddDriver(ini.Driver)
 	config.AddDriver(json5.Driver)
@@ -23,7 +24,13 @@ func Init() error {
 	if ok && confPath != "" {
 		err = config.LoadFiles(confPath)
 	} else {
-		err = config.LoadExists("conference.yml", "conference.yaml", "conference.json", "conference.toml", "conference.ini")
+		err = config.LoadExists(
+			fmt.Sprintf("%s.yml", conf_name),
+			fmt.Sprintf("%s.yaml", conf_name),
+			fmt.Sprintf("%s.json", conf_name),
+			fmt.Sprintf("%s.toml", conf_name),
+			fmt.Sprintf("%s.ini", conf_name),
+		)
 	}
 	if err != nil {
 		return err
@@ -32,20 +39,30 @@ func Init() error {
 	if ok && secretPath != "" {
 		err = config.LoadFiles(secretPath)
 	} else {
-		err = config.LoadExists("secret.yml", "secret.yaml", "secret.json", "secret.toml", "secret.ini")
+		err = config.LoadExists(
+			fmt.Sprintf("%s.yml", secret_conf_name),
+			fmt.Sprintf("%s.yaml", secret_conf_name),
+			fmt.Sprintf("%s.json", secret_conf_name),
+			fmt.Sprintf("%s.toml", secret_conf_name),
+			fmt.Sprintf("%s.ini", secret_conf_name),
+		)
 	}
 	if err != nil {
 		return err
 	}
-	err = config.LoadFlags(KEYS)
+	err = config.LoadFlags(keys)
 	if err != nil {
 		return err
 	}
-	err = config.Decode(CONFIGURE)
+	err = config.Decode(conf)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func Init() error {
+	return InitConfig(CONFIGURE, KEYS, "conference", "secret")
 }
 
 func Conf() *ConferenceConfigure {

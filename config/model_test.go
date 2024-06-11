@@ -94,24 +94,3 @@ func TestCopy(t *testing.T) {
 	fmt.Printf("test: %v\n", test)
 	fmt.Printf("testCpy: %v\n", testCpy)
 }
-
-func testPanic(t *testing.T) {
-	defer func ()  {
-		err := recover()
-		if err != nil {
-			fmt.Printf("recover from error: %v", err)
-		}
-	}()
-	go func ()  {
-		time.Sleep(1 * time.Second)
-		panic("this is an error")
-	}()
-	time.Sleep(2 * time.Second)
-	fmt.Println("here1")
-}
-
-func TestPanic(t *testing.T) {
-	testPanic(t)
-	time.Sleep(1 * time.Second)
-	fmt.Println("here2")
-}

@@ -114,7 +114,7 @@ func NewGlobal(ctx context.Context, conf *config.ConferenceConfigure) (*Global, 
 		ctx:     ctx,
 		cancel:  cancel,
 		logger:  logger,
-		sugar:   log.Sugar(),
+		sugar:   logger.Sugar(),
 	}
 	router, err := NewRouter(global)
 	if err != nil {

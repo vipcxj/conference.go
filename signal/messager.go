@@ -82,6 +82,7 @@ const (
 
 func NewMessager(global *Global) (*Messager, error) {
 	clusterConfig := &global.Conf().Cluster
+	kafkaConfig := clusterConfig.GetKafka()
 	logger := log.Logger().With(zap.String("tag", "messager"))
 	messager := &Messager{
 		global:                      global,
@@ -97,13 +98,13 @@ func NewMessager(global *Global) (*Messager, error) {
 	}
 	if clusterConfig.Enable {
 		messager.nodeName = clusterConfig.GetNodeName()
-		topicState := MakeKafkaTopic(global.Conf(), TOPIC_STATE)
-		topicWant := MakeKafkaTopic(global.Conf(), TOPIC_WANT)
-		topicSelect := MakeKafkaTopic(global.Conf(), TOPIC_SELECT)
-		topicWantParticipant := MakeKafkaTopic(global.Conf(), TOPIC_WANT_PARTICIPANT)
-		topicStateParticipant := MakeKafkaTopic(global.Conf(), TOPIC_STATE_PARTICIPANT)
-		topicCustom := MakeKafkaTopic(global.Conf(), TOPIC_CUSTOM)
-		topicCustomAck := MakeKafkaTopic(global.Conf(), TOPIC_CUSTOM_ACK)
+		topicState := MakeKafkaTopic(kafkaConfig, TOPIC_STATE)
+		topicWant := MakeKafkaTopic(kafkaConfig, TOPIC_WANT)
+		topicSelect := MakeKafkaTopic(kafkaConfig, TOPIC_SELECT)
+		topicWantParticipant := MakeKafkaTopic(kafkaConfig, TOPIC_WANT_PARTICIPANT)
+		topicStateParticipant := MakeKafkaTopic(kafkaConfig, TOPIC_STATE_PARTICIPANT)
+		topicCustom := MakeKafkaTopic(kafkaConfig, TOPIC_CUSTOM)
+		topicCustomAck := MakeKafkaTopic(kafkaConfig, TOPIC_CUSTOM_ACK)
 		workers := map[string]func(*kgo.Record){
 			topicState:            messager.onTopicState,
 			topicWant:             messager.onTopicWant,
@@ -114,7 +115,8 @@ func NewMessager(global *Global) (*Messager, error) {
 			topicCustomAck:        messager.onTopicCustomAck,
 		}
 		kafka, err := NewKafkaClient(
-			global,
+			kafkaConfig,
+			KafkaOptPromReg(global.GetPromReg()),
 			KafkaOptGroup(clusterConfig.GetNodeName()),
 			KafkaOptTopics(topicState, topicWant, topicSelect, topicWantParticipant, topicStateParticipant, topicCustom, topicCustomAck),
 			KafkaOptWorkers(workers),
@@ -567,31 +569,31 @@ func (m *Messager) Emit(ctx context.Context, msg model.RoomMessage) error {
 	key := msg.GetRouter().Room
 	switch typedMsg := msg.(type) {
 	case *model.StateMessage:
-		topic = MakeKafkaTopic(m.Conf(), TOPIC_STATE)
+		topic = m.kafka.MakeTopic(TOPIC_STATE)
 		m.logEmitMsg(msg, "state")
 		m.consumeState(typedMsg)
 	case *model.WantMessage:
-		topic = MakeKafkaTopic(m.Conf(), TOPIC_WANT)
+		topic = m.kafka.MakeTopic(TOPIC_WANT)
 		m.logEmitMsg(msg, "want")
 		m.consumeWant(typedMsg)
 	case *model.SelectMessage:
-		topic = MakeKafkaTopic(m.Conf(), TOPIC_SELECT)
+		topic = m.kafka.MakeTopic(TOPIC_SELECT)
 		m.logEmitMsg(msg, "select")
 		m.consumeSelect(typedMsg)
 	case *model.WantParticipantMessage:
-		topic = MakeKafkaTopic(m.Conf(), TOPIC_WANT_PARTICIPANT)
+		topic = m.kafka.MakeTopic(TOPIC_WANT_PARTICIPANT)
 		m.logEmitMsg(msg, "want-participant")
 		m.consumeWantParticipant(typedMsg)
 	case *model.StateParticipantMessage:
-		topic = MakeKafkaTopic(m.Conf(), TOPIC_STATE_PARTICIPANT)
+		topic = m.kafka.MakeTopic(TOPIC_STATE_PARTICIPANT)
 		m.logEmitMsg(msg, "state-participant")
 		m.consumeStateParticipant(typedMsg)
 	case *model.CustomClusterMessage:
-		topic = MakeKafkaTopic(m.Conf(), TOPIC_CUSTOM)
+		topic = m.kafka.MakeTopic(TOPIC_CUSTOM)
 		m.logEmitMsg(msg, "custom")
 		m.consumeCustom(typedMsg)
 	case *model.CustomAckMessage:
-		topic = MakeKafkaTopic(m.Conf(), TOPIC_CUSTOM_ACK)
+		topic = m.kafka.MakeTopic(TOPIC_CUSTOM_ACK)
 		m.logEmitMsg(msg, "custom-ack")
 		m.consumeCustomAck(typedMsg)
 	default:
