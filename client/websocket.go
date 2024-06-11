@@ -49,10 +49,10 @@ type WebsocketSignal struct {
 
 func NewWebsocketSignal(ctx context.Context, conf *WebSocketSignalConfigure, engine *nbhttp.Engine) *WebsocketSignal {
 	return &WebsocketSignal{
-		conf:    conf,
-		engine:  engine,
-		ctx:     ctx,
-		msg_cbs: sg.NewMsgCbs(),
+		conf:           conf,
+		engine:         engine,
+		ctx:            ctx,
+		msg_cbs:        sg.NewMsgCbs(),
 		custom_msg_cbs: make(map[string][]CustomMsgCb),
 	}
 }
@@ -192,7 +192,7 @@ func (signal *WebsocketSignal) SendMsg(timeout time.Duration, ack bool, evt stri
 	}
 }
 
-func (signal *WebsocketSignal) SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string) error {
+func (signal *WebsocketSignal) SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string, room string) error {
 	s, err := signal.accessSignal()
 	if err != nil {
 		return err
@@ -204,10 +204,11 @@ func (signal *WebsocketSignal) SendCustomMsg(timeout time.Duration, ack bool, ev
 	}
 	s.SendMsg(0, false, fmt.Sprintf("custom:%s", evt), &model.CustomMessage{
 		Router: &model.RouterMessage{
+			Room:   room,
 			UserTo: to,
 		},
-		MsgId: custom_msg_id,
-		Ack: ack,
+		MsgId:   custom_msg_id,
+		Ack:     ack,
 		Content: content,
 	})
 	if ch != nil {
@@ -243,7 +244,7 @@ func args2arg(args ...any) (arg any) {
 
 func (signal *WebsocketSignal) On(evt string, cb MsgCb) error {
 	signal.msg_cbs.AddCallback(evt, func(ack sg.AckFunc, args ...any) (remained bool) {
-		my_ack := func (arg any, err error)  {
+		my_ack := func(arg any, err error) {
 			ack([]any{arg}, err)
 		}
 		return cb(my_ack, args2arg(args...))

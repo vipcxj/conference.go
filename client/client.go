@@ -16,7 +16,7 @@ type Client interface {
 	OnParticipantJoin(cb ParticipantCb)
 	OnParticipantLeave(cb ParticipantCb)
 	OnCustomMsg(evt string, cb CustomMsgCb)
-	SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string)
+	SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string, room string)
 }
 
 type WebsocketClient struct {
@@ -71,6 +71,6 @@ func (c *WebsocketClient) OnCustomMsg(evt string, cb CustomMsgCb) {
 	c.signal.OnCustom(evt, cb)
 }
 
-func (c *WebsocketClient) SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string) {
-	c.signal.SendCustomMsg(timeout, ack, evt, content, to)
+func (c *WebsocketClient) SendCustomMsg(timeout time.Duration, ack bool, evt string, content string, to string, room string) {
+	c.signal.SendCustomMsg(timeout, ack, evt, content, to, room)
 }
