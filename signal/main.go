@@ -69,6 +69,8 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	ctx.Messager().OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
 	ctx.Messager().OnWantParticipant(ctx.Id, ctx.StateParticipants, ctx.RoomPaterns()...)
 	ctx.Messager().OnStateParticipant(ctx.Id, ctx.AcceptParticipants, ctx.RoomPaterns()...)
+	ctx.Messager().OnPing(ctx.Id, ctx.OnPingMessage, ctx.RoomPaterns()...)
+	ctx.Messager().OnPong(ctx.Id, ctx.OnPongMessage, ctx.RoomPaterns()...)
 	ctx.Messager().OnCustom(ctx.Id, ctx.OnCustomMessage, ctx.RoomPaterns()...)
 	ctx.Messager().OnCustomAck(ctx.Id, ctx.OnCustomAckMessage, ctx.RoomPaterns()...)
 	s.OnClose(func(args ...any) {
@@ -218,21 +220,72 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		ctx.Sugar().Debugf("receive subscribe msg")
 		msg := model.SubscribeMessage{}
 		err := parseArgs(&msg, args...)
-		arkArgs := make([]any, 1)
-		defer FinallyResponse(ctx, ack, arkArgs, "subscribe", true)
+		ackArgs := make([]any, 1)
+		defer FinallyResponse(ctx, ack, ackArgs, "subscribe", true)
 		if err != nil {
 			panic(err)
 		}
 		go func() {
-			defer FinallyResponse(ctx, ack, arkArgs, "subscribe", false)
+			defer FinallyResponse(ctx, ack, ackArgs, "subscribe", false)
 			subId, err := ctx.Subscribe(&msg)
 			if err != nil {
 				panic(err)
 			}
-			arkArgs[0] = &model.SubscribeResultMessage{
+			ackArgs[0] = &model.SubscribeResultMessage{
 				Id: subId,
 			}
 		}()
+		return true
+	})
+	s.On("user-info", func(ack AckFunc, args ...any) (remained bool) {
+		ctx.Sugar().Debugf("receive user-info msg")
+		ackArgs := make([]any, 1)
+		defer FinallyResponse(ctx, ack, ackArgs, "user-info", true)
+		ackArgs[0] = &model.UserInfo{
+			UserId: ctx.AuthInfo.UID,
+			UserName: ctx.AuthInfo.UName,
+			Rooms: ctx.rooms,
+		}
+		return true
+	})
+	s.On("ping", func(ack AckFunc, args ...any) (remained bool) {
+		ctx.Sugar().Debugf("receive ping msg")
+		msg := model.PingMessage{}
+		err := parseArgs(&msg, args...)
+		defer FinallyResponse(ctx, nil, nil, "ping", true)
+		if err != nil {
+			panic(err)
+		}
+		if ack != nil {
+			panic(fmt.Errorf("ping msg does not support ack"))
+		}
+		if msg.GetRouter() == nil || msg.GetRouter().UserTo == "" {
+			panic(fmt.Errorf("ping msg require a router with valid userTo attribute"))
+		}
+		err = ctx.ClusterEmit(&msg)
+		if err != nil {
+			panic(fmt.Errorf("failed to emit ping msg to cluster, %w", err))
+		}
+		return true
+	})
+	s.On("pong", func(ack AckFunc, args ...any) (remained bool) {
+		ctx.Sugar().Debugf("receive pong msg")
+		msg := model.PongMessage{}
+		err := parseArgs(&msg, args...)
+		defer FinallyResponse(ctx, nil, nil, "pong", true)
+		if err != nil {
+			panic(err)
+		}
+		if ack != nil {
+			panic(fmt.Errorf("pong msg does not support ack"))
+		}
+		if msg.GetRouter() == nil || msg.GetRouter().UserTo == "" {
+			panic(fmt.Errorf("ping msg require a router with valid userTo attribute"))
+		}
+		err = ctx.ClusterEmit(&msg)
+		if err != nil {
+			panic(fmt.Errorf("failed to emit pong msg to cluster, %w", err))
+		}
 		return true
 	})
 	s.OnCustom(func(evt string, msg *model.CustomMessage) {

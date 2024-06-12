@@ -272,7 +272,7 @@ func MakeRedisClient(redisConfig config.RedisConfigure) (redis.UniversalClient, 
 			opts = &ringOpts
 		} else {
 			opts = &redis.RingOptions{
-				Addrs: utils.SliceToMap[string, string, string](addrs, func(s string, index int) (key string, value string, remove bool) {
+				Addrs: utils.SliceToMap(addrs, func(s string, index int) (key string, value string, remove bool) {
 					return strconv.Itoa(index), s, false
 				}, nil),
 			}

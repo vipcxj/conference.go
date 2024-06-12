@@ -171,6 +171,56 @@ func (x *StateParticipantMessage) CopyPlain() RoomMessage {
 	}
 }
 
+func (x *PingMessage) FixRouter(room string, user string, node string) {
+	if x == nil {
+		return
+	}
+	if x.Router == nil {
+		x.Router = &Router{}
+	}
+	fixRouter(x.Router, room, user, node)
+}
+
+func (x *PingMessage) ToMap() map[string]any {
+	if x == nil {
+		return nil
+	}
+	return map[string]any{
+		"router":   x.GetRouter().ToMap(),
+	}
+}
+
+func (x *PingMessage) CopyPlain() RoomMessage {
+	return &StateParticipantMessage{
+		Router:   x.GetRouter().CopyPlain(),
+	}
+}
+
+func (x *PongMessage) FixRouter(room string, user string, node string) {
+	if x == nil {
+		return
+	}
+	if x.Router == nil {
+		x.Router = &Router{}
+	}
+	fixRouter(x.Router, room, user, node)
+}
+
+func (x *PongMessage) ToMap() map[string]any {
+	if x == nil {
+		return nil
+	}
+	return map[string]any{
+		"router":   x.GetRouter().ToMap(),
+	}
+}
+
+func (x *PongMessage) CopyPlain() RoomMessage {
+	return &StateParticipantMessage{
+		Router:   x.GetRouter().CopyPlain(),
+	}
+}
+
 func (x *CustomMessage) ToMap() map[string]any {
 	if x == nil {
 		return nil

@@ -149,6 +149,20 @@ message StateParticipantMessage {
 	string userName = 3;
 }
 
+message PingMessage {
+	// @gotags: mapstructure:"router"
+	Router router = 1;
+	// @gotags: mapstructure:"msgId"
+	uint32 msgId = 2;
+}
+
+message PongMessage {
+	// @gotags: mapstructure:"router"
+	Router router = 1;
+	// @gotags: mapstructure:"msgId"
+	uint32 msgId = 2;
+}
+
 message CustomMessage {
 	// @gotags: mapstructure:"router"
     Router router = 1;
@@ -171,5 +185,5 @@ message CustomAckMessage {
 	// @gotags: mapstructure:"router"
     Router router = 1;
 	// @gotags: mapstructure:"msgId"
-	uint32 msgId = 3;
+	uint32 msgId = 2;
 }

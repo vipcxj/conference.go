@@ -71,6 +71,10 @@ type WantParticipantMessage = proto.WantParticipantMessage
 
 type StateParticipantMessage = proto.StateParticipantMessage
 
+type PingMessage = proto.PingMessage
+
+type PongMessage = proto.PongMessage
+
 type CustomMessage = proto.CustomMessage
 
 type CustomClusterMessage = proto.CustomClusterMessage
@@ -214,4 +218,11 @@ type SubscribedMessage struct {
 	PubId         string         `json:"pubId" mapstructure:"pubId"`
 	SdpId         int            `json:"sdpId" mapstructure:"sdpId"`
 	Tracks        []*proto.Track `json:"tracks" mapstructure:"tracks"`
+}
+
+type UserInfo struct {
+	SignalMessage `mapstructure:",squash"`
+	UserId string
+	UserName string
+	Rooms []string
 }

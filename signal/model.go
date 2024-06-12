@@ -933,6 +933,8 @@ func (ctx *SignalContext) SelfClose(disableCloseCallback bool) {
 	ctx.Messager().OffSelect(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffWantParticipant(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffStateParticipant(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffPing(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffPong(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffCustom(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffCustomAck(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Sugar().Debugf("signal context closing")
@@ -1182,6 +1184,34 @@ func (ctx *SignalContext) Bind() {
 			return true
 		}
 	})
+}
+
+func (ctx *SignalContext) OnPingMessage(message *model.PingMessage) {
+	if message == nil || message.GetRouter() == nil {
+		return
+	}
+	if message.GetRouter().UserTo == "" {
+		ctx.Sugar().Warnf("accept a ping message without userTo attribute")
+		return
+	}
+	if message.GetRouter().UserTo != ctx.AuthInfo.UID {
+		return
+	}
+	ctx.emit("ping", proto.ToClientMessage(message))
+}
+
+func (ctx *SignalContext) OnPongMessage(message *model.PongMessage) {
+	if message == nil || message.GetRouter() == nil {
+		return
+	}
+	if message.GetRouter().UserTo == "" {
+		ctx.Sugar().Warnf("accept a pong message without userTo attribute")
+		return
+	}
+	if message.GetRouter().UserTo != ctx.AuthInfo.UID {
+		return
+	}
+	ctx.emit("pong", proto.ToClientMessage(message))
 }
 
 func (ctx *SignalContext) OnCustomMessage(message *model.CustomClusterMessage) {
@@ -1515,7 +1545,7 @@ func (ctx *SignalContext) JoinRoom(rooms ...string) error {
 	// ctx.Socket.Join(s_rooms...)
 	ctx.rooms_mux.Lock()
 	defer ctx.rooms_mux.Unlock()
-	ctx.rooms = append(ctx.rooms, s_rooms...)
+	ctx.rooms = utils.SliceAppendNoRepeat(ctx.rooms, s_rooms...)
 	return nil
 }
 

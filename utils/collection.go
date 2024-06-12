@@ -69,7 +69,16 @@ func MapSlice[T any, O any](slice []T, mapper func(T) (mapped O, remove bool)) [
 	return out[0:pos]
 }
 
-func SliceAnyMatch[T any](slice []T, predicate func(T) bool) bool {
+func SliceAppendNoRepeat[S ~[]E, E comparable](slice S, values ...E) S {
+	for _, value := range values {
+		if !slices.Contains(slice, value) {
+			slice = append(slice, value)
+		}
+	}
+	return slice
+}
+
+func SliceAnyMatch[S ~[]T, T any](slice S, predicate func(T) bool) bool {
 	for _, v := range slice {
 		if predicate(v) {
 			return true
@@ -78,7 +87,7 @@ func SliceAnyMatch[T any](slice []T, predicate func(T) bool) bool {
 	return false
 }
 
-func SliceAllMatch[T any](slice []T, predicate func(T) bool) bool {
+func SliceAllMatch[S ~[]T, T any](slice S, predicate func(T) bool) bool {
 	for _, v := range slice {
 		if !predicate(v) {
 			return false
@@ -87,7 +96,7 @@ func SliceAllMatch[T any](slice []T, predicate func(T) bool) bool {
 	return true
 }
 
-func SliceToMap[T any, K comparable, V any](slice []T, mapper func(T, int) (key K, value V, remove bool), merger func(old V, new V) V) map[K]V {
+func SliceToMap[S ~[]T, T any, K comparable, V any](slice S, mapper func(T, int) (key K, value V, remove bool), merger func(old V, new V) V) map[K]V {
 	if slice == nil {
 		return nil
 	}
@@ -111,7 +120,7 @@ func SliceToMap[T any, K comparable, V any](slice []T, mapper func(T, int) (key 
 	return out
 }
 
-func SliceRemoveByIndex[T any](slice []T, copy bool, index int) ([]T, bool) {
+func SliceRemoveByIndex[S ~[]T, T any](slice S, copy bool, index int) (S, bool) {
 	l := len(slice)
 	if l == 0 {
 		return slice, false
@@ -120,7 +129,7 @@ func SliceRemoveByIndex[T any](slice []T, copy bool, index int) ([]T, bool) {
 		return slice, false
 	}
 	if copy {
-		removed := make([]T, 0, l-1)
+		removed := make(S, 0, l-1)
 		removed = append(removed, slice[0:index]...)
 		removed = append(removed, slice[index+1:]...)
 		return removed, true
@@ -145,7 +154,7 @@ func ComparableCompare[T cmp.Ordered](t1, t2 T) int {
 	}
 }
 
-func SliceRemoveByIndexes[T any](slice []T, copy bool, indexes ...int) []T {
+func SliceRemoveByIndexes[S ~[]T, T any](slice S, copy bool, indexes ...int) S {
 	if len(indexes) == 0 {
 		return slice
 	}
@@ -153,9 +162,9 @@ func SliceRemoveByIndexes[T any](slice []T, copy bool, indexes ...int) []T {
 	if l == 0 {
 		return slice
 	}
-	var out []T
+	var out S
 	if copy {
-		out = make([]T, 0)
+		out = make(S, 0)
 	} else {
 		out = slice[0:0]
 	}
@@ -200,14 +209,14 @@ func SliceRemoveByIndexes[T any](slice []T, copy bool, indexes ...int) []T {
 	return out
 }
 
-func SliceRemoveByValue[T comparable](slice []T, copy bool, value T) []T {
+func SliceRemoveByValue[S ~[]T, T comparable](slice S, copy bool, value T) S {
 	l := len(slice)
 	if l == 0 {
 		return slice
 	}
-	var out []T
+	var out S
 	if copy {
-		out = make([]T, 0)
+		out = make(S, 0)
 	} else {
 		out = slice[0:0]
 	}
@@ -219,14 +228,14 @@ func SliceRemoveByValue[T comparable](slice []T, copy bool, value T) []T {
 	return out
 }
 
-func SliceRemoveByValues[T comparable](slice []T, copy bool, values ...T) []T {
+func SliceRemoveByValues[S ~[]T, T comparable](slice S, copy bool, values ...T) S {
 	l := len(slice)
 	if l == 0 {
 		return slice
 	}
-	var out []T
+	var out S
 	if copy {
-		out = make([]T, 0)
+		out = make(S, 0)
 	} else {
 		out = slice[0:0]
 	}
@@ -238,14 +247,14 @@ func SliceRemoveByValues[T comparable](slice []T, copy bool, values ...T) []T {
 	return out;
 }
 
-func SliceRemoveIf[T any](slice []T, copy bool, cond func(v T) bool) []T {
+func SliceRemoveIf[S ~[]T, T any](slice S, copy bool, cond func(v T) bool) S {
 	l := len(slice)
 	if l == 0 {
 		return slice
 	}
-	var out []T
+	var out S
 	if copy {
-		out = make([]T, 0)
+		out = make(S, 0)
 	} else {
 		out = slice[0:0]
 	}
@@ -257,7 +266,7 @@ func SliceRemoveIf[T any](slice []T, copy bool, cond func(v T) bool) []T {
 	return out
 }
 
-func SliceRemoveIfIgnoreOrder[T any](slice []T, cond func(v T) bool) []T {
+func SliceRemoveIfIgnoreOrder[S ~[]T, T any](slice S, cond func(v T) bool) S {
 	l := len(slice)
 	if l == 0 {
 		return slice

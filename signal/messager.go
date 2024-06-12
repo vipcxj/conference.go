@@ -21,6 +21,8 @@ type OnWantFunc = func(*model.WantMessage)
 type OnSelectFunc = func(*model.SelectMessage)
 type OnWantParticipantFunc = func(*model.WantParticipantMessage)
 type OnStateParticipantFunc = func(*model.StateParticipantMessage)
+type OnPingFunc = func (*model.PingMessage)
+type OnPongFunc = func (*model.PongMessage)
 type OnCustomFunc = func(*model.CustomClusterMessage)
 type OnCustomAckFunc = func(*model.CustomAckMessage)
 
@@ -39,6 +41,10 @@ type OnWantParticipantFuncBox = messagerCallbackBox[*model.WantParticipantMessag
 type OnWantParticipantFuncBoxes = map[string]*OnWantParticipantFuncBox
 type OnStateParticipantFuncBox = messagerCallbackBox[*model.StateParticipantMessage]
 type OnStateParticipantFuncBoxes = map[string]*OnStateParticipantFuncBox
+type OnPingFuncBox = messagerCallbackBox[*model.PingMessage]
+type OnPingFuncBoxes = map[string]*OnPingFuncBox
+type OnPongFuncBox = messagerCallbackBox[*model.PongMessage]
+type OnPongFuncBoxes = map[string]*OnPongFuncBox
 type OnCustomFuncBox = messagerCallbackBox[*model.CustomClusterMessage]
 type OnCustomFuncBoxes = map[string]*OnCustomFuncBox
 type OnCustomAckFuncBox = messagerCallbackBox[*model.CustomAckMessage]
@@ -58,6 +64,10 @@ type Messager struct {
 	onWantParticipantCallbacks  *PatternMap[OnWantParticipantFuncBoxes]
 	onStateParticipantMutex     sync.RWMutex
 	onStateParticipantCallbacks *PatternMap[OnStateParticipantFuncBoxes]
+	onPingMutex                 sync.RWMutex
+	onPingCallbacks             *PatternMap[OnPingFuncBoxes]
+	onPongMutex                 sync.RWMutex
+	onPongCallbacks             *PatternMap[OnPongFuncBoxes]
 	onCustomMutex               sync.RWMutex
 	onCustomCallbacks           *PatternMap[OnCustomFuncBoxes]
 	onCustomAckMutex            sync.RWMutex
@@ -76,6 +86,8 @@ const (
 	TOPIC_SELECT            = "cluster_select"
 	TOPIC_WANT_PARTICIPANT  = "cluster_want_participant"
 	TOPIC_STATE_PARTICIPANT = "cluster_state_participant"
+	TOPIC_PING              = "cluster_ping"
+	TOPIC_PONG              = "cluster_pong"
 	TOPIC_CUSTOM            = "cluster_custom"
 	TOPIC_CUSTOM_ACK        = "cluster_custom_ack"
 )
@@ -91,6 +103,8 @@ func NewMessager(global *Global) (*Messager, error) {
 		onSelectCallbacks:           NewPatternMap[OnSelectFuncBoxes](),
 		onWantParticipantCallbacks:  NewPatternMap[OnWantParticipantFuncBoxes](),
 		onStateParticipantCallbacks: NewPatternMap[OnStateParticipantFuncBoxes](),
+		onPingCallbacks:             NewPatternMap[OnPingFuncBoxes](),
+		onPongCallbacks:             NewPatternMap[OnPongFuncBoxes](),
 		onCustomCallbacks:           NewPatternMap[OnCustomFuncBoxes](),
 		onCustomAckCallbacks:        NewPatternMap[OnCustomAckFuncBoxes](),
 		logger:                      logger,
@@ -103,6 +117,8 @@ func NewMessager(global *Global) (*Messager, error) {
 		topicSelect := MakeKafkaTopic(kafkaConfig, TOPIC_SELECT)
 		topicWantParticipant := MakeKafkaTopic(kafkaConfig, TOPIC_WANT_PARTICIPANT)
 		topicStateParticipant := MakeKafkaTopic(kafkaConfig, TOPIC_STATE_PARTICIPANT)
+		topicPing := MakeKafkaTopic(kafkaConfig, TOPIC_PING)
+		topicPong := MakeKafkaTopic(kafkaConfig, TOPIC_PONG)
 		topicCustom := MakeKafkaTopic(kafkaConfig, TOPIC_CUSTOM)
 		topicCustomAck := MakeKafkaTopic(kafkaConfig, TOPIC_CUSTOM_ACK)
 		workers := map[string]func(*kgo.Record){
@@ -111,6 +127,8 @@ func NewMessager(global *Global) (*Messager, error) {
 			topicSelect:           messager.onTopicSelect,
 			topicWantParticipant:  messager.onTopicWantParticipant,
 			topicStateParticipant: messager.onTopicStateParticipant,
+			topicPing:             messager.onTopicPing,
+			topicPong:             messager.onTopicPong,
 			topicCustom:           messager.onTopicCustom,
 			topicCustomAck:        messager.onTopicCustomAck,
 		}
@@ -222,6 +240,36 @@ func (m *Messager) onTopicStateParticipant(record *kgo.Record) {
 	}
 	if msg.Router.NodeFrom != m.nodeName {
 		m.consumeStateParticipant(&msg)
+	}
+}
+
+func (m *Messager) onTopicPing(record *kgo.Record) {
+	var msg model.PingMessage
+	err := gproto.Unmarshal(record.Value, &msg)
+	if err != nil {
+		m.Sugar().Errorf("unable to unmarshal the ping record: %v", record)
+		return
+	}
+	if msg.Router == nil {
+		m.Sugar().Errorf("accept a message without router")
+	}
+	if msg.Router.NodeFrom != m.nodeName {
+		m.consumePing(&msg)
+	}
+}
+
+func (m *Messager) onTopicPong(record *kgo.Record) {
+	var msg model.PongMessage
+	err := gproto.Unmarshal(record.Value, &msg)
+	if err != nil {
+		m.Sugar().Errorf("unable to unmarshal the pong record: %v", record)
+		return
+	}
+	if msg.Router == nil {
+		m.Sugar().Errorf("accept a message without router")
+	}
+	if msg.Router.NodeFrom != m.nodeName {
+		m.consumePong(&msg)
 	}
 }
 
@@ -422,6 +470,52 @@ func (m *Messager) consumeStateParticipant(msg *model.StateParticipantMessage) {
 		m.onStateParticipantMutex.RLock()
 		defer m.onStateParticipantMutex.RUnlock()
 		return consumeMessage(m.onStateParticipantCallbacks, msg, m.sugar, m.nodeName)
+	}()
+	for _, fun := range funs {
+		go fun(msg)
+	}
+}
+
+func (m *Messager) OnPing(funId string, fun OnPingFunc, roomPattern ...string) {
+	m.onPingMutex.Lock()
+	defer m.onPingMutex.Unlock()
+	onMessage(m.onPingCallbacks, funId, fun, roomPattern...)
+}
+
+func (m *Messager) OffPing(funId string, roomPattern ...string) {
+	m.onPingMutex.Lock()
+	defer m.onPingMutex.Unlock()
+	offMessage(m.onPingCallbacks, funId, roomPattern...)
+}
+
+func (m *Messager) consumePing(msg *model.PingMessage) {
+	funs := func() []OnPingFunc {
+		m.onPingMutex.RLock()
+		defer m.onPingMutex.RUnlock()
+		return consumeMessage(m.onPingCallbacks, msg, m.sugar, m.nodeName)
+	}()
+	for _, fun := range funs {
+		go fun(msg)
+	}
+}
+
+func (m *Messager) OnPong(funId string, fun OnPongFunc, roomPattern ...string) {
+	m.onPongMutex.Lock()
+	defer m.onPongMutex.Unlock()
+	onMessage(m.onPongCallbacks, funId, fun, roomPattern...)
+}
+
+func (m *Messager) OffPong(funId string, roomPattern ...string) {
+	m.onPongMutex.Lock()
+	defer m.onPongMutex.Unlock()
+	offMessage(m.onPongCallbacks, funId, roomPattern...)
+}
+
+func (m *Messager) consumePong(msg *model.PongMessage) {
+	funs := func() []OnPongFunc {
+		m.onPongMutex.RLock()
+		defer m.onPongMutex.RUnlock()
+		return consumeMessage(m.onPongCallbacks, msg, m.sugar, m.nodeName)
 	}()
 	for _, fun := range funs {
 		go fun(msg)
