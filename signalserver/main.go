@@ -21,15 +21,15 @@ import (
 	"github.com/vipcxj/conference.go/signal"
 )
 
-func Run(conf *config.ConferenceConfigure, ch chan error) {
+func Run(conf *config.ConferenceConfigure, ctx context.Context, done context.CancelCauseFunc) {
 	// elog.DEBUG = true
 	if !conf.Signal.Enable {
-		ch <- errors.Ok()
+		done(nil)
 		return
 	}
 	var err error
 
-	ctx, stop := ossignal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := ossignal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	if conf.Signal.Gin.Debug {
@@ -43,7 +43,7 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 		certPath := conf.Signal.Tls.Cert
 		keyPath := conf.Signal.Tls.Key
 		if certPath == "" || keyPath == "" {
-			ch <- errors.FatalError("to enable ssl for auth server, the authServerCertPath and authServerKeyPath must be provided")
+			done(errors.FatalError("to enable ssl for auth server, the authServerCertPath and authServerKeyPath must be provided"))
 			return
 		}
 		g, err = graceful.New(gin.New(), graceful.WithTLS(conf.SignalListenAddress(), certPath, keyPath))
@@ -51,7 +51,7 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 		g, err = graceful.New(gin.New(), graceful.WithAddr(conf.SignalListenAddress()))
 	}
 	if err != nil {
-		ch <- err
+		done(err)
 		return
 	}
 	defer g.Close()
@@ -62,7 +62,7 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 
 	global, err := signal.NewGlobal(ctx, conf)
 	if err != nil {
-		ch <- err
+		done(err)
 		return
 	}
 
@@ -80,12 +80,12 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 
 	err = signal.ConfigureSocketIOSingalServer(global, g)
 	if err != nil {
-		ch <- err
+		done(err)
 		return
 	}
 	err = signal.ConfigureWebsocketSingalServer(global, g)
 	if err != nil {
-		ch <- err
+		done(err)
 		return
 	}
 	g.GET(fmt.Sprintf("%v/:id", signal.CLOSE_CALLBACK_PREFIX), func(gctx *gin.Context) {
@@ -107,7 +107,5 @@ func Run(conf *config.ConferenceConfigure, ch chan error) {
 	}
 
 	err = g.RunWithContext(ctx)
-	if err != nil && err != context.Canceled {
-		ch <- err
-	}
+	done(err)
 }

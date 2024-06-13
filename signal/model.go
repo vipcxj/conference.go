@@ -835,7 +835,7 @@ func (sctx *SignalContext) clusterEmit(message model.RoomMessage) {
 		msg_copy.FixRouter(room, sctx.AuthInfo.UID, sctx.Messager().NodeName())
 		err := sctx.Messager().Emit(sctx.ctx, msg_copy)
 		if err != nil {
-			sctx.Sugar().Error("select msg emit failed, %v", err)
+			sctx.Sugar().Error("cluster msg emit failed, %v", err)
 		}
 	}
 }

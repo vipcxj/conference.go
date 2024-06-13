@@ -660,7 +660,6 @@ func (m *Messager) Emit(ctx context.Context, msg model.RoomMessage) error {
 		target.NodeFrom = m.nodeName
 	}
 	var topic string
-	key := msg.GetRouter().Room
 	switch typedMsg := msg.(type) {
 	case *model.StateMessage:
 		topic = m.kafka.MakeTopic(TOPIC_STATE)
@@ -682,6 +681,14 @@ func (m *Messager) Emit(ctx context.Context, msg model.RoomMessage) error {
 		topic = m.kafka.MakeTopic(TOPIC_STATE_PARTICIPANT)
 		m.logEmitMsg(msg, "state-participant")
 		m.consumeStateParticipant(typedMsg)
+	case *model.PingMessage:
+		topic = m.kafka.MakeTopic(TOPIC_PING)
+		m.logEmitMsg(msg, "ping")
+		m.consumePing(typedMsg)
+	case *model.PongMessage:
+		topic = m.kafka.MakeTopic(TOPIC_PONG)
+		m.logEmitMsg(msg, "pong")
+		m.consumePong(typedMsg)
 	case *model.CustomClusterMessage:
 		topic = m.kafka.MakeTopic(TOPIC_CUSTOM)
 		m.logEmitMsg(msg, "custom")
@@ -697,6 +704,7 @@ func (m *Messager) Emit(ctx context.Context, msg model.RoomMessage) error {
 	if err != nil {
 		return errors.InvalidMessage("unable to marshal room message, %v", err)
 	}
+	key := msg.GetRouter().Room
 	return m.kafka.Produce(ctx, &kgo.Record{
 		Key:   []byte(key),
 		Topic: topic,

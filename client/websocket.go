@@ -86,6 +86,11 @@ func (signal *WebsocketSignal) PopCustomAckMsgCh(from string, id uint32) chan an
 	return nil
 }
 
+func (signal *WebsocketSignal) MakesureConnect() error {
+	_, err := signal.accessSignal()
+	return err
+}
+
 func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error) {
 	signal.signal_mux.Lock()
 	for {
@@ -171,7 +176,9 @@ func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error
 		signal.signal_mux.Lock()
 		signal.signal = nil
 		signal.signal_mux.Unlock()
-		signal.close_cb(err)
+		if signal.close_cb != nil {
+			signal.close_cb(err)
+		}
 	})
 	return signal.signal, nil
 }

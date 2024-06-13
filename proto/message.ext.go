@@ -186,13 +186,15 @@ func (x *PingMessage) ToMap() map[string]any {
 		return nil
 	}
 	return map[string]any{
-		"router":   x.GetRouter().ToMap(),
+		"router": x.GetRouter().ToMap(),
+		"msgId":  x.GetMsgId(),
 	}
 }
 
 func (x *PingMessage) CopyPlain() RoomMessage {
-	return &StateParticipantMessage{
-		Router:   x.GetRouter().CopyPlain(),
+	return &PingMessage{
+		Router: x.GetRouter().CopyPlain(),
+		MsgId:  x.GetMsgId(),
 	}
 }
 
@@ -211,13 +213,15 @@ func (x *PongMessage) ToMap() map[string]any {
 		return nil
 	}
 	return map[string]any{
-		"router":   x.GetRouter().ToMap(),
+		"router": x.GetRouter().ToMap(),
+		"msgId":  x.GetMsgId(),
 	}
 }
 
 func (x *PongMessage) CopyPlain() RoomMessage {
-	return &StateParticipantMessage{
-		Router:   x.GetRouter().CopyPlain(),
+	return &PongMessage{
+		Router: x.GetRouter().CopyPlain(),
+		MsgId:  x.GetMsgId(),
 	}
 }
 

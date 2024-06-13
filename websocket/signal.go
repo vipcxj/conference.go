@@ -123,14 +123,8 @@ func decodeWsTextData(s string) (evt string, msg_id uint64, flag WsMsgFlag, data
 					return
 				}
 				flag = WsMsgFlag(flag_int)
-				s = s[flag_pos+1:]
-				data_pos := strings.Index(s, ";")
-				if data_pos != -1 {
-					data = s[data_pos:]
-					return
-				} else {
-					err = errors.FatalError("invalid ws msg format")
-				}
+				data = s[flag_pos+1:]
+				return
 			} else {
 				err = errors.FatalError("invalid ws msg format")
 			}

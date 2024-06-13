@@ -239,6 +239,9 @@ func NewKafkaClient(conf *config.KafkaConfigure, copts ...KafkaOpt) (*KafkaClien
 }
 
 func (s *KafkaClient) MakeTopic(topic string) string {
+	if s == nil {
+		return ""
+	}
 	return MakeKafkaTopic(s.conf, topic)
 }
 

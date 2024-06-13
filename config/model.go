@@ -119,16 +119,23 @@ type ConferenceConfigure struct {
 		} `json:"iceServer,omitempty" mapstructure:"iceServer" default:""`
 		ICETransportPolicy string `json:"iceTransportPolicy,omitempty" mapstructure:"iceTransportPolicy" default:"${CONF_WEBRTC_ICETRANSPORT_POLICY}"`
 	} `json:"webrtc,omitempty" mapstructure:"webrtc" default:""`
-	Prometheus         CommonPrometheusConfigure `mapstructure:"prometheus" json:"prometheus" default:""`
-	AuthServerEnable   bool                      `mapstructure:"authServerEnable" default:"${CONF_AUTH_SERVER_ENABLE | true}"`
-	AuthServerHost     string                    `mapstructure:"authServerHost" default:"${CONF_AUTH_SERVER_HOST | localhost}"`
-	AuthServerPort     int                       `mapstructure:"authServerPort" default:"${CONF_AUTH_SERVER_PORT | 3100}"`
-	AuthServerSsl      bool                      `mapstructure:"authServerSsl" default:"${CONF_AUTH_SERVER_SSL | false}"`
-	AuthServerCertPath string                    `mapstructure:"authServerCertPath" default:"${CONF_AUTH_SERVER_CERT_PATH}"`
-	AuthServerKeyPath  string                    `mapstructure:"authServerKeyPath" default:"${CONF_AUTH_SERVER_KEY_PATH}"`
-	AuthServerCors     string                    `mapstructure:"authServerCors" default:"${CONF_AUTH_SERVER_CORS}"`
-	SecretKey          string                    `mapstructure:"secretKey" default:"${CONF_SECRET_KEY}"`
-	Log                struct {
+	Prometheus CommonPrometheusConfigure `mapstructure:"prometheus" json:"prometheus" default:""`
+	AuthServer struct {
+		Enable   bool   `json:"enable" mapstructure:"enable" default:"${CONF_AUTH_SERVER_ENABLE | true}"`
+		Host     string `json:"host" mapstructure:"host" default:"${CONF_AUTH_SERVER_HOST | localhost}"`
+		Port     int    `json:"port" mapstructure:"port" default:"${CONF_AUTH_SERVER_PORT | 3100}"`
+		Ssl      bool   `json:"ssl" mapstructure:"ssl" default:"${CONF_AUTH_SERVER_SSL | false}"`
+		CertPath string `json:"certPath" mapstructure:"certPath" default:"${CONF_AUTH_SERVER_CERT_PATH}"`
+		KeyPath  string `json:"keyPath" mapstructure:"keyPath" default:"${CONF_AUTH_SERVER_KEY_PATH}"`
+		Cors     string `json:"cors" mapstructure:"cors" default:"${CONF_AUTH_SERVER_CORS}"`
+		Healthy  struct {
+			Enable           bool   `mapstructure:"enable" json:"enable" default:"${CONF_AUTH_SERVER_HEALTHY_ENABLE | true}"`
+			FailureThreshold int    `mapstructure:"failureThreshold" json:"failureThreshold" default:"${CONF_AUTH_SERVER_HEALTHY_FAILURE_THRESHOLD | 3}"`
+			Path             string `mapstructure:"path" json:"path" default:"${CONF_AUTH_SERVER_HEALTHY_PATH | /healthz}"`
+		} `mapstructure:"healthy" json:"healthy" default:""`
+	} `mapstructure:"authServer" json:"authServer" default:""`
+	SecretKey string `mapstructure:"secretKey" default:"${CONF_SECRET_KEY}"`
+	Log       struct {
 		Profile string `mapstructure:"profile" json:"profile" default:"${CONF_LOG_PROFILE | production}"`
 		Level   string `mapstructure:"level" json:"level" default:"${CONF_LOG_LEVEL | info}"`
 	} `mapstructure:"log" json:"log" default:""`
@@ -158,12 +165,12 @@ type ConferenceConfigure struct {
 		IntervalMs   int    `mapstructure:"intervalMs" json:"intervalMs" default:"${CONF_CALLBACK_INTERVAL_MS | 60000}"`
 	} `mapstructure:"callback" json:"callback" default:""`
 	Signal struct {
-		Enable   bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_ENABLE | true}"`
-		HostOrIp string `mapstructure:"hostOrIp" json:"hostOrIp" default:"${CONF_SIGNAL_HOST_OR_IP}"`
-		Port     int    `mapstructure:"port" json:"port" default:"${CONF_SIGNAL_PORT | 0}"`
-		Cors     string `mapstructure:"cors" json:"cors" default:"${CONF_SIGNAL_CORS}"`
-		AsyncSendMsg bool `mapstructure:"asyncSendMsg" json:"asyncSendMsg" default:"${CONF_SIGNAL_ASYNC_SEND_MSG | false}"`
-		Tls      struct {
+		Enable       bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_ENABLE | true}"`
+		HostOrIp     string `mapstructure:"hostOrIp" json:"hostOrIp" default:"${CONF_SIGNAL_HOST_OR_IP}"`
+		Port         int    `mapstructure:"port" json:"port" default:"${CONF_SIGNAL_PORT | 0}"`
+		Cors         string `mapstructure:"cors" json:"cors" default:"${CONF_SIGNAL_CORS}"`
+		AsyncSendMsg bool   `mapstructure:"asyncSendMsg" json:"asyncSendMsg" default:"${CONF_SIGNAL_ASYNC_SEND_MSG | false}"`
+		Tls          struct {
 			Enable bool   `mapstructure:"enable" json:"enable" default:"${CONF_SIGNAL_TLS_ENABLE | false}"`
 			Cert   string `mapstructure:"cert" json:"cert" default:"${CONF_SIGNAL_TLS_CERT}"`
 			Key    string `mapstructure:"key" json:"key" default:"${CONF_SIGNAL_TLS_KEY}"`
@@ -466,13 +473,16 @@ var KEYS = []string{
 	"webrtc.iceServer.credential:string",
 	"webrtc.iceServer.credentialType:string",
 	"webrtc.iceTransportPolicy:string",
-	"authServerEnable:bool",
-	"authServerHost:string",
-	"authServerPort:int",
-	"authServerSsl:bool",
-	"authServerCertPath:string",
-	"authServerKeyPath:string",
-	"authServerCors:string",
+	"authServer.enable:bool",
+	"authServer.host:string",
+	"authServer.port:int",
+	"authServer.ssl:bool",
+	"authServer.certPath:string",
+	"authServer.keyPath:string",
+	"authServer.cors:string",
+	"authServer.healthy.enable:bool",
+	"authServer.healthy.failureThreshold:int",
+	"authServer.healthy.path:string",
 	"secretKey:string",
 	"log.profile:string",
 	"log.level:string",

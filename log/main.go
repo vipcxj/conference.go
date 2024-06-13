@@ -9,13 +9,13 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func Init() {
-	atLevel, err := zap.ParseAtomicLevel(config.Conf().Log.Level)
+func Init(level string, profile config.LogProfile) {
+	atLevel, err := zap.ParseAtomicLevel(level)
 	if err != nil {
 		panic(err)
 	}
 	var encoderCfg zapcore.EncoderConfig
-	switch config.Conf().LogProfile() {
+	switch profile {
 	case config.LOG_PROFILE_DEVELOPMENT:
 		encoderCfg = zap.NewDevelopmentEncoderConfig()
 	case config.LOG_PROFILE_PRODUCTION:

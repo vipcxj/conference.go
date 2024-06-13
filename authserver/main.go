@@ -1,23 +1,28 @@
 package authserver
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	healthcheck "github.com/tavsec/gin-healthcheck"
+	healthchecks "github.com/tavsec/gin-healthcheck/checks"
+	healthconfig "github.com/tavsec/gin-healthcheck/config"
 	"github.com/vipcxj/conference.go/auth"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/middleware"
 )
 
-func Run(ch chan error) {
-	if !config.Conf().AuthServerEnable {
-		ch <- errors.Ok()
+func Run(conf *config.ConferenceConfigure, ctx context.Context, done context.CancelCauseFunc) {
+	if !conf.AuthServer.Enable {
+		done(nil)
+		return
 	}
 	g := gin.Default()
 	g.Use(middleware.ErrorHandler())
-	if cors := config.Conf().AuthServerCors; cors != "" {
+	if cors := conf.AuthServer.Cors; cors != "" {
 		g.Use(middleware.Cors(cors))
 	}
 	g.GET("/token", func(ctx *gin.Context) {
@@ -32,24 +37,30 @@ func Run(ch chan error) {
 		}
 		ctx.String(http.StatusOK, token)
 	})
-	host := config.Conf().AuthServerHost
-	port := config.Conf().AuthServerPort
+	if conf.AuthServer.Healthy.Enable {
+		healthConf := healthconfig.DefaultConfig()
+		healthConf.FailureNotification.Chan = make(chan error, 1)
+		defer close(healthConf.FailureNotification.Chan)
+		healthConf.FailureNotification.Threshold = uint32(conf.Signal.Healthy.FailureThreshold)
+		healthConf.HealthPath = conf.Signal.Healthy.Path
+
+		authCheck := healthchecks.NewContextCheck(ctx, "auth")
+		healthcheck.New(g, healthConf, []healthchecks.Check{authCheck})
+	}
+	host := conf.AuthServer.Host
+	port := conf.AuthServer.Port
 	addr := fmt.Sprintf("%s:%d", host, port)
-	if config.Conf().AuthServerSsl {
-		certPath := config.Conf().AuthServerCertPath
-		keyPath := config.Conf().AuthServerKeyPath
+	if conf.AuthServer.Ssl {
+		certPath := conf.AuthServer.CertPath
+		keyPath := conf.AuthServer.KeyPath
 		if certPath == "" || keyPath == "" {
-			ch <- errors.FatalError("to enable ssl for auth server, the authServerCertPath and authServerKeyPath must be provided")
+			done(errors.FatalError("to enable ssl for auth server, the authServerCertPath and authServerKeyPath must be provided"))
 			return
 		}
 		err := g.RunTLS(addr, certPath, keyPath)
-		if err != nil {
-			ch <- err
-		}
+		done(err)
 	} else {
 		err := g.Run(addr)
-		if err != nil {
-			ch <- err
-		}
+		done(err)
 	}
 }
