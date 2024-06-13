@@ -240,7 +240,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	s.On("user-info", func(ack AckFunc, args ...any) (remained bool) {
 		ctx.Sugar().Debugf("receive user-info msg")
 		ackArgs := make([]any, 1)
-		defer FinallyResponse(ctx, ack, ackArgs, "user-info", true)
+		defer FinallyResponse(ctx, ack, ackArgs, "user-info", false)
 		ackArgs[0] = &model.UserInfo{
 			UserId: ctx.AuthInfo.UID,
 			UserName: ctx.AuthInfo.UName,
@@ -252,7 +252,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		ctx.Sugar().Debugf("receive ping msg")
 		msg := model.PingMessage{}
 		err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx, nil, nil, "ping", true)
+		defer FinallyResponse(ctx, nil, nil, "ping", false)
 		if err != nil {
 			panic(err)
 		}
@@ -272,7 +272,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		ctx.Sugar().Debugf("receive pong msg")
 		msg := model.PongMessage{}
 		err := parseArgs(&msg, args...)
-		defer FinallyResponse(ctx, nil, nil, "pong", true)
+		defer FinallyResponse(ctx, nil, nil, "pong", false)
 		if err != nil {
 			panic(err)
 		}

@@ -110,14 +110,26 @@ func TestKeepAlive(t *testing.T) {
 	c1, cancel1, err := createClient(context.Background(), "1", "room", true)
 	if err != nil {
 		t.Errorf("unable to create client 1, %v", err)
+		return
 	}
 	defer cancel1(nil)
+	rc1, err := c1.Roomed("room")
+	if err != nil {
+		t.Errorf("unable to create roomed client 1, %v", err)
+		return
+	}
 	c2, cancel2, err := createClient(context.Background(), "2", "room", true)
 	if err != nil {
 		t.Errorf("unable to create client 2, %v", err)
+		return
 	}
 	defer cancel2(nil)
-	stop1, err := c1.KeepAlive("room", "2", client.KEEP_ALIVE_MODE_ACTIVE, time.Second, func(kaCtx *client.KeepAliveContext) (stop bool) {
+	rc2, err := c2.Roomed("room")
+	if err != nil {
+		t.Errorf("unable to create roomed client 2, %v", err)
+		return
+	}
+	stop1, err := rc1.KeepAlive("2", client.KEEP_ALIVE_MODE_ACTIVE, time.Second, func(kaCtx *client.KeepAliveContext) (stop bool) {
 		if kaCtx.Err != nil {
 			t.Errorf("client 1 failed to keep alive with client 2, %v", kaCtx.Err)
 			return true
@@ -130,9 +142,10 @@ func TestKeepAlive(t *testing.T) {
 	})
 	if err != nil {
 		t.Errorf("client 1 failed to keep alive, %v", err)
+		return
 	}
 	defer stop1()
-	stop2, err := c2.KeepAlive("room", "1", client.KEEP_ALIVE_MODE_PASSIVE, time.Second*2, func(kaCtx *client.KeepAliveContext) (stop bool) {
+	stop2, err := rc2.KeepAlive("1", client.KEEP_ALIVE_MODE_PASSIVE, time.Second*2, func(kaCtx *client.KeepAliveContext) (stop bool) {
 		if kaCtx.Err != nil {
 			t.Errorf("client 2 failed to keep alive with client 1, %v", kaCtx.Err)
 			return true
@@ -145,6 +158,7 @@ func TestKeepAlive(t *testing.T) {
 	})
 	if err != nil {
 		t.Errorf("client 2 failed to keep alive, %v", err)
+		return
 	}
 	defer stop2()
 	time.Sleep(time.Second * 10)
