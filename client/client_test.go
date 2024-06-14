@@ -13,6 +13,7 @@ import (
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/entry"
 	"github.com/vipcxj/conference.go/log"
+	"github.com/vipcxj/conference.go/utils"
 )
 
 func WaitHealthy(host string, path string, ctx context.Context) error {
@@ -33,13 +34,13 @@ func setup(ctx context.Context) {
 	os.Args = append(
 		os.Args,
 		"--log.level=debug",
-		"--hostOrIp=127.0.0.1",
+		"--hostOrIp=localhost",
 		"--authServer.enable",
-		"--authServer.host=0.0.0.0",
+		"--authServer.host=localhost",
 		"--authServer.port=3105",
 		"--authServer.cors=*",
 		"--authServer.healthy.enable",
-		"--signal.hostOrIp=0.0.0.0",
+		"--signal.hostOrIp=localhost",
 		"--signal.port=8188",
 		"--signal.cors=*",
 		"--signal.healthy.enable",
@@ -104,6 +105,55 @@ func createClient(ctx context.Context, uid string, room string, autoJoin bool) (
 		},
 	}, engine)
 	return
+}
+
+func TestJoin(t *testing.T) {
+	ctx := context.Background()
+	c, cancel, err := createClient(ctx, "1", "root.*", false)
+	defer cancel(nil)
+	if err != nil {
+		t.Fatalf("unable to create client, %v", err)
+	}
+	err = c.Join(ctx, "root.room1")
+	if err != nil {
+		t.Errorf("unable to join root.room1, %v", err)
+	}
+	inRoom, err := c.IsInRoom(ctx, "root.room1")
+	if err != nil {
+		t.Errorf("unable to predicate whether is in room root.room1")
+	}
+	utils.AssertTrue(t, inRoom)
+	err = c.Join(ctx, "root.room2")
+	if err != nil {
+		t.Errorf("unable to join root.room2, %v", err)
+	}
+	inRoom, err = c.IsInRoom(ctx, "root.room2")
+	if err != nil {
+		t.Errorf("unable to predicate whether is in room root.room2")
+	}
+	utils.AssertTrue(t, inRoom)
+	err = c.Join(ctx, "room1")
+	if err == nil {
+		t.Errorf("room1 should not be joined")
+	} else {
+		t.Logf("failed to join room1 with err \"%v\", this is expect result", err)
+	}
+	inRoom, err = c.IsInRoom(ctx, "room1")
+	if err != nil {
+		t.Errorf("unable to predicate whether is in room room1")
+	}
+	utils.AssertFalse(t, inRoom)
+	err = c.Join(ctx, "room2")
+	if err == nil {
+		t.Errorf("room2 should not be joined")
+	} else {
+		t.Logf("failed to join room2 with err \"%v\", this is expect result", err)
+	}
+	inRoom, err = c.IsInRoom(ctx, "room2")
+	if err != nil {
+		t.Errorf("unable to predicate whether is in room room2")
+	}
+	utils.AssertFalse(t, inRoom)
 }
 
 func TestKeepAlive(t *testing.T) {

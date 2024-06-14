@@ -44,6 +44,8 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	ctx.Sugar().Debugf("Auth info: key=%v; uid=%v; uname=%v; room=%v; nonce=%v", auth.Key, auth.UID, auth.UName, strings.Join(auth.Rooms, ","), auth.Nonce)
 	if auth.AutoJoin {
 		if err := ctx.JoinRoom(); err != nil {
+			ctx.Sugar().Warn(err)
+			ctx.SelfClose(true)
 			return ctx, err
 		}
 	}
@@ -83,7 +85,8 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			ctx.Close()
 		}()
 	})
-	s.On("join", func(ack AckFunc, args ...any) bool {
+	s.On("join", func(ack AckFunc, args ...any) (remained bool) {
+		remained = true
 		ctx.Sugar().Debugf("receive join msg")
 		msg := model.JoinMessage{}
 		err := parseArgs(&msg, args...)
@@ -95,9 +98,10 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		if err != nil {
 			panic(err)
 		}
-		return true
+		return
 	})
-	s.On("leave", func(ack AckFunc, args ...any) bool {
+	s.On("leave", func(ack AckFunc, args ...any) (remained bool) {
+		remained = true
 		ctx.Sugar().Debugf("receive leave msg")
 		msg := model.LeaveMessage{}
 		err := parseArgs(&msg, args...)
@@ -106,9 +110,10 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			panic(err)
 		}
 		ctx.LeaveRoom(msg.Rooms...)
-		return true
+		return
 	})
-	s.On("sdp", func(ack AckFunc, args ...any) bool {
+	s.On("sdp", func(ack AckFunc, args ...any) (remained bool) {
+		remained = true
 		ctx.Sugar().Debugf("receive sdp msg")
 		msg := model.SdpMessage{}
 		err := parseArgs(&msg, args...)
@@ -165,9 +170,10 @@ func InitSignal(s Signal) (*SignalContext, error) {
 				panic(errors.FatalError("the sdp type %v is not supported", msg.Type))
 			}
 		}()
-		return true
+		return
 	})
-	s.On("candidate", func(ack AckFunc, args ...any) bool {
+	s.On("candidate", func(ack AckFunc, args ...any) (remained bool)  {
+		remained = true
 		ctx.Sugar().Debugf("receive candidate msg")
 		msg := model.CandidateMessage{}
 		err := parseArgs(&msg, args...)
@@ -185,7 +191,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			if peer.RemoteDescription() == nil {
 				defer ctx.cand_mux.Unlock()
 				ctx.pendingCandidates = append(ctx.pendingCandidates, &msg)
-				return true
+				return
 			} else {
 				ctx.cand_mux.Unlock()
 			}
@@ -194,9 +200,10 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		if err != nil {
 			panic(err)
 		}
-		return true
+		return
 	})
-	s.On("publish", func(ack AckFunc, args ...any) bool {
+	s.On("publish", func(ack AckFunc, args ...any) (remained bool) {
+		remained = true
 		ctx.Sugar().Debugf("receive publish msg")
 		msg := model.PublishMessage{}
 		err := parseArgs(&msg, args...)
@@ -215,9 +222,10 @@ func InitSignal(s Signal) (*SignalContext, error) {
 				Id: pubId,
 			}
 		}()
-		return true
+		return
 	})
-	s.On("subscribe", func(ack AckFunc, args ...any) bool {
+	s.On("subscribe", func(ack AckFunc, args ...any) (remained bool) {
+		remained = true
 		ctx.Sugar().Debugf("receive subscribe msg")
 		msg := model.SubscribeMessage{}
 		err := parseArgs(&msg, args...)
@@ -236,9 +244,10 @@ func InitSignal(s Signal) (*SignalContext, error) {
 				Id: subId,
 			}
 		}()
-		return true
+		return
 	})
 	s.On("user-info", func(ack AckFunc, args ...any) (remained bool) {
+		remained = true
 		ctx.Sugar().Debugf("receive user-info msg")
 		ackArgs := make([]any, 1)
 		defer FinallyResponse(ctx, ack, ackArgs, "user-info", false)
@@ -247,9 +256,10 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			UserName: ctx.AuthInfo.UName,
 			Rooms: ctx.Rooms(),
 		}
-		return true
+		return
 	})
 	s.On("ping", func(ack AckFunc, args ...any) (remained bool) {
+		remained = true
 		ctx.Sugar().Debugf("receive ping msg")
 		msg := model.PingMessage{}
 		err := parseArgs(&msg, args...)
@@ -267,9 +277,10 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		if err != nil {
 			panic(fmt.Errorf("failed to emit ping msg to cluster, %w", err))
 		}
-		return true
+		return
 	})
 	s.On("pong", func(ack AckFunc, args ...any) (remained bool) {
+		remained = true
 		ctx.Sugar().Debugf("receive pong msg")
 		msg := model.PongMessage{}
 		err := parseArgs(&msg, args...)
@@ -287,7 +298,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		if err != nil {
 			panic(fmt.Errorf("failed to emit pong msg to cluster, %w", err))
 		}
-		return true
+		return
 	})
 	s.OnCustom(func(evt string, msg *model.CustomMessage) {
 		ctx.Sugar().Debugf("receive custom msg with evt %s", evt)

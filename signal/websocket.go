@@ -124,8 +124,8 @@ func ConfigureWebsocketSingalServer(global *Global, g *graceful.Graceful) error 
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			conn.CloseAndClean(err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.WriteString(err.Error())
+			// w.WriteHeader(http.StatusInternalServerError)
+			// w.WriteString(err.Error())
 			return
 		}
 		ctx := newSignalContext(global, signal, &authInfo, signal_id)
@@ -133,8 +133,8 @@ func ConfigureWebsocketSingalServer(global *Global, g *graceful.Graceful) error 
 		_, err = InitSignal(signal)
 		if err != nil {
 			conn.CloseAndClean(err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.WriteString(err.Error())
+			// w.WriteHeader(http.StatusInternalServerError)
+			// w.WriteString(err.Error())
 			return
 		}
 	}

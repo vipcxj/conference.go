@@ -270,7 +270,7 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 			sig.close_err = err
 			if sig.close_cb != nil {
 				sig.close_cb(err)
-			}	
+			}
 		}
 	})
 	return sig
@@ -361,7 +361,13 @@ func (signal *WebSocketSignal) SendMsg(ctx context.Context, ack bool, evt string
 	}
 	if ack {
 		select {
-		case <- ctx.Done():
+		case <-signal.close_ch:
+			if signal.close_err != nil {
+				return nil, signal.close_err
+			} else {
+				return nil, net.ErrClosed
+			}
+		case <-ctx.Done():
 			release()
 			return nil, context.Cause(ctx)
 		case ack_args := <-ch:
