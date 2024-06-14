@@ -69,6 +69,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 	ctx.Messager().OnSelect(ctx.Id, ctx.SatifySelect, ctx.RoomPaterns()...)
 	ctx.Messager().OnWantParticipant(ctx.Id, ctx.StateParticipants, ctx.RoomPaterns()...)
 	ctx.Messager().OnStateParticipant(ctx.Id, ctx.AcceptParticipants, ctx.RoomPaterns()...)
+	ctx.Messager().OnStateLeave(ctx.Id, ctx.StateParticipantLeave, ctx.RoomPaterns()...)
 	ctx.Messager().OnPing(ctx.Id, ctx.OnPingMessage, ctx.RoomPaterns()...)
 	ctx.Messager().OnPong(ctx.Id, ctx.OnPongMessage, ctx.RoomPaterns()...)
 	ctx.Messager().OnCustom(ctx.Id, ctx.OnCustomMessage, ctx.RoomPaterns()...)
@@ -244,7 +245,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		ackArgs[0] = &model.UserInfo{
 			UserId: ctx.AuthInfo.UID,
 			UserName: ctx.AuthInfo.UName,
-			Rooms: ctx.rooms,
+			Rooms: ctx.Rooms(),
 		}
 		return true
 	})

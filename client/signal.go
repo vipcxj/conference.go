@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"time"
 
 	"github.com/vipcxj/conference.go/model"
@@ -10,6 +11,7 @@ type AckFunc = func(any, error)
 type MsgCb = func(ack AckFunc, arg any) (remained bool)
 type CustomMsgCb = func(content string, ack func(), room string, from string, to string) (remained bool)
 type RoomedCustomMsgCb = func(content string, ack func(), from string, to string) (remained bool)
+type ParticipantCb = func(participant *model.Participant) (remained bool)
 
 type KeepAliveContext struct {
 	Err             error
@@ -27,21 +29,27 @@ const (
 
 type Signal interface {
 	MakesureConnect() error
-	sendMsg(timeout time.Duration, ack bool, evt string, arg any) (res any, err error)
-	SendMessage(timeout time.Duration, ack bool, evt string, content string, to string, room string) error
+	sendMsg(ctx context.Context, ack bool, evt string, arg any) (res any, err error)
+	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) error
 	onMsg(evt string, cb MsgCb) error
 	OnMessage(evt string, cb CustomMsgCb)
-	Join(timeout time.Duration, rooms ...string) error
-	Leave(timeout time.Duration, rooms ...string) error
-	UserInfo(timeout time.Duration) (*model.UserInfo, error)
-	IsInRoom(timeout time.Duration, room string) (bool, error)
-	KeepAlive(room string, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error)
-	Roomed(timeout time.Duration, room string) (RoomedSignal, error)
+	Join(ctx context.Context, rooms ...string) error
+	Leave(ctx context.Context, rooms ...string) error
+	UserInfo(ctx context.Context) (*model.UserInfo, error)
+	IsInRoom(ctx context.Context, room string) (bool, error)
+	KeepAlive(ctx context.Context, room string, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error)
+	Roomed(ctx context.Context, room string) (RoomedSignal, error)
 }
 
 type RoomedSignal interface {
 	GetRoom() string
-	SendMessage(timeout time.Duration, ack bool, evt string, content string, to string) error
+	SendMessage(ctx context.Context, ack bool, evt string, content string, to string) error
 	OnMessage(evt string, cb RoomedCustomMsgCb)
-	KeepAlive(uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error)
+	OnParticipantJoin(cb ParticipantCb) int
+	OffParticipantJoin(id int)
+	OnParticipantLeave(cb ParticipantCb) int
+	OffParticipantLeave(id int)
+	GetParticipants() []model.Participant
+	WaitParticipant(ctx context.Context, uid string) (success bool)
+	KeepAlive(ctx context.Context, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error)
 }

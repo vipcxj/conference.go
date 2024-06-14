@@ -54,7 +54,7 @@ func ErrToMsg(err any, cause string) *model.ErrorMessage {
 }
 
 func ArgsToString(args []any) string {
-	arg_list := strings.Join(utils.MapSlice(args, func(arg any) (mapped string, remove bool) {
+	arg_list := strings.Join(utils.SliceMapNew(args, func(arg any) (mapped string, remove bool) {
 		return fmt.Sprintf("%v", arg), false
 	}), ",")
 	return fmt.Sprintf("[%s]", arg_list)

@@ -1,8 +1,8 @@
 package signal
 
 import (
+	"context"
 	"sync"
-	"time"
 
 	"github.com/vipcxj/conference.go/model"
 	"go.uber.org/zap"
@@ -14,7 +14,7 @@ type CustomMsgCb = func(evt string, msg *model.CustomMessage)
 type CustomAckMsgCb = func(msg *model.CustomAckMessage)
 
 type Signal interface {
-	SendMsg(timeout time.Duration, ack bool, evt string, args ...any) (res []any, err error)
+	SendMsg(ctx context.Context, ack bool, evt string, args ...any) (res []any, err error)
 	On(evt string, cb MsgCb) error
 	OnCustom(cb CustomMsgCb) error
 	OnCustomAck(cb CustomAckMsgCb) error
@@ -73,8 +73,7 @@ func (mc *MsgCbs) AddCallback(evt string, cb MsgCb) {
 	defer mc.mux.Unlock()
 	cbs, ok := mc.cbs[evt]
 	if ok {
-		cbs = append(cbs, cb)
-		mc.cbs[evt] = cbs
+		mc.cbs[evt] = append(cbs, cb)
 	} else {
 		mc.cbs[evt] = []MsgCb{cb}
 	}

@@ -53,7 +53,32 @@ func InMap[K comparable, T any](m map[K]T, tester func(T) bool) bool {
 	return false
 }
 
-func MapSlice[T any, O any](slice []T, mapper func(T) (mapped O, remove bool)) []O {
+func SliceMapChange[S ~[]T, T any](slice S, mapper func(T) (mapped T, remove bool)) S {
+	if slice == nil {
+		return nil
+	}
+	pos := 0
+	lenIn := len(slice)
+	for i := 0; i < lenIn; i++ {
+		o, remove := mapper(slice[i])
+		if !remove {
+			slice[pos] = o
+			pos++
+		}
+	}
+	if pos > 0 {
+		slice = slice[0:pos]
+		if pos < lenIn / 2 {
+			return slices.Clone(slice)
+		} else {
+			return slice
+		}
+	} else {
+		return nil
+	}
+}
+
+func SliceMapNew[S ~[]T, T any, O any](slice S, mapper func(T) (mapped O, remove bool)) []O {
 	if slice == nil {
 		return nil
 	}
@@ -75,6 +100,17 @@ func SliceAppendNoRepeat[S ~[]E, E comparable](slice S, values ...E) S {
 			slice = append(slice, value)
 		}
 	}
+	return slice
+}
+
+func SortedSliceAppendNoRepeat[S ~[]E, E cmp.Ordered](slice S, values ...E) S {
+	for _, value := range values {
+		_, found := slices.BinarySearch(slice, value)
+		if !found {
+			slice = append(slice, value)
+		}
+	}
+	slices.Sort(slice)
 	return slice
 }
 
@@ -244,7 +280,30 @@ func SliceRemoveByValues[S ~[]T, T comparable](slice S, copy bool, values ...T) 
 			out = append(out, v)
 		}
 	}
-	return out;
+	return out
+}
+
+func SliceRemoveByValuesAndReturnRemoved[S ~[]T, T comparable](slice S, copy bool, values ...T) (out S, removed S) {
+	l := len(slice)
+	if l == 0 {
+		out = slice
+		removed = nil
+		return
+	}
+	if copy {
+		out = make(S, 0)
+	} else {
+		out = slice[0:0]
+	}
+	removed = make(S, 0)
+	for _, v := range slice {
+		if !InSlice(values, v, nil) {
+			out = append(out, v)
+		} else {
+			removed = append(removed, v)
+		}
+	}
+	return
 }
 
 func SliceRemoveIf[S ~[]T, T any](slice S, copy bool, cond func(v T) bool) S {
@@ -277,17 +336,17 @@ func SliceRemoveIfIgnoreOrder[S ~[]T, T any](slice S, cond func(v T) bool) S {
 		v := slice[i]
 		if cond(v) {
 			for (last > i && cond(slice[last])) || last == i {
-				last --
-				removed ++
+				last--
+				removed++
 			}
 			if last > i {
 				slice[i] = slice[last]
-				last --
-				removed ++
+				last--
+				removed++
 			}
 		}
 	}
-	return slice[0:l - removed]
+	return slice[0 : l-removed]
 }
 
 func MapValues[K comparable, T any](m map[K]T) []T {

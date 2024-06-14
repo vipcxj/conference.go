@@ -254,6 +254,7 @@ func CopyTrack(src *Track) *Track {
 // }
 
 type Participant struct {
-	Id string
-	Name string
+	Id       string
+	Name     string
+	SourceId string
 }

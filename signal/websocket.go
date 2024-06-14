@@ -1,9 +1,9 @@
 package signal
 
 import (
+	"context"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-contrib/graceful"
 	"github.com/gin-gonic/gin"
@@ -56,8 +56,8 @@ func (signal *WebSocketSignal) Close() {
 	signal.signal.Close()
 }
 
-func (signal *WebSocketSignal) SendMsg(timeout time.Duration, ack bool, evt string, args ...any) (res []any, err error) {
-	return signal.signal.SendMsg(timeout, ack, evt, args...)
+func (signal *WebSocketSignal) SendMsg(ctx context.Context, ack bool, evt string, args ...any) (res []any, err error) {
+	return signal.signal.SendMsg(ctx, ack, evt, args...)
 }
 
 func (signal *WebSocketSignal) On(evt string, cb MsgCb) error {

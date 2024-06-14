@@ -90,7 +90,7 @@ interface ListenEventMap {
     error: (msg: ErrorMessage) => void;
     sdp: (msg: SdpMessage) => void;
     candidate: (msg: CandidateMessage) => void;
-    participant: (msg: ParticipantMessage) => void;
+    "participant-join": (msg: ParticipantMessage) => void;
     custom: (msg: CustomMessage) => void;
     'custom-ack': (msg: CustomAckMessage) => void;
 }
@@ -226,7 +226,7 @@ export class ConferenceClient {
             }
             await this.addCandidate(this.peer, msg);
         });
-        this.socket.on("participant", (msg: ParticipantMessage, ark?: Ack) => {
+        this.socket.on("participant-join", (msg: ParticipantMessage, ark?: Ack) => {
             this.ack(ark);
             if (!this.participants.some((v) => v.userId === msg.userId)) {
                 this.logger().debug(`accept new participant ${msg.userName} (${msg.userId}).`)

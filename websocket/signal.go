@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -8,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/lesismal/nbio/nbhttp/websocket"
 	"github.com/vipcxj/conference.go/errors"
@@ -265,10 +265,12 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 		close(sig.close_ch)
 		sig.close_mux.Lock()
 		defer sig.close_mux.Unlock()
-		sig.closed = true
-		sig.close_err = err
-		if sig.close_cb != nil {
-			sig.close_cb(err)
+		if !sig.closed {
+			sig.closed = true
+			sig.close_err = err
+			if sig.close_cb != nil {
+				sig.close_cb(err)
+			}	
 		}
 	})
 	return sig
@@ -298,30 +300,31 @@ func (signal *WebSocketSignal) SetSugar(sugar *zap.SugaredLogger) {
 	signal.sugar = sugar
 }
 
-func (signal *WebSocketSignal) waitConn() *websocket.Conn {
+func (signal *WebSocketSignal) waitConn(ctx context.Context) (conn *websocket.Conn, err error) {
 	if signal.conn != nil {
-		return signal.conn
+		return signal.conn, nil
 	}
 	select {
+	case <-ctx.Done():
+		return nil, context.Cause(ctx)
 	case <-signal.conn_ch:
-		break
+		return signal.conn, nil
 	case <-signal.close_ch:
-		break
+		return nil, net.ErrClosed
 	}
-	return signal.conn
 }
 
 func (signal *WebSocketSignal) Close() {
-	conn := signal.waitConn()
+	conn, _ := signal.waitConn(context.Background())
 	if conn != nil {
 		conn.CloseAndClean(nil)
 	}
 }
 
-func (signal *WebSocketSignal) SendMsg(timeout time.Duration, ack bool, evt string, args ...any) (res []any, err error) {
-	conn := signal.waitConn()
-	if conn == nil {
-		return nil, net.ErrClosed
+func (signal *WebSocketSignal) SendMsg(ctx context.Context, ack bool, evt string, args ...any) (res []any, err error) {
+	conn, err := signal.waitConn(ctx)
+	if err != nil {
+		return nil, err
 	}
 	if len(args) > 1 {
 		return nil, errors.InvalidMessage("too many parameter")
@@ -358,9 +361,9 @@ func (signal *WebSocketSignal) SendMsg(timeout time.Duration, ack bool, evt stri
 	}
 	if ack {
 		select {
-		case <-time.After(timeout):
+		case <- ctx.Done():
 			release()
-			return nil, errors.MsgTimeout("send %s message timeout", evt)
+			return nil, context.Cause(ctx)
 		case ack_args := <-ch:
 			if ack_args.err != nil {
 				return nil, ack_args.err

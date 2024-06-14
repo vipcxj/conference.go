@@ -13,7 +13,6 @@ import (
 	"github.com/lesismal/nbio/nbhttp"
 	nbws "github.com/lesismal/nbio/nbhttp/websocket"
 	"github.com/mitchellh/mapstructure"
-	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/model"
 	sg "github.com/vipcxj/conference.go/signal"
@@ -29,6 +28,212 @@ type WebSocketSignalConfigure struct {
 type AckKey struct {
 	user string
 	id   uint32
+}
+
+type ParticipantKey struct {
+	uid string
+	sid string
+}
+
+type Participants struct {
+	participants []model.Participant
+	index        map[ParticipantKey]int
+	leaves       map[ParticipantKey]time.Time
+}
+
+func (p *Participants) List() []model.Participant {
+	return p.participants
+}
+
+func (p *Participants) Clean() (empty bool) {
+	now := time.Now()
+	for key, t := range p.leaves {
+		if now.Sub(t) > time.Minute {
+			delete(p.leaves, key)
+		}
+	}
+	return len(p.participants) == 0 && len(p.leaves) == 0
+}
+
+func (p *Participants) Add(participant *model.Participant) {
+	key := ParticipantKey{
+		uid: participant.Id,
+		sid: participant.SourceId,
+	}
+	_, ok := p.leaves[key]
+	if ok {
+		return
+	}
+	pos, ok := p.index[key]
+	if ok {
+		p.participants[pos] = *participant
+	} else {
+		p.participants = append(p.participants, *participant)
+		p.index[key] = len(p.participants) - 1
+	}
+}
+
+func (p *Participants) Remove(participant *model.Participant) {
+	key := ParticipantKey{
+		uid: participant.Id,
+		sid: participant.SourceId,
+	}
+	p.leaves[key] = time.Now()
+	pos, ok := p.index[key]
+	if ok {
+		p.participants, _ = utils.SliceRemoveByIndex(p.participants, false, pos)
+		delete(p.index, key)
+	}
+}
+
+type ParticipantsBox struct {
+	participants  map[string]*Participants
+	next_join_id  int
+	join_chs      map[string]map[int]ParticipantCb
+	next_leave_id int
+	leave_cbs     map[string]map[int]ParticipantCb
+	iter          int
+	mux           sync.Mutex
+}
+
+func mewParticipantsBox() *ParticipantsBox {
+	return &ParticipantsBox{
+		participants: make(map[string]*Participants),
+		join_chs:     make(map[string]map[int]ParticipantCb),
+		leave_cbs:    make(map[string]map[int]ParticipantCb),
+	}
+}
+
+func (box *ParticipantsBox) clean() {
+	box.iter++
+	if box.iter%10 == 0 {
+		for room, participants := range box.participants {
+			if participants.Clean() {
+				delete(box.participants, room)
+			}
+		}
+	}
+}
+
+func (box *ParticipantsBox) ProcessJoinCbs(msg *model.StateParticipantMessage) {
+	room := msg.GetRouter().GetRoom()
+	participant := &model.Participant{
+		Id:       msg.GetUserId(),
+		Name:     msg.GetUserName(),
+		SourceId: msg.GetSocketId(),
+	}
+	box.mux.Lock()
+	defer box.mux.Unlock()
+	participants, ok := box.participants[room]
+	if ok {
+		participants.Add(participant)
+	} else {
+		ps := &Participants{
+			index:  make(map[ParticipantKey]int),
+			leaves: make(map[ParticipantKey]time.Time),
+		}
+		ps.Add(participant)
+		box.participants[room] = ps
+	}
+	join_cbs, ok := box.join_chs[room]
+	if ok {
+		for id, cb := range join_cbs {
+			if !cb(participant) {
+				delete(join_cbs, id)
+			}
+		}
+	}
+}
+
+func (box *ParticipantsBox) ProcessLeaveCbs(msg *model.StateLeaveMessage) {
+	room := msg.GetRouter().GetRoom()
+	participant := &model.Participant{
+		Id:       msg.GetUserId(),
+		SourceId: msg.GetSocketId(),
+	}
+	box.mux.Lock()
+	defer box.mux.Unlock()
+	participants, ok := box.participants[room]
+	if ok {
+		participants.Remove(participant)
+	} else {
+		ps := &Participants{
+			index:  make(map[ParticipantKey]int),
+			leaves: make(map[ParticipantKey]time.Time),
+		}
+		ps.Remove(participant)
+		box.participants[room] = ps
+	}
+	box.clean()
+	leave_cbs, ok := box.leave_cbs[room]
+	if ok {
+		for id, cb := range leave_cbs {
+			if !cb(participant) {
+				delete(leave_cbs, id)
+			}
+		}
+	}
+}
+
+func (ps *ParticipantsBox) AddJoinCallback(room string, cb ParticipantCb) int {
+	ps.mux.Lock()
+	defer ps.mux.Unlock()
+	join_cbs, ok := ps.join_chs[room]
+	id := ps.next_join_id
+	ps.next_join_id ++
+	if ok {
+		join_cbs[id] = cb
+	} else {
+		ps.join_chs[room] = map[int]ParticipantCb{
+			id: cb,
+		}
+	}
+	return id
+}
+
+func (ps *ParticipantsBox) RemoveJoinCallback(room string, id int) {
+	ps.mux.Lock()
+	defer ps.mux.Unlock()
+	join_cbs, ok := ps.join_chs[room]
+	if ok {
+		delete(join_cbs, id)
+	}
+}
+
+func (ps *ParticipantsBox) AddLeaveCallback(room string, cb ParticipantCb) int {
+	ps.mux.Lock()
+	defer ps.mux.Unlock()
+	leave_cbs, ok := ps.leave_cbs[room]
+	id := ps.next_leave_id
+	ps.next_leave_id ++
+	if ok {
+		leave_cbs[id] = cb
+	} else {
+		ps.leave_cbs[room] = map[int]ParticipantCb{
+			id: cb,
+		}
+	}
+	return id
+}
+
+func (ps *ParticipantsBox) RemoveLeaveCallback(room string, id int) {
+	ps.mux.Lock()
+	defer ps.mux.Unlock()
+	leave_cbs, ok := ps.leave_cbs[room]
+	if ok {
+		delete(leave_cbs, id)
+	}
+}
+
+func (box *ParticipantsBox) GetParticipants(room string) []model.Participant {
+	box.mux.Lock()
+	defer box.mux.Unlock()
+	participants, ok := box.participants[room]
+	if ok {
+		return participants.List()
+	} else {
+		return nil
+	}
 }
 
 type WebsocketSignal struct {
@@ -56,6 +261,8 @@ type WebsocketSignal struct {
 	ping_msg_id  atomic.Uint32
 	ping_chs     map[PingKey][]chan *model.PingMessage
 	ping_chs_mux sync.Mutex
+
+	participants *ParticipantsBox
 }
 
 type RoomedWebsocketSignal struct {
@@ -74,8 +281,8 @@ func (s *RoomedWebsocketSignal) GetRoom() string {
 	return s.room
 }
 
-func (s *RoomedWebsocketSignal) SendMessage(timeout time.Duration, ack bool, evt string, content string, to string) error {
-	return s.signal.SendMessage(timeout, ack, evt, content, to, s.GetRoom())
+func (s *RoomedWebsocketSignal) SendMessage(ctx context.Context, ack bool, evt string, content string, to string) error {
+	return s.signal.SendMessage(ctx, ack, evt, content, to, s.GetRoom())
 }
 
 func (s *RoomedWebsocketSignal) OnMessage(evt string, cb RoomedCustomMsgCb) {
@@ -88,8 +295,53 @@ func (s *RoomedWebsocketSignal) OnMessage(evt string, cb RoomedCustomMsgCb) {
 	})
 }
 
-func (s *RoomedWebsocketSignal) KeepAlive(uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error) {
-	return s.signal.KeepAlive(s.GetRoom(), uid, mode, timeout, errCb)
+func (s *RoomedWebsocketSignal) OnParticipantJoin(cb ParticipantCb) int {
+	return s.signal.participants.AddJoinCallback(s.GetRoom(), cb)
+}
+
+func (s *RoomedWebsocketSignal) OffParticipantJoin(id int) {
+	s.signal.participants.RemoveJoinCallback(s.GetRoom(), id)
+}
+
+func (s *RoomedWebsocketSignal) OnParticipantLeave(cb ParticipantCb) int {
+	return s.signal.participants.AddLeaveCallback(s.GetRoom(), cb)
+}
+
+func (s *RoomedWebsocketSignal) OffParticipantLeave(id int) {
+	s.signal.participants.RemoveLeaveCallback(s.GetRoom(), id)
+}
+
+func (s *RoomedWebsocketSignal) GetParticipants() []model.Participant {
+	return s.signal.participants.GetParticipants(s.GetRoom())
+}
+
+func (s *RoomedWebsocketSignal) WaitParticipant(ctx context.Context, uid string) bool {
+	ch := make(chan struct{})
+	cbId := s.OnParticipantJoin(func(participant *model.Participant) (remained bool) {
+		if participant.Id == uid {
+			close(ch)
+			return false
+		}
+		return true
+	})
+	defer s.OffParticipantJoin(cbId)
+	participants := s.GetParticipants()
+	exist := utils.SliceAnyMatch(participants, func(p model.Participant) bool {
+		return p.Id == uid
+	})
+	if exist {
+		return true
+	}
+	select {
+	case <- ctx.Done():
+		return false
+	case <- ch:
+		return true
+	}
+}
+
+func (s *RoomedWebsocketSignal) KeepAlive(ctx context.Context, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error) {
+	return s.signal.KeepAlive(ctx, s.GetRoom(), uid, mode, timeout, errCb)
 }
 
 func NewWebsocketSignal(ctx context.Context, conf *WebSocketSignalConfigure, engine *nbhttp.Engine) *WebsocketSignal {
@@ -100,6 +352,7 @@ func NewWebsocketSignal(ctx context.Context, conf *WebSocketSignalConfigure, eng
 		msg_cbs:        sg.NewMsgCbs(),
 		custom_msg_cbs: make(map[string][]CustomMsgCb),
 		ping_chs:       make(map[PingKey][]chan *model.PingMessage),
+		participants:   mewParticipantsBox(),
 	}
 }
 
@@ -182,7 +435,7 @@ func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error
 				router := msg.GetRouter()
 				if msg.GetAck() {
 					ack = func() {
-						signal.signal.SendMsg(0, false, "custom-ack", &model.CustomAckMessage{
+						signal.signal.SendMsg(signal.ctx, false, "custom-ack", &model.CustomAckMessage{
 							Router: &model.RouterMessage{
 								UserTo: router.GetUserFrom(),
 							},
@@ -207,6 +460,28 @@ func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error
 			close(ch)
 		}
 	})
+	signal.onMsg("participant-join", func(ack AckFunc, arg any) (remained bool) {
+		remained = true
+		msg := model.StateParticipantMessage{}
+		err := mapstructure.Decode(arg, &msg)
+		if err != nil {
+			log.Sugar().Errorf("unable to decode participant join msg, %v", err)
+			return
+		}
+		signal.participants.ProcessJoinCbs(&msg)
+		return
+	})
+	signal.onMsg("participant-leave", func(ack AckFunc, arg any) (remained bool) {
+		remained = true
+		msg := model.StateLeaveMessage{}
+		err := mapstructure.Decode(arg, &msg)
+		if err != nil {
+			log.Sugar().Errorf("unable to decode participant leave msg, %v", err)
+			return
+		}
+		signal.participants.ProcessLeaveCbs(&msg)
+		return
+	})
 	signal.onMsg("ping", func(ack AckFunc, arg any) (remained bool) {
 		remained = true
 		msg := &model.PingMessage{}
@@ -218,7 +493,7 @@ func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error
 		go func() {
 			signal.publishPingMsgs(msg)
 			router := msg.GetRouter()
-			_, err := signal.sendMsg(6*time.Second, false, "pong", &model.PongMessage{
+			_, err := signal.sendMsg(signal.ctx, false, "pong", &model.PongMessage{
 				Router: &model.RouterMessage{
 					Room:   router.GetRoom(),
 					UserTo: router.GetUserFrom(),
@@ -254,9 +529,9 @@ func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error
 	return signal.signal, nil
 }
 
-func (signal *WebsocketSignal) userInfo(timeout time.Duration) (*model.UserInfo, error) {
+func (signal *WebsocketSignal) userInfo(ctx context.Context) (*model.UserInfo, error) {
 	if signal.user_info == nil {
-		res, err := signal.sendMsg(timeout, true, "user-info", nil)
+		res, err := signal.sendMsg(ctx, true, "user-info", nil)
 		if err != nil {
 			return nil, fmt.Errorf("unable to send user-info msg, %w", err)
 		}
@@ -270,26 +545,26 @@ func (signal *WebsocketSignal) userInfo(timeout time.Duration) (*model.UserInfo,
 	return signal.user_info, nil
 }
 
-func (signal *WebsocketSignal) UserInfo(timeout time.Duration) (*model.UserInfo, error) {
+func (signal *WebsocketSignal) UserInfo(ctx context.Context) (*model.UserInfo, error) {
 	signal.user_info_mux.Lock()
 	defer signal.user_info_mux.Unlock()
-	return signal.userInfo(timeout)
+	return signal.userInfo(ctx)
 }
 
-func (signal *WebsocketSignal) IsInRoom(timeout time.Duration, room string) (bool, error) {
-	userInfo, err := signal.UserInfo(timeout)
+func (signal *WebsocketSignal) IsInRoom(ctx context.Context, room string) (bool, error) {
+	userInfo, err := signal.UserInfo(ctx)
 	if err != nil {
 		return false, err
 	}
 	return slices.Contains(userInfo.Rooms, room), nil
 }
 
-func (signal *WebsocketSignal) sendMsg(timeout time.Duration, ack bool, evt string, arg any) (res any, err error) {
+func (signal *WebsocketSignal) sendMsg(ctx context.Context, ack bool, evt string, arg any) (res any, err error) {
 	s, err := signal.accessSignal()
 	if err != nil {
 		return nil, err
 	}
-	res_arr, err := s.SendMsg(timeout, ack, evt, arg)
+	res_arr, err := s.SendMsg(ctx, ack, evt, arg)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +575,7 @@ func (signal *WebsocketSignal) sendMsg(timeout time.Duration, ack bool, evt stri
 	}
 }
 
-func (signal *WebsocketSignal) SendMessage(timeout time.Duration, ack bool, evt string, content string, to string, room string) error {
+func (signal *WebsocketSignal) SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) error {
 	s, err := signal.accessSignal()
 	if err != nil {
 		return err
@@ -310,7 +585,7 @@ func (signal *WebsocketSignal) SendMessage(timeout time.Duration, ack bool, evt 
 	if ack {
 		ch = signal.PushCustomAckMsgCh(to, custom_msg_id)
 	}
-	s.SendMsg(0, false, fmt.Sprintf("custom:%s", evt), &model.CustomMessage{
+	s.SendMsg(ctx, false, fmt.Sprintf("custom:%s", evt), &model.CustomMessage{
 		Router: &model.RouterMessage{
 			Room:   room,
 			UserTo: to,
@@ -320,22 +595,13 @@ func (signal *WebsocketSignal) SendMessage(timeout time.Duration, ack bool, evt 
 		Content: content,
 	})
 	if ch != nil {
-		if timeout > 0 {
-			select {
-			case <-time.After(timeout):
-				return errors.MsgTimeout("send custom msg with evt %s timeout", evt)
-			case <-signal.ctx.Done():
-				return signal.ctx.Err()
-			case <-ch:
-				return nil
-			}
-		} else {
-			select {
-			case <-signal.ctx.Done():
-				return signal.ctx.Err()
-			case <-ch:
-				return nil
-			}
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-signal.ctx.Done():
+			return context.Cause(signal.ctx)
+		case <-ch:
+			return nil
 		}
 	} else {
 		return nil
@@ -372,8 +638,8 @@ func (signal *WebsocketSignal) OnMessage(evt string, cb CustomMsgCb) {
 	}
 }
 
-func (signal *WebsocketSignal) Join(timeout time.Duration, rooms ...string) error {
-	_, err := signal.sendMsg(timeout, true, "join", &model.JoinMessage{
+func (signal *WebsocketSignal) Join(ctx context.Context, rooms ...string) error {
+	_, err := signal.sendMsg(ctx, true, "join", &model.JoinMessage{
 		Rooms: rooms,
 	})
 	if err != nil {
@@ -381,7 +647,7 @@ func (signal *WebsocketSignal) Join(timeout time.Duration, rooms ...string) erro
 	}
 	signal.user_info_mux.Lock()
 	defer signal.user_info_mux.Unlock()
-	uInfo, err := signal.userInfo(timeout)
+	uInfo, err := signal.userInfo(ctx)
 	if err != nil {
 		return err
 	}
@@ -389,8 +655,8 @@ func (signal *WebsocketSignal) Join(timeout time.Duration, rooms ...string) erro
 	return nil
 }
 
-func (signal *WebsocketSignal) Leave(timeout time.Duration, rooms ...string) error {
-	_, err := signal.sendMsg(timeout, true, "leave", &model.JoinMessage{
+func (signal *WebsocketSignal) Leave(ctx context.Context, rooms ...string) error {
+	_, err := signal.sendMsg(ctx, true, "leave", &model.JoinMessage{
 		Rooms: rooms,
 	})
 	if err != nil {
@@ -398,7 +664,7 @@ func (signal *WebsocketSignal) Leave(timeout time.Duration, rooms ...string) err
 	}
 	signal.user_info_mux.Lock()
 	defer signal.user_info_mux.Unlock()
-	uInfo, err := signal.userInfo(timeout)
+	uInfo, err := signal.userInfo(ctx)
 	if err != nil {
 		return err
 	}
@@ -457,12 +723,12 @@ func (c *WebsocketSignal) unsubscribePingMsg(room string, uid string, ch chan *m
 	}
 }
 
-func (c *WebsocketSignal) KeepAlive(room string, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error) {
+func (c *WebsocketSignal) KeepAlive(ctx context.Context, room string, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error) {
 	err = c.MakesureConnect()
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithCancel(c.ctx)
+	ctx, cancel := context.WithCancel(ctx)
 	go func() {
 		kaCtx := &KeepAliveContext{}
 		switch mode {
@@ -486,7 +752,7 @@ func (c *WebsocketSignal) KeepAlive(room string, uid string, mode KeepAliveMode,
 						return true
 					}
 				})
-				_, err := c.sendMsg(timeout, false, "ping", &model.PingMessage{
+				_, err := c.sendMsg(ctx, false, "ping", &model.PingMessage{
 					Router: &model.RouterMessage{
 						Room:   room,
 						UserTo: uid,
@@ -509,6 +775,8 @@ func (c *WebsocketSignal) KeepAlive(room string, uid string, mode KeepAliveMode,
 						leftTimeout = timeout - since
 					}
 					select {
+					case <-c.ctx.Done():
+						return
 					case <-ctx.Done():
 						return
 					case <-time.After(leftTimeout):
@@ -530,6 +798,7 @@ func (c *WebsocketSignal) KeepAlive(room string, uid string, mode KeepAliveMode,
 					}
 				}
 				select {
+				case <-c.ctx.Done():
 				case <-ctx.Done():
 					return
 				case <-time.After(timeout):
@@ -540,6 +809,9 @@ func (c *WebsocketSignal) KeepAlive(room string, uid string, mode KeepAliveMode,
 			for {
 				now := time.Now()
 				select {
+				case <-c.ctx.Done():
+					c.unsubscribePingMsg(room, uid, ch)
+					return
 				case <-ctx.Done():
 					c.unsubscribePingMsg(room, uid, ch)
 					return
@@ -562,13 +834,13 @@ func (c *WebsocketSignal) KeepAlive(room string, uid string, mode KeepAliveMode,
 	return cancel, nil
 }
 
-func (c *WebsocketSignal) Roomed(timeout time.Duration, room string) (RoomedSignal, error) {
-	inRoom, err := c.IsInRoom(timeout, room)
+func (s *WebsocketSignal) Roomed(ctx context.Context, room string) (RoomedSignal, error) {
+	inRoom, err := s.IsInRoom(ctx, room)
 	if err != nil {
 		return nil, err
 	}
 	if !inRoom {
 		return nil, fmt.Errorf("not in room %s", room)
 	}
-	return newRoomedWebsocketSignal(room, c), nil
+	return newRoomedWebsocketSignal(room, s), nil
 }

@@ -107,29 +107,30 @@ func createClient(ctx context.Context, uid string, room string, autoJoin bool) (
 }
 
 func TestKeepAlive(t *testing.T) {
-	c1, cancel1, err := createClient(context.Background(), "1", "room", true)
+	ctx := context.Background()
+	c1, cancel1, err := createClient(ctx, "1", "room", true)
 	if err != nil {
 		t.Errorf("unable to create client 1, %v", err)
 		return
 	}
 	defer cancel1(nil)
-	rc1, err := c1.Roomed("room")
+	rc1, err := c1.Roomed(ctx, "room")
 	if err != nil {
 		t.Errorf("unable to create roomed client 1, %v", err)
 		return
 	}
-	c2, cancel2, err := createClient(context.Background(), "2", "room", true)
+	c2, cancel2, err := createClient(ctx, "2", "room", true)
 	if err != nil {
 		t.Errorf("unable to create client 2, %v", err)
 		return
 	}
 	defer cancel2(nil)
-	rc2, err := c2.Roomed("room")
+	rc2, err := c2.Roomed(ctx, "room")
 	if err != nil {
 		t.Errorf("unable to create roomed client 2, %v", err)
 		return
 	}
-	stop1, err := rc1.KeepAlive("2", client.KEEP_ALIVE_MODE_ACTIVE, time.Second, func(kaCtx *client.KeepAliveContext) (stop bool) {
+	stop1, err := rc1.KeepAlive(ctx, "2", client.KEEP_ALIVE_MODE_ACTIVE, time.Second, func(kaCtx *client.KeepAliveContext) (stop bool) {
 		if kaCtx.Err != nil {
 			t.Errorf("client 1 failed to keep alive with client 2, %v", kaCtx.Err)
 			return true
@@ -145,7 +146,7 @@ func TestKeepAlive(t *testing.T) {
 		return
 	}
 	defer stop1()
-	stop2, err := rc2.KeepAlive("1", client.KEEP_ALIVE_MODE_PASSIVE, time.Second*2, func(kaCtx *client.KeepAliveContext) (stop bool) {
+	stop2, err := rc2.KeepAlive(ctx, "1", client.KEEP_ALIVE_MODE_PASSIVE, time.Second*2, func(kaCtx *client.KeepAliveContext) (stop bool) {
 		if kaCtx.Err != nil {
 			t.Errorf("client 2 failed to keep alive with client 1, %v", kaCtx.Err)
 			return true

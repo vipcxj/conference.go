@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -830,12 +831,23 @@ func (ctx *SignalContext) CurrentSdpMsgId() int {
 }
 
 func (sctx *SignalContext) clusterEmit(message model.RoomMessage) {
-	for _, room := range sctx.Rooms() {
+	router := message.GetRouter()
+	if router != nil && router.GetRoom() != "" {
+		room := router.GetRoom()
 		msg_copy := message.CopyPlain()
 		msg_copy.FixRouter(room, sctx.AuthInfo.UID, sctx.Messager().NodeName())
 		err := sctx.Messager().Emit(sctx.ctx, msg_copy)
 		if err != nil {
 			sctx.Sugar().Error("cluster msg emit failed, %v", err)
+		}
+	} else {
+		for _, room := range sctx.Rooms() {
+			msg_copy := message.CopyPlain()
+			msg_copy.FixRouter(room, sctx.AuthInfo.UID, sctx.Messager().NodeName())
+			err := sctx.Messager().Emit(sctx.ctx, msg_copy)
+			if err != nil {
+				sctx.Sugar().Error("cluster msg emit failed, %v", err)
+			}
 		}
 	}
 }
@@ -845,22 +857,28 @@ func (sctx *SignalContext) ClusterEmit(message model.RoomMessage) error {
 	return nil
 }
 
-func (ctx *SignalContext) _emit(ack bool, ev string, args ...any) (res []any, err error) {
-	timeout := time.Duration(ctx.Conf().Signal.MsgTimeoutMs) * time.Millisecond
+func (sctx *SignalContext) _emit(ack bool, ev string, args ...any) (res []any, err error) {
+	timeout := time.Duration(sctx.Conf().Signal.MsgTimeoutMs) * time.Millisecond
+	var ctx context.Context
+	if timeout > 0 {
+		ctx, _ = context.WithTimeoutCause(sctx.ctx, timeout, context.DeadlineExceeded)
+	} else {
+		ctx = sctx.ctx
+	}
 	if ack {
-		retries := ctx.Conf().Signal.MsgTimeoutRetries
+		retries := sctx.Conf().Signal.MsgTimeoutRetries
 		if retries < 0 {
 			retries = 0
 		}
 		for i := 0; i <= retries; i++ {
-			res, err = ctx.Signal.SendMsg(timeout, ack, ev, args...)
+			res, err = sctx.Signal.SendMsg(ctx, ack, ev, args...)
 			if err == nil {
 				return
 			}
 		}
 		return
 	} else {
-		return ctx.Signal.SendMsg(timeout, false, ev, args...)
+		return sctx.Signal.SendMsg(ctx, false, ev, args...)
 	}
 }
 
@@ -924,6 +942,8 @@ func (ctx *SignalContext) SelfClose(disableCloseCallback bool) {
 	}
 	ctx.closed = true
 	defer ctx.closed_mux.Unlock()
+	// At first, should leave rooms
+	ctx.LeaveRoom(ctx.Rooms()...)
 	ctx.cancel(nil)
 	if disableCloseCallback {
 		ctx.disableCloseCallback()
@@ -933,6 +953,7 @@ func (ctx *SignalContext) SelfClose(disableCloseCallback bool) {
 	ctx.Messager().OffSelect(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffWantParticipant(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffStateParticipant(ctx.Id, ctx.RoomPaterns()...)
+	ctx.Messager().OffStateLeave(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffPing(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffPong(ctx.Id, ctx.RoomPaterns()...)
 	ctx.Messager().OffCustom(ctx.Id, ctx.RoomPaterns()...)
@@ -958,7 +979,38 @@ func (ctx *SignalContext) SelfClose(disableCloseCallback bool) {
 	ctx.Sugar().Debugf("the signal context closed")
 }
 
+func (ctx *SignalContext) matchRoom(msg model.RoomMessage) bool {
+	router := msg.GetRouter()
+	if router == nil {
+		return false
+	}
+	room := router.GetRoom()
+	if room == "" {
+		return false
+	}
+	ctx.rooms_mux.RLock()
+	defer ctx.rooms_mux.RUnlock()
+	_, found := slices.BinarySearch(ctx.rooms, room)
+	return found
+}
+
+func (ctx *SignalContext) matchUserTo(msg model.RoomMessage, strict bool) bool {
+	router := msg.GetRouter()
+	if router == nil {
+		return false
+	}
+	userTo := router.GetUserTo()
+	if strict {
+		return userTo == ctx.AuthInfo.UID
+	} else {
+		return userTo == "" || userTo == ctx.AuthInfo.UID
+	}
+}
+
 func (ctx *SignalContext) AcceptTrack(msg *model.StateMessage) {
+	if !ctx.matchRoom(msg) {
+		return
+	}
 	ctx.subscriptions.ForEach(func(k string, sub *Subscription) bool {
 		sub.AcceptTrack(msg)
 		return true
@@ -1142,6 +1194,9 @@ func (ctx *SignalContext) Publish(message *model.PublishMessage) (pubId string, 
 }
 
 func (ctx *SignalContext) StateWant(message *model.WantMessage) {
+	if !ctx.matchRoom(message) {
+		return
+	}
 	r := ctx.Global.Router()
 	ctx.publications.ForEach(func(pubId string, pub *Publication) bool {
 		satified := pub.State(message)
@@ -1157,6 +1212,9 @@ func (ctx *SignalContext) StateWant(message *model.WantMessage) {
 }
 
 func (ctx *SignalContext) SatifySelect(message *model.SelectMessage) {
+	if !ctx.matchRoom(message) {
+		return
+	}
 	pub, found := ctx.publications.Get(message.PubId)
 	if found {
 		pub.SatifySelect(message)
@@ -1164,16 +1222,28 @@ func (ctx *SignalContext) SatifySelect(message *model.SelectMessage) {
 }
 
 func (ctx *SignalContext) StateParticipants(message *model.WantParticipantMessage) {
+	if !ctx.matchRoom(message) {
+		return
+	}
 	ctx.clusterEmit(&model.StateParticipantMessage{
 		UserId:   ctx.AuthInfo.UID,
 		UserName: ctx.AuthInfo.UName,
+		SocketId: ctx.Id,
 	})
 }
 
 func (ctx *SignalContext) AcceptParticipants(message *model.StateParticipantMessage) {
-	ctx.Sugar().Debugf("sending participant message")
-	ctx.emit("participant", proto.ToClientMessage(message))
-	ctx.Sugar().Debugf("participant message send.")
+	if !ctx.matchRoom(message) {
+		return
+	}
+	ctx.emit("participant-join", proto.ToClientMessage(message))
+}
+
+func (ctx *SignalContext) StateParticipantLeave(message *model.StateLeaveMessage) {
+	if !ctx.matchRoom(message) {
+		return
+	}
+	ctx.emit("participant-leave", proto.ToClientMessage(message))
 }
 
 func (ctx *SignalContext) Bind() {
@@ -1187,48 +1257,28 @@ func (ctx *SignalContext) Bind() {
 }
 
 func (ctx *SignalContext) OnPingMessage(message *model.PingMessage) {
-	if message == nil || message.GetRouter() == nil {
-		return
-	}
-	if message.GetRouter().UserTo == "" {
-		ctx.Sugar().Warnf("accept a ping message without userTo attribute")
-		return
-	}
-	if message.GetRouter().UserTo != ctx.AuthInfo.UID {
+	if !ctx.matchRoom(message) || !ctx.matchUserTo(message, true) {
 		return
 	}
 	ctx.emit("ping", proto.ToClientMessage(message))
 }
 
 func (ctx *SignalContext) OnPongMessage(message *model.PongMessage) {
-	if message == nil || message.GetRouter() == nil {
-		return
-	}
-	if message.GetRouter().UserTo == "" {
-		ctx.Sugar().Warnf("accept a pong message without userTo attribute")
-		return
-	}
-	if message.GetRouter().UserTo != ctx.AuthInfo.UID {
+	if !ctx.matchRoom(message) || !ctx.matchUserTo(message, true) {
 		return
 	}
 	ctx.emit("pong", proto.ToClientMessage(message))
 }
 
 func (ctx *SignalContext) OnCustomMessage(message *model.CustomClusterMessage) {
-	if message == nil || message.GetRouter() == nil {
-		return
-	}
-	if message.GetRouter().UserTo != "" && message.GetRouter().UserTo != ctx.AuthInfo.UID {
+	if !ctx.matchRoom(message) || !ctx.matchUserTo(message, false) {
 		return
 	}
 	ctx.emit(fmt.Sprintf("custom:%s", message.Evt), proto.ToClientMessage(message.Msg))
 }
 
 func (ctx *SignalContext) OnCustomAckMessage(message *model.CustomAckMessage) {
-	if message == nil || message.Router == nil {
-		return
-	}
-	if message.Router.UserTo != "" && message.Router.UserTo != ctx.AuthInfo.UID {
+	if !ctx.matchRoom(message) || !ctx.matchUserTo(message, true) {
 		return
 	}
 	ctx.emit("custom-ack", proto.ToClientMessage(message))
@@ -1545,12 +1595,28 @@ func (ctx *SignalContext) JoinRoom(rooms ...string) error {
 	// ctx.Socket.Join(s_rooms...)
 	ctx.rooms_mux.Lock()
 	defer ctx.rooms_mux.Unlock()
-	ctx.rooms = utils.SliceAppendNoRepeat(ctx.rooms, s_rooms...)
+	ctx.rooms = utils.SortedSliceAppendNoRepeat(ctx.rooms, s_rooms...)
 	return nil
 }
 
 func (ctx *SignalContext) LeaveRoom(rooms ...string) {
-	ctx.rooms_mux.Lock()
-	defer ctx.rooms_mux.Unlock()
-	ctx.rooms = utils.SliceRemoveByValues(ctx.rooms, false, rooms...)
+	leaved := func() []string {
+		ctx.rooms_mux.Lock()
+		defer ctx.rooms_mux.Unlock()
+		var removed []string
+		ctx.rooms, removed = utils.SliceRemoveByValuesAndReturnRemoved(ctx.rooms, false, rooms...)
+		if len(ctx.rooms) > 0 {
+			slices.Sort(ctx.rooms)
+		}
+		return removed
+	}()
+	for _, room := range leaved {
+		ctx.ClusterEmit(&model.StateLeaveMessage{
+			Router: &model.RouterMessage{
+				Room: room,
+			},
+			UserId:   ctx.AuthInfo.UID,
+			SocketId: ctx.Id,
+		})
+	}
 }

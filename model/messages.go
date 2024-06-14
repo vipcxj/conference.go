@@ -71,6 +71,8 @@ type WantParticipantMessage = proto.WantParticipantMessage
 
 type StateParticipantMessage = proto.StateParticipantMessage
 
+type StateLeaveMessage = proto.StateLeaveMessage
+
 type PingMessage = proto.PingMessage
 
 type PongMessage = proto.PongMessage

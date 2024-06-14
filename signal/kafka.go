@@ -65,7 +65,7 @@ type KafkaClient struct {
 }
 
 func parseKafkaAddrs(addrs string) []string {
-	return utils.MapSlice(strings.Split(addrs, ","), func(addr string) (mapped string, remove bool) {
+	return utils.SliceMapNew(strings.Split(addrs, ","), func(addr string) (mapped string, remove bool) {
 		addr = strings.TrimSpace(addr)
 		if addr == "" {
 			return addr, true

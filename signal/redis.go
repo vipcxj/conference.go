@@ -56,7 +56,7 @@ type redisAuth struct {
 
 func parseRedisAuth(config config.RedisConfigure) ([]redisAuth, error) {
 	users := strings.Split(config.Users, " ")
-	users = utils.MapSlice(users, func(user string) (string, bool) {
+	users = utils.SliceMapNew(users, func(user string) (string, bool) {
 		user = strings.TrimSpace(user)
 		if user == "" {
 			return user, true
@@ -65,7 +65,7 @@ func parseRedisAuth(config config.RedisConfigure) ([]redisAuth, error) {
 		}
 	})
 	passes := strings.Split(config.Passes, " ")
-	passes = utils.MapSlice(passes, func(pass string) (string, bool) {
+	passes = utils.SliceMapNew(passes, func(pass string) (string, bool) {
 		pass = strings.TrimSpace(pass)
 		if pass == "" {
 			return pass, true
@@ -76,27 +76,27 @@ func parseRedisAuth(config config.RedisConfigure) ([]redisAuth, error) {
 	if len(users) == 0 && len(passes) == 0 {
 		return nil, nil
 	} else if len(users) == 0 {
-		return utils.MapSlice(users, func(user string) (redisAuth, bool) {
+		return utils.SliceMapNew(users, func(user string) (redisAuth, bool) {
 			return redisAuth{
 				User: user,
 			}, false
 		}), nil
 	} else if len(passes) == 0 {
-		return utils.MapSlice(passes, func(pass string) (redisAuth, bool) {
+		return utils.SliceMapNew(passes, func(pass string) (redisAuth, bool) {
 			return redisAuth{
 				Pass: pass,
 			}, false
 		}), nil
 	}
 	if len(users) == 1 {
-		return utils.MapSlice(passes, func(pass string) (mapped redisAuth, remove bool) {
+		return utils.SliceMapNew(passes, func(pass string) (mapped redisAuth, remove bool) {
 			return redisAuth{
 				User: users[0],
 				Pass: pass,
 			}, false
 		}), nil
 	} else if len(passes) == 1 {
-		return utils.MapSlice(users, func(user string) (mapped redisAuth, remove bool) {
+		return utils.SliceMapNew(users, func(user string) (mapped redisAuth, remove bool) {
 			return redisAuth{
 				User: user,
 				Pass: passes[0],

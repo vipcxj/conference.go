@@ -1,6 +1,7 @@
 package signal
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -215,10 +216,16 @@ type resWithError struct {
 	err error
 }
 
-func (signal *SocketIOSignal) SendMsg(timeout time.Duration, ack bool, evt string, args ...any) (res []any, err error) {
+func (signal *SocketIOSignal) SendMsg(ctx context.Context, ack bool, evt string, args ...any) (res []any, err error) {
 	var socket *socket.Socket = nil
-	if timeout > 0 {
-		socket = signal.socket.Timeout(timeout)
+	deadline, hasDeadline := ctx.Deadline()
+	if hasDeadline {
+		timeout := deadline.Sub(time.Now())
+		if timeout > 0 {
+			socket = signal.socket.Timeout(timeout)
+		} else {
+			socket = signal.socket
+		}
 	} else {
 		socket = signal.socket
 	}
@@ -234,15 +241,10 @@ func (signal *SocketIOSignal) SendMsg(timeout time.Duration, ack bool, evt strin
 		if err != nil {
 			return nil, err
 		}
-		if timeout > 0 {
-			select {
-			case <-time.After(timeout):
-				return nil, errors.MsgTimeout("send %s message timeout.", evt)
-			case res := <-ch:
-				return res.res, res.err
-			}
-		} else {
-			res := <-ch
+		select {
+		case <- ctx.Done():
+			return nil, errors.MsgTimeout("send %s message timeout.", evt)
+		case res := <-ch:
 			return res.res, res.err
 		}
 	} else {

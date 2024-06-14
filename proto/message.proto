@@ -147,6 +147,17 @@ message StateParticipantMessage {
 	string userId = 2;
 	// @gotags: mapstructure:"userName"
 	string userName = 3;
+	// @gotags: mapstructure:"socketId"
+	string socketId = 4;
+}
+
+message StateLeaveMessage {
+	// @gotags: mapstructure:"router"
+	Router router = 1;
+	// @gotags: mapstructure:"userId"
+	string userId = 2;
+	// @gotags: mapstructure:"socketId"
+	string socketId = 3;
 }
 
 message PingMessage {

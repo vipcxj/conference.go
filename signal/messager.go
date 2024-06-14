@@ -21,6 +21,7 @@ type OnWantFunc = func(*model.WantMessage)
 type OnSelectFunc = func(*model.SelectMessage)
 type OnWantParticipantFunc = func(*model.WantParticipantMessage)
 type OnStateParticipantFunc = func(*model.StateParticipantMessage)
+type OnStateLeaveFunc = func(*model.StateLeaveMessage)
 type OnPingFunc = func (*model.PingMessage)
 type OnPongFunc = func (*model.PongMessage)
 type OnCustomFunc = func(*model.CustomClusterMessage)
@@ -41,6 +42,8 @@ type OnWantParticipantFuncBox = messagerCallbackBox[*model.WantParticipantMessag
 type OnWantParticipantFuncBoxes = map[string]*OnWantParticipantFuncBox
 type OnStateParticipantFuncBox = messagerCallbackBox[*model.StateParticipantMessage]
 type OnStateParticipantFuncBoxes = map[string]*OnStateParticipantFuncBox
+type OnStateLeaveFuncBox = messagerCallbackBox[*model.StateLeaveMessage]
+type OnStateLeaveFuncBoxes = map[string]*OnStateLeaveFuncBox
 type OnPingFuncBox = messagerCallbackBox[*model.PingMessage]
 type OnPingFuncBoxes = map[string]*OnPingFuncBox
 type OnPongFuncBox = messagerCallbackBox[*model.PongMessage]
@@ -64,6 +67,8 @@ type Messager struct {
 	onWantParticipantCallbacks  *PatternMap[OnWantParticipantFuncBoxes]
 	onStateParticipantMutex     sync.RWMutex
 	onStateParticipantCallbacks *PatternMap[OnStateParticipantFuncBoxes]
+	onStateLeaveMutex           sync.RWMutex
+	onStateLeaveCallbacks       *PatternMap[OnStateLeaveFuncBoxes]
 	onPingMutex                 sync.RWMutex
 	onPingCallbacks             *PatternMap[OnPingFuncBoxes]
 	onPongMutex                 sync.RWMutex
@@ -86,6 +91,7 @@ const (
 	TOPIC_SELECT            = "cluster_select"
 	TOPIC_WANT_PARTICIPANT  = "cluster_want_participant"
 	TOPIC_STATE_PARTICIPANT = "cluster_state_participant"
+	TOPIC_STATE_LEAVE       = "cluster_state_leave"
 	TOPIC_PING              = "cluster_ping"
 	TOPIC_PONG              = "cluster_pong"
 	TOPIC_CUSTOM            = "cluster_custom"
@@ -103,6 +109,7 @@ func NewMessager(global *Global) (*Messager, error) {
 		onSelectCallbacks:           NewPatternMap[OnSelectFuncBoxes](),
 		onWantParticipantCallbacks:  NewPatternMap[OnWantParticipantFuncBoxes](),
 		onStateParticipantCallbacks: NewPatternMap[OnStateParticipantFuncBoxes](),
+		onStateLeaveCallbacks:       NewPatternMap[OnStateLeaveFuncBoxes](),
 		onPingCallbacks:             NewPatternMap[OnPingFuncBoxes](),
 		onPongCallbacks:             NewPatternMap[OnPongFuncBoxes](),
 		onCustomCallbacks:           NewPatternMap[OnCustomFuncBoxes](),
@@ -117,6 +124,7 @@ func NewMessager(global *Global) (*Messager, error) {
 		topicSelect := MakeKafkaTopic(kafkaConfig, TOPIC_SELECT)
 		topicWantParticipant := MakeKafkaTopic(kafkaConfig, TOPIC_WANT_PARTICIPANT)
 		topicStateParticipant := MakeKafkaTopic(kafkaConfig, TOPIC_STATE_PARTICIPANT)
+		topicStateLeave := MakeKafkaTopic(kafkaConfig, TOPIC_STATE_LEAVE)
 		topicPing := MakeKafkaTopic(kafkaConfig, TOPIC_PING)
 		topicPong := MakeKafkaTopic(kafkaConfig, TOPIC_PONG)
 		topicCustom := MakeKafkaTopic(kafkaConfig, TOPIC_CUSTOM)
@@ -127,6 +135,7 @@ func NewMessager(global *Global) (*Messager, error) {
 			topicSelect:           messager.onTopicSelect,
 			topicWantParticipant:  messager.onTopicWantParticipant,
 			topicStateParticipant: messager.onTopicStateParticipant,
+			topicStateLeave:       messager.onTopicStateLeave,
 			topicPing:             messager.onTopicPing,
 			topicPong:             messager.onTopicPong,
 			topicCustom:           messager.onTopicCustom,
@@ -217,7 +226,7 @@ func (m *Messager) onTopicWantParticipant(record *kgo.Record) {
 	var msg model.WantParticipantMessage
 	err := gproto.Unmarshal(record.Value, &msg)
 	if err != nil {
-		m.Sugar().Errorf("unable to unmarshal the select record: %v", record)
+		m.Sugar().Errorf("unable to unmarshal the want participant record: %v", record)
 		return
 	}
 	if msg.Router == nil {
@@ -232,7 +241,7 @@ func (m *Messager) onTopicStateParticipant(record *kgo.Record) {
 	var msg model.StateParticipantMessage
 	err := gproto.Unmarshal(record.Value, &msg)
 	if err != nil {
-		m.Sugar().Errorf("unable to unmarshal the select record: %v", record)
+		m.Sugar().Errorf("unable to unmarshal the state participant record: %v", record)
 		return
 	}
 	if msg.Router == nil {
@@ -240,6 +249,21 @@ func (m *Messager) onTopicStateParticipant(record *kgo.Record) {
 	}
 	if msg.Router.NodeFrom != m.nodeName {
 		m.consumeStateParticipant(&msg)
+	}
+}
+
+func (m *Messager) onTopicStateLeave(record *kgo.Record) {
+	var msg model.StateLeaveMessage
+	err := gproto.Unmarshal(record.Value, &msg)
+	if err != nil {
+		m.Sugar().Errorf("unable to unmarshal the state levae record: %v", record)
+		return
+	}
+	if msg.Router == nil {
+		m.Sugar().Errorf("accept a message without router")
+	}
+	if msg.Router.NodeFrom != m.nodeName {
+		m.consumeStateLeave(&msg)
 	}
 }
 
@@ -476,6 +500,29 @@ func (m *Messager) consumeStateParticipant(msg *model.StateParticipantMessage) {
 	}
 }
 
+func (m *Messager) OnStateLeave(funId string, fun OnStateLeaveFunc, roomPattern ...string) {
+	m.onStateLeaveMutex.Lock()
+	defer m.onStateLeaveMutex.Unlock()
+	onMessage(m.onStateLeaveCallbacks, funId, fun, roomPattern...)
+}
+
+func (m *Messager) OffStateLeave(funId string, roomPattern ...string) {
+	m.onStateLeaveMutex.Lock()
+	defer m.onStateLeaveMutex.Unlock()
+	offMessage(m.onStateLeaveCallbacks, funId, roomPattern...)
+}
+
+func (m *Messager) consumeStateLeave(msg *model.StateLeaveMessage) {
+	funs := func() []OnStateLeaveFunc {
+		m.onStateLeaveMutex.RLock()
+		defer m.onStateLeaveMutex.RUnlock()
+		return consumeMessage(m.onStateLeaveCallbacks, msg, m.sugar, m.nodeName)
+	}()
+	for _, fun := range funs {
+		go fun(msg)
+	}
+}
+
 func (m *Messager) OnPing(funId string, fun OnPingFunc, roomPattern ...string) {
 	m.onPingMutex.Lock()
 	defer m.onPingMutex.Unlock()
@@ -681,6 +728,10 @@ func (m *Messager) Emit(ctx context.Context, msg model.RoomMessage) error {
 		topic = m.kafka.MakeTopic(TOPIC_STATE_PARTICIPANT)
 		m.logEmitMsg(msg, "state-participant")
 		m.consumeStateParticipant(typedMsg)
+	case *model.StateLeaveMessage:
+		topic = m.kafka.MakeTopic(TOPIC_STATE_LEAVE)
+		m.logEmitMsg(msg, "state-leave")
+		m.consumeStateLeave(typedMsg)
 	case *model.PingMessage:
 		topic = m.kafka.MakeTopic(TOPIC_PING)
 		m.logEmitMsg(msg, "ping")
