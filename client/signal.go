@@ -28,7 +28,7 @@ const (
 )
 
 type Signal interface {
-	MakesureConnect() error
+	MakesureConnect(ctx context.Context) error
 	sendMsg(ctx context.Context, ack bool, evt string, arg any) (res any, err error)
 	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) error
 	onMsg(evt string, cb MsgCb) error
@@ -36,6 +36,7 @@ type Signal interface {
 	Join(ctx context.Context, rooms ...string) error
 	Leave(ctx context.Context, rooms ...string) error
 	UserInfo(ctx context.Context) (*model.UserInfo, error)
+	GetRooms(ctx context.Context) ([]string, error)
 	IsInRoom(ctx context.Context, room string) (bool, error)
 	KeepAlive(ctx context.Context, room string, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error)
 	Roomed(ctx context.Context, room string) (RoomedSignal, error)

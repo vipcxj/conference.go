@@ -11,12 +11,14 @@ import (
 )
 
 type Client interface {
+	MakeSureConnect(ctx context.Context) error
 	OnMessage(evt string, cb CustomMsgCb)
 	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) error
 	Join(ctx context.Context, rooms ...string) error
 	Leave(ctx context.Context, rooms ...string) error
 	UserInfo(ctx context.Context) (*model.UserInfo, error)
 	IsInRoom(ctx context.Context, room string) (bool, error)
+	GetRooms(ctx context.Context) ([]string, error)
 	KeepAlive(ctx context.Context, room string, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error)
 	Roomed(ctx context.Context, room string) (RoomedSignal, error)
 }
@@ -59,12 +61,16 @@ func NewWebsocketClient(ctx context.Context, conf *WebsocketClientConfigure, eng
 	return client
 }
 
+func (c *WebsocketClient) MakeSureConnect(ctx context.Context) error {
+	return c.signal.MakesureConnect(ctx)
+}
+
 func (c *WebsocketClient) IsInRoom(ctx context.Context, room string) (bool, error) {
-	res, err := c.signal.IsInRoom(ctx, room)
-	if err != nil {
-		return false, err
-	}
-	return res, nil
+	return c.signal.IsInRoom(ctx, room)
+}
+
+func (c *WebsocketClient) GetRooms(ctx context.Context) ([]string, error) {
+	return c.signal.GetRooms(ctx)
 }
 
 func (c *WebsocketClient) OnMessage(evt string, cb CustomMsgCb) {

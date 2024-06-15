@@ -21,8 +21,9 @@ import (
 )
 
 type WebSocketSignalConfigure struct {
-	Url   string
-	Token string
+	Url          string
+	Token        string
+	ReadyTimeout time.Duration
 }
 
 type AckKey struct {
@@ -180,7 +181,7 @@ func (ps *ParticipantsBox) AddJoinCallback(room string, cb ParticipantCb) int {
 	defer ps.mux.Unlock()
 	join_cbs, ok := ps.join_chs[room]
 	id := ps.next_join_id
-	ps.next_join_id ++
+	ps.next_join_id++
 	if ok {
 		join_cbs[id] = cb
 	} else {
@@ -205,7 +206,7 @@ func (ps *ParticipantsBox) AddLeaveCallback(room string, cb ParticipantCb) int {
 	defer ps.mux.Unlock()
 	leave_cbs, ok := ps.leave_cbs[room]
 	id := ps.next_leave_id
-	ps.next_leave_id ++
+	ps.next_leave_id++
 	if ok {
 		leave_cbs[id] = cb
 	} else {
@@ -255,8 +256,9 @@ type WebsocketSignal struct {
 	custom_ack_msg_mux       sync.Mutex
 	custom_ack_msg_notifiers map[AckKey]chan any
 
-	user_info     *model.UserInfo
-	user_info_mux sync.Mutex
+	user_info *model.UserInfo
+	rooms     []string
+	rooms_mux sync.Mutex
 
 	ping_msg_id  atomic.Uint32
 	ping_chs     map[PingKey][]chan *model.PingMessage
@@ -333,9 +335,9 @@ func (s *RoomedWebsocketSignal) WaitParticipant(ctx context.Context, uid string)
 		return true
 	}
 	select {
-	case <- ctx.Done():
+	case <-ctx.Done():
 		return false
-	case <- ch:
+	case <-ch:
 		return true
 	}
 }
@@ -385,12 +387,12 @@ func (signal *WebsocketSignal) PopCustomAckMsgCh(from string, id uint32) chan an
 	return nil
 }
 
-func (signal *WebsocketSignal) MakesureConnect() error {
-	_, err := signal.accessSignal()
+func (signal *WebsocketSignal) MakesureConnect(ctx context.Context) error {
+	_, err := signal.accessSignal(ctx)
 	return err
 }
 
-func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error) {
+func (signal *WebsocketSignal) accessSignal(ctx context.Context) (*websocket.WebSocketSignal, error) {
 	signal.signal_mux.Lock()
 	for {
 		if signal.signal != nil {
@@ -460,6 +462,22 @@ func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error
 			close(ch)
 		}
 	})
+	ready_ch := make(chan struct{})
+	signal.onMsg("ready", func(ack AckFunc, arg any) (remained bool) {
+		defer close(ready_ch)
+		msg := model.UserInfo{}
+		err := mapstructure.Decode(arg, &msg)
+		if err != nil {
+			log.Sugar().Errorf("unable to decode ready msg, %v", err)
+			return
+		}
+		signal.rooms_mux.Lock()
+		signal.rooms = msg.Rooms
+		signal.rooms_mux.Unlock()
+		msg.Rooms = nil
+		signal.user_info = &msg
+		return false
+	})
 	signal.onMsg("participant-join", func(ack AckFunc, arg any) (remained bool) {
 		remained = true
 		msg := model.StateParticipantMessage{}
@@ -481,6 +499,14 @@ func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error
 		}
 		signal.participants.ProcessLeaveCbs(&msg)
 		return
+	})
+	signal.signal.OnClose(func(err error) {
+		signal.signal_mux.Lock()
+		signal.signal = nil
+		signal.signal_mux.Unlock()
+		if signal.close_cb != nil {
+			signal.close_cb(err)
+		}
 	})
 	signal.onMsg("ping", func(ack AckFunc, arg any) (remained bool) {
 		remained = true
@@ -518,49 +544,54 @@ func (signal *WebsocketSignal) accessSignal() (*websocket.WebSocketSignal, error
 	if err != nil {
 		return nil, err
 	}
-	signal.signal.OnClose(func(err error) {
-		signal.signal_mux.Lock()
-		signal.signal = nil
-		signal.signal_mux.Unlock()
-		if signal.close_cb != nil {
-			signal.close_cb(err)
+	toCh, stopToCh := utils.MakeTimeoutChan(signal.conf.ReadyTimeout)
+	defer stopToCh()
+	select {
+	case <-toCh:
+		return nil, fmt.Errorf("ready timeout")
+	case <-ready_ch:
+		if signal.user_info != nil {
+			return signal.signal, nil
+		} else {
+			return nil, fmt.Errorf("failed to get user info")
 		}
-	})
-	return signal.signal, nil
+	case <-ctx.Done():
+		return nil, context.Cause(ctx)
+	case <-signal.ctx.Done():
+		return nil, context.Cause(signal.ctx)
+	}
 }
 
-func (signal *WebsocketSignal) userInfo(ctx context.Context) (*model.UserInfo, error) {
-	if signal.user_info == nil {
-		res, err := signal.sendMsg(ctx, true, "user-info", nil)
-		if err != nil {
-			return nil, fmt.Errorf("unable to send user-info msg, %w", err)
-		}
-		var info model.UserInfo
-		err = mapstructure.Decode(res, &info)
-		if err != nil {
-			return nil, fmt.Errorf("unable to decode the user-info msg, %w", err)
-		}
-		signal.user_info = &info
+func (signal *WebsocketSignal) UserInfo(ctx context.Context) (*model.UserInfo, error) {
+	_, err := signal.accessSignal(ctx)
+	if err != nil {
+		return nil, err
 	}
 	return signal.user_info, nil
 }
 
-func (signal *WebsocketSignal) UserInfo(ctx context.Context) (*model.UserInfo, error) {
-	signal.user_info_mux.Lock()
-	defer signal.user_info_mux.Unlock()
-	return signal.userInfo(ctx)
+func (signal *WebsocketSignal) GetRooms(ctx context.Context) ([]string, error) {
+	_, err := signal.accessSignal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	signal.rooms_mux.Lock()
+	defer signal.rooms_mux.Unlock()
+	return slices.Clone(signal.rooms), nil
 }
 
 func (signal *WebsocketSignal) IsInRoom(ctx context.Context, room string) (bool, error) {
-	userInfo, err := signal.UserInfo(ctx)
+	_, err := signal.accessSignal(ctx)
 	if err != nil {
 		return false, err
 	}
-	return slices.Contains(userInfo.Rooms, room), nil
+	signal.rooms_mux.Lock()
+	defer signal.rooms_mux.Unlock()
+	return slices.Contains(signal.rooms, room), nil
 }
 
 func (signal *WebsocketSignal) sendMsg(ctx context.Context, ack bool, evt string, arg any) (res any, err error) {
-	s, err := signal.accessSignal()
+	s, err := signal.accessSignal(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -576,7 +607,7 @@ func (signal *WebsocketSignal) sendMsg(ctx context.Context, ack bool, evt string
 }
 
 func (signal *WebsocketSignal) SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) error {
-	s, err := signal.accessSignal()
+	s, err := signal.accessSignal(ctx)
 	if err != nil {
 		return err
 	}
@@ -645,13 +676,9 @@ func (signal *WebsocketSignal) Join(ctx context.Context, rooms ...string) error 
 	if err != nil {
 		return err
 	}
-	signal.user_info_mux.Lock()
-	defer signal.user_info_mux.Unlock()
-	uInfo, err := signal.userInfo(ctx)
-	if err != nil {
-		return err
-	}
-	uInfo.Rooms = utils.SliceAppendNoRepeat(uInfo.Rooms, rooms...)
+	signal.rooms_mux.Lock()
+	defer signal.rooms_mux.Unlock()
+	signal.rooms = utils.SliceAppendNoRepeat(signal.rooms, rooms...)
 	return nil
 }
 
@@ -662,13 +689,9 @@ func (signal *WebsocketSignal) Leave(ctx context.Context, rooms ...string) error
 	if err != nil {
 		return err
 	}
-	signal.user_info_mux.Lock()
-	defer signal.user_info_mux.Unlock()
-	uInfo, err := signal.userInfo(ctx)
-	if err != nil {
-		return err
-	}
-	uInfo.Rooms = utils.SliceRemoveByValues(uInfo.Rooms, false, rooms...)
+	signal.rooms_mux.Lock()
+	defer signal.rooms_mux.Unlock()
+	signal.rooms = utils.SliceRemoveByValues(signal.rooms, false, rooms...)
 	return nil
 }
 
@@ -724,7 +747,7 @@ func (c *WebsocketSignal) unsubscribePingMsg(room string, uid string, ch chan *m
 }
 
 func (c *WebsocketSignal) KeepAlive(ctx context.Context, room string, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error) {
-	err = c.MakesureConnect()
+	err = c.MakesureConnect(ctx)
 	if err != nil {
 		return
 	}

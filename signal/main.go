@@ -172,7 +172,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		}()
 		return
 	})
-	s.On("candidate", func(ack AckFunc, args ...any) (remained bool)  {
+	s.On("candidate", func(ack AckFunc, args ...any) (remained bool) {
 		remained = true
 		ctx.Sugar().Debugf("receive candidate msg")
 		msg := model.CandidateMessage{}
@@ -251,11 +251,7 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		ctx.Sugar().Debugf("receive user-info msg")
 		ackArgs := make([]any, 1)
 		defer FinallyResponse(ctx, ack, ackArgs, "user-info", false)
-		ackArgs[0] = &model.UserInfo{
-			UserId: ctx.AuthInfo.UID,
-			UserName: ctx.AuthInfo.UName,
-			Rooms: ctx.Rooms(),
-		}
+		ackArgs[0] = ctx.MakeUserInfo()
 		return
 	})
 	s.On("ping", func(ack AckFunc, args ...any) (remained bool) {
@@ -318,6 +314,11 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		}
 	})
 	ctx.ClusterEmit(&model.WantParticipantMessage{})
+	err = ctx.Ready()
+	if err != nil {
+		ctx.Sugar().Errorf("failed to send ready msg, %v", err)
+		return nil, err
+	}
 	ctx.Sugar().Debugf("the signal context initialized")
 	return ctx, nil
 }

@@ -103,3 +103,13 @@ func WithOrContext(ctxs ...context.Context) *orContext {
 		cancel: cancel,
 	}
 }
+
+func MakeTimeoutChan(timeout time.Duration) (ch <-chan time.Time, stop func() bool) {
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		return timer.C, timer.Stop
+	} else {
+		ch := make(chan time.Time)
+		return ch, func() bool { return true }
+	}
+}

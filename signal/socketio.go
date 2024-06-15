@@ -220,7 +220,7 @@ func (signal *SocketIOSignal) SendMsg(ctx context.Context, ack bool, evt string,
 	var socket *socket.Socket = nil
 	deadline, hasDeadline := ctx.Deadline()
 	if hasDeadline {
-		timeout := deadline.Sub(time.Now())
+		timeout := time.Until(deadline)
 		if timeout > 0 {
 			socket = signal.socket.Timeout(timeout)
 		} else {

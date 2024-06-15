@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/lesismal/nbio/nbhttp/websocket"
+	"github.com/mitchellh/mapstructure"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/model"
@@ -160,11 +161,6 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 				return
 			}
 			var data any
-			if strings.HasPrefix(evt, "custom:") {
-				data = model.CustomMessage{}
-			} else if evt == "custom-ack" {
-				data = model.CustomAckMessage{}
-			}
 			if data_str != "" {
 				err = json.Unmarshal([]byte(data_str), &data)
 				if err != nil {
@@ -207,13 +203,15 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 				}
 			} else {
 				if strings.HasPrefix(evt, "custom:") {
-					msg := data.(*model.CustomMessage)
+					msg := &model.CustomMessage{}
+					mapstructure.Decode(data, msg)
 					sig.custom_msg_mux.Lock()
 					cb := sig.custom_msg_cb
 					sig.custom_msg_mux.Unlock()
 					cb(evt[7:], msg)
 				} else if evt == "custom-ack" {
-					msg := data.(*model.CustomAckMessage)
+					msg := &model.CustomAckMessage{}
+					mapstructure.Decode(data, msg)
 					sig.custom_ack_msg_mux.Lock()
 					cb := sig.custom_ack_msg_cb
 					sig.custom_ack_msg_mux.Unlock()

@@ -924,6 +924,20 @@ func (ctx *SignalContext) disableCloseCallback() {
 	ctx.close_cb_disabled = true
 }
 
+func (ctx *SignalContext) MakeUserInfo() *model.UserInfo {
+	return &model.UserInfo{
+		Key:      ctx.AuthInfo.Key,
+		UserId:   ctx.AuthInfo.UID,
+		UserName: ctx.AuthInfo.UName,
+		Role:     ctx.AuthInfo.Role,
+		Rooms:    ctx.Rooms(),
+	}
+}
+
+func (sctx *SignalContext) Ready() error {
+	return sctx.Emit("ready", sctx.MakeUserInfo())
+}
+
 func (ctx *SignalContext) Close() {
 	ctx.Global.CloseSignalContext(ctx.Id, false)
 }
@@ -1083,6 +1097,9 @@ func (ctx *SignalContext) Subscribe(message *model.SubscribeMessage) (subId stri
 
 	r := ctx.Global.Router()
 	ctx.clusterEmit(&model.WantMessage{
+		Router: &model.RouterMessage {
+			Room: message.Room,
+		},
 		Pattern:     message.Pattern,
 		TransportId: r.id.String(),
 	})

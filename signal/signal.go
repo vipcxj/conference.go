@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/vipcxj/conference.go/model"
+	"github.com/vipcxj/conference.go/utils"
 	"go.uber.org/zap"
 )
 
@@ -54,16 +55,17 @@ func (mc *MsgCbs) Run(evt string, ack AckFunc, args ...any) {
 	defer mc.mux.Unlock()
 	cbs, ok := mc.cbs[evt]
 	if ok {
-		new_cbs := make([]MsgCb, 0, len(cbs))
-		for _, cb := range cbs {
+		cbs = utils.SliceMapChange(cbs, func(cb MsgCb) (mapped MsgCb, remove bool) {
 			if mc.invokeMsgCb(cb, evt, ack, args...) {
-				new_cbs = append(new_cbs, cb)
+				return cb, false
+			} else {
+				return nil, true
 			}
-		}
-		if len(new_cbs) == 0 {
+		})
+		if len(cbs) == 0 {
 			delete(mc.cbs, evt)
 		} else {
-			mc.cbs[evt] = new_cbs
+			mc.cbs[evt] = cbs
 		}
 	}
 }

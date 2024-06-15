@@ -7,9 +7,9 @@ import (
 )
 
 type SignalMessage struct {
-	To string `json:"to" mapstructure:"to"`
+	Room string `json:"room" mapstructure:"room"`
+	To   string `json:"to" mapstructure:"to"`
 }
-
 type ErrorMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	Msg           string             `json:"msg" mapstructure:"msg"`
@@ -224,7 +224,9 @@ type SubscribedMessage struct {
 
 type UserInfo struct {
 	SignalMessage `mapstructure:",squash"`
-	UserId string
-	UserName string
-	Rooms []string
+	Key           string   `json:"key" mapstructure:"key"`
+	UserId        string   `json:"userId" mapstructure:"userId"`
+	UserName      string   `json:"userName" mapstructure:"userName"`
+	Role          string   `json:"role" mapstructure:"role"`
+	Rooms         []string `json:"rooms" mapstructure:"rooms"`
 }
