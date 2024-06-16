@@ -43,14 +43,16 @@ export interface PongMessage extends SignalMessage {
 }
 
 export interface ParticipantJoinMessage extends SignalMessage {
-    userId: string
-    userName: string
-    socketId: string
+    userId: string;
+    userName: string;
+    socketId: string;
+    joinId: number;
 }
 
 export interface ParticipantLeaveMessage extends SignalMessage {
-    userId: string
-    socketId: string
+    userId: string;
+    socketId: string;
+    joinId: number;
 }
 
 export interface Track {

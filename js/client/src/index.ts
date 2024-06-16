@@ -88,12 +88,90 @@ export interface Participant {
     userId: string;
     userName: string;
     socketId: string;
+    joinId: number;
 }
 
-export interface LeavedParticipant {
-    userId: string;
-    socketId: string;
+interface LeavedInfo {
+    joinId: number;
     timestamp: number;
+}
+
+interface LeavedInfoMap {
+    [key: string]: LeavedInfo;
+}
+
+interface Participants {
+    participants: Participant[];
+    index: Map<string, number>;
+    leaves: Map<string, LeavedInfo>;
+}
+
+function ptsList(pts: Participants) {
+    return pts.participants;
+}
+
+function ptsClean(pts: Participants) {
+    const now = Date.now();
+    for (const [key, info] of pts.leaves) {
+        if (now > info.timestamp + 60 * 1000) {
+            pts.leaves.delete(key);
+        }
+	}
+	return (!pts.participants || pts.participants.length === 0) && (!pts.leaves || pts.leaves.size === 0);
+}
+
+function ptsAdd(pts: Participants, participant: Participant): boolean {
+    const key = `${participant.userId}|${participant.socketId}`;
+    const leaveInfo = pts.leaves.get(key);
+    if (leaveInfo) {
+        if (participant.joinId > leaveInfo.joinId) {
+            pts.leaves.delete(key);
+        } else {
+            return false;
+        }
+    }
+    let success = false;
+    const pos = pts.index.get(key);
+    if (pos != undefined) {
+        const pt = pts.participants[pos];
+        if (participant.joinId > pt.joinId) {
+            pts.participants[pos] = participant;
+            success = true;
+        }
+    } else {
+        pts.participants.push(participant);
+        pts.index.set(key, pts.participants.length - 1);
+        success = true;
+    }
+    return success;
+}
+
+function ptsRemove(pts: Participants, uid: string, sid: string, jid: number): Participant | undefined {
+	const key = `${uid}|${sid}`;
+    const leaveInfo = pts.leaves.get(key);
+    if (leaveInfo) {
+        if (jid > leaveInfo.joinId) {
+            leaveInfo.joinId = jid;
+            leaveInfo.timestamp = Date.now();
+        } else {
+            return undefined;
+        }
+    } else {
+        pts.leaves.set(key, {
+            joinId: jid,
+            timestamp: Date.now(),
+        });
+    }
+    const pos = pts.index.get(key);
+    if (pos != undefined) {
+        const pt = pts.participants[pos];
+        if (jid >= pt.joinId) {
+            pts.participants.splice(pos, 1);
+            pts.index.delete(key);
+            return pt;
+        }
+    }
+	return undefined;
 }
 
 type Ack = (...args: any[]) => any;
@@ -148,6 +226,7 @@ interface EventData {
     ping: NamedEvent<'ping', PingMessage>;
     pong: NamedEvent<'pong', PongMessage>;
     participantJoin: NamedEvent<'participantJoin', ParticipantJoinMessage>;
+    participantLeave: NamedEvent<'participantLeave', { msg: ParticipantLeaveMessage, participant: Participant }>;
     track: NamedEvent<'track', [MediaStreamTrack, readonly MediaStream[], RTCRtpTransceiver]>;
     subscribed: NamedEvent<'subscribed', SubscribedMessage>;
     published: NamedEvent<'published', PublishedMessage>;
@@ -179,8 +258,7 @@ export class ConferenceClient {
     private pingMsgId: number;
     private negMux: Mutex;
     private userInfo: UserInfo;
-    private participants: Participant[];
-    private leavedParticipants: LeavedParticipant[];
+    private participantsMap: Map<string, Participants>;
     private room: string
     private _id: string;
 
@@ -196,7 +274,7 @@ export class ConferenceClient {
         this.ignoreOffer = false;
         this.pendingCandidates = [];
         this.onTrasksCallbacks = [];
-        this.participants = [];
+        this.participantsMap = new Map<string, Participants>();
         this.sdpMsgId = 1;
         this.customMsgId = 1;
         this.pingMsgId = 1;
@@ -317,14 +395,30 @@ export class ConferenceClient {
         });
         this.socket.on("participant-join", (msg: ParticipantJoinMessage, ack?: Ack) => {
             this.ack(ack);
-            if (this.leavedParticipants.some((v) => v.userId == msg.userId && v.socketId == msg.socketId)) {
+            const room = msg.router?.room;
+            if (!room) {
                 return;
-            } else if (!this.participants.some((v) => v.userId === msg.userId && v.socketId == msg.socketId)) {
-                this.participants.push({
-                    userId: msg.userId,
-                    userName: msg.userName,
-                    socketId: msg.socketId,
-                });
+            }
+            const participant = {
+                userId: msg.userId,
+                userName: msg.userName,
+                socketId: msg.socketId,
+                joinId: msg.joinId,
+            };
+            let participants = this.participantsMap.get(room);
+            let added = false;
+            if (participants) {
+                added = ptsAdd(participants, participant);
+            } else {
+                participants = {
+                    participants: [],
+                    index: new Map<string, number>(),
+                    leaves: new Map<string, LeavedInfo>(),
+                };
+                added = ptsAdd(participants, participant);
+                this.participantsMap.set(room, participants);
+            }
+            if (added) {
                 this.emitter.emit('participantJoin', {
                     name: 'participantJoin',
                     data: msg,
@@ -333,15 +427,38 @@ export class ConferenceClient {
         });
         this.socket.on("participant-leave", (msg: ParticipantLeaveMessage, ack?: Ack) => {
             this.ack(ack);
-            const exist = this.leavedParticipants.find((v) => v.userId == msg.userId && v.socketId == msg.socketId)
-            if (exist) {
-                exist.timestamp = Date.now();
+            const room = msg.router?.room;
+            if (!room) {
+                return;
             }
-            const pos = this.participants.findIndex((v) => v.userId === msg.userId && v.socketId == msg.socketId);
-            if (pos !== -1) {
-                this.participants.splice(pos, 1);
+            let participants = this.participantsMap.get(room);
+            let participant: Participant | undefined = undefined;
+            if (participants) {
+                participant = ptsRemove(participants, msg.userId, msg.socketId, msg.joinId);
+            } else {
+                participants = {
+                    participants: [],
+                    index: new Map<string, number>(),
+                    leaves: new Map<string, LeavedInfo>(),
+                };
+                participant = ptsRemove(participants, msg.userId, msg.socketId, msg.joinId);
+                this.participantsMap.set(room, participants);
             }
-        })
+            for (const [room, pts] of this.participantsMap) {
+                if (ptsClean(pts)) {
+                    this.participantsMap.delete(room);
+                }
+            }
+            if (participant) {
+                this.emitter.emit('participantLeave', {
+                    name: 'participantLeave',
+                    data: {
+                        msg,
+                        participant,
+                    },
+                });
+            }
+        });
         this.socket.onAny((evt: string, msg: CustomMessage) => {
             if (evt.startsWith("custom:")) {
                 evt = evt.substring(7);
@@ -698,6 +815,42 @@ export class ConferenceClient {
         }
     };
 
+    waitParticipant = async (uid: string, timeout: number = -1, stopEmitter?: Emittery<StopEmitEventMap>): Promise<boolean> => {
+        const room = this.checkRoom();
+        const tgtEvts = this.emitter.events(['participantJoin', 'disconnect', 'error']);
+        const emitter = new Emittery<TimeoutEmitEventMap>();
+        const [timeoutEvts, clearTimeoutEvt] = makeTimeoutEvent(emitter, timeout);
+        const evts = combineAsyncIterable([tgtEvts, timeoutEvts, stopEmitter.events('stop')]);
+        const participants = this.participantsMap.get(room);
+        if (participants && participants.participants.some((p) => p.userId === uid)) {
+            return true;
+        }
+        for await (const evt of evts) {
+            switch (evt.name) {
+                case 'participantJoin':
+                    clearTimeoutEvt();
+                    await evts.return();
+                    return true;
+                case "disconnect":
+                    clearTimeoutEvt();
+                    await evts.return();
+                    throw new SocketCloseError(evt.data.reason);
+                case "error":
+                    clearTimeoutEvt();
+                    await evts.return();
+                    throw new ServerError(evt.data);
+                case "timeout":
+                    clearTimeoutEvt();
+                    await evts.return();
+                    throw new TimeOutError();
+                case "stop":
+                    clearTimeoutEvt();
+                    await evts.return();
+                    return false;
+            }
+        }
+    }
+
     keepAlive = async (uid: string, mode: KeepAliveMode, cb?: KeepAliveCallback, timeout: number = -1, stopEmitter?: Emittery<StopEmitEventMap>) => {
         await this.makeSureSocket(timeout, stopEmitter);
         const room = this.checkRoom();
@@ -721,8 +874,9 @@ export class ConferenceClient {
                     const now = new Date().getTime();
                     const msgId = this.nextPingMsgId();
                     const [timeoutEvts, clearTimeoutEvt] = makeTimeoutEvent(emitter, timeout);
+                    const tgtEvts = this.emitter.events(['pong', 'disconnect', 'error']);
                     const evts = combineAsyncIterable([
-                        this.emitter.events(['pong', 'disconnect', 'error']),
+                        tgtEvts,
                         stopEmitter.events('stop'),
                         timeoutEvts,
                     ])
@@ -773,8 +927,9 @@ export class ConferenceClient {
             } else {
                 const emitter = new Emittery<TimeoutEmitEventMap>();
                 const timeoutEvts = emitter.events('timeout');
+                const tgtEvts = this.emitter.events(['ping', 'disconnect', 'error']);
                 const evts = combineAsyncIterable([
-                    this.emitter.events(['ping', 'disconnect', 'error']),
+                    tgtEvts,
                     stopEmitter.events('stop'),
                     timeoutEvts,
                 ])
