@@ -313,7 +313,6 @@ func InitSignal(s Signal) (*SignalContext, error) {
 			panic(err)
 		}
 	})
-	ctx.ClusterEmit(&model.WantParticipantMessage{})
 	err = ctx.Ready()
 	if err != nil {
 		ctx.Sugar().Errorf("failed to send ready msg, %v", err)

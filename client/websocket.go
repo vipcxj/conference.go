@@ -36,10 +36,15 @@ type ParticipantKey struct {
 	sid string
 }
 
+type LeavedInfo struct {
+	jid       uint32
+	timestamp time.Time
+}
+
 type Participants struct {
 	participants []model.Participant
 	index        map[ParticipantKey]int
-	leaves       map[ParticipantKey]time.Time
+	leaves       map[ParticipantKey]LeavedInfo
 }
 
 func (p *Participants) List() []model.Participant {
@@ -48,8 +53,8 @@ func (p *Participants) List() []model.Participant {
 
 func (p *Participants) Clean() (empty bool) {
 	now := time.Now()
-	for key, t := range p.leaves {
-		if now.Sub(t) > time.Minute {
+	for key, info := range p.leaves {
+		if now.Sub(info.timestamp) > time.Minute {
 			delete(p.leaves, key)
 		}
 	}
@@ -61,13 +66,20 @@ func (p *Participants) Add(participant *model.Participant) {
 		uid: participant.Id,
 		sid: participant.SourceId,
 	}
-	_, ok := p.leaves[key]
+	leaveInfo, ok := p.leaves[key]
 	if ok {
-		return
+		if participant.JoinId > leaveInfo.jid {
+			delete(p.leaves, key)
+		} else {
+			return
+		}
 	}
 	pos, ok := p.index[key]
 	if ok {
-		p.participants[pos] = *participant
+		ap := p.participants[pos]
+		if participant.JoinId > ap.JoinId {
+			p.participants[pos] = *participant
+		}
 	} else {
 		p.participants = append(p.participants, *participant)
 		p.index[key] = len(p.participants) - 1
@@ -79,11 +91,22 @@ func (p *Participants) Remove(participant *model.Participant) {
 		uid: participant.Id,
 		sid: participant.SourceId,
 	}
-	p.leaves[key] = time.Now()
+	leaveInfo, ok := p.leaves[key]
+	if ok {
+		if participant.JoinId > leaveInfo.jid {
+			leaveInfo.jid = participant.JoinId
+			leaveInfo.timestamp = time.Now()
+		} else {
+			return
+		}
+	}
 	pos, ok := p.index[key]
 	if ok {
-		p.participants, _ = utils.SliceRemoveByIndex(p.participants, false, pos)
-		delete(p.index, key)
+		ap := p.participants[pos]
+		if participant.JoinId >= ap.JoinId {
+			p.participants, _ = utils.SliceRemoveByIndex(p.participants, false, pos)
+			delete(p.index, key)	
+		}
 	}
 }
 
@@ -122,6 +145,7 @@ func (box *ParticipantsBox) ProcessJoinCbs(msg *model.StateParticipantMessage) {
 		Id:       msg.GetUserId(),
 		Name:     msg.GetUserName(),
 		SourceId: msg.GetSocketId(),
+		JoinId:   msg.GetJoinId(),
 	}
 	box.mux.Lock()
 	defer box.mux.Unlock()
@@ -131,7 +155,7 @@ func (box *ParticipantsBox) ProcessJoinCbs(msg *model.StateParticipantMessage) {
 	} else {
 		ps := &Participants{
 			index:  make(map[ParticipantKey]int),
-			leaves: make(map[ParticipantKey]time.Time),
+			leaves: make(map[ParticipantKey]LeavedInfo),
 		}
 		ps.Add(participant)
 		box.participants[room] = ps
@@ -151,6 +175,7 @@ func (box *ParticipantsBox) ProcessLeaveCbs(msg *model.StateLeaveMessage) {
 	participant := &model.Participant{
 		Id:       msg.GetUserId(),
 		SourceId: msg.GetSocketId(),
+		JoinId:   msg.GetJoinId(),
 	}
 	box.mux.Lock()
 	defer box.mux.Unlock()
@@ -160,7 +185,7 @@ func (box *ParticipantsBox) ProcessLeaveCbs(msg *model.StateLeaveMessage) {
 	} else {
 		ps := &Participants{
 			index:  make(map[ParticipantKey]int),
-			leaves: make(map[ParticipantKey]time.Time),
+			leaves: make(map[ParticipantKey]LeavedInfo),
 		}
 		ps.Remove(participant)
 		box.participants[room] = ps

@@ -19,7 +19,7 @@ import {
     JoinMessage,
     LeaveMessage,
     MessageRouter,
-    ParticipantMessage,
+    ParticipantJoinMessage,
     PublishAddMessage,
     PublishedMessage,
     PublishRemoveMessage,
@@ -32,14 +32,19 @@ import {
     Track,
     TrackToPublish,
     CustomMessageWithEvt,
+    UserInfo,
+    ParticipantLeaveMessage,
+    PingMessage,
+    PongMessage,
 } from './message';
 import { getLogger } from './log';
 import { combineAsyncIterable } from "./async";
-import { Timeouter, TimeoutHandler, makeTimeoutPromise, stopTimeoutHandler, StopEmitEventMap } from './timeout';
+import { Timeouter, TimeoutHandler, makeTimeoutPromise, stopTimeoutHandler, StopEmitEventMap, makeTimeoutEvent, TimeoutEmitEventMap, timeoutEmit } from './timeout';
 import { NamedEvent } from './types';
 
 export const PT = PATTERN;
 export type { Track } from './message';
+export { Stopper } from './timeout';
 export { TimeOutError, ServerError, SocketCloseError } from './errors';
 
 function splitUrl(url: string) {
@@ -56,6 +61,16 @@ function splitUrl(url: string) {
     }
 }
 
+export enum KeepAliveMode {
+    ACTIVE,
+    PASSIVE,
+}
+export interface KeepAliveContext {
+    timeoutNum: number;
+    timeoutDurationMs: number;
+}
+export type KeepAliveCallback = (ctx: KeepAliveContext) => boolean;
+
 export interface StreamConstraint {
     type?: string;
     codec?: {
@@ -70,8 +85,15 @@ export interface LocalStream {
 }
 
 export interface Participant {
-    userId: string
-    userName: string
+    userId: string;
+    userName: string;
+    socketId: string;
+}
+
+export interface LeavedParticipant {
+    userId: string;
+    socketId: string;
+    timestamp: number;
 }
 
 type Ack = (...args: any[]) => any;
@@ -83,19 +105,26 @@ export interface TrackEvent {
 }
 
 export type OnTrack = (tracks: TrackEvent) => any;
+export type OnClose = (reason: string) => any;
 
 interface ListenEventMap {
+    ready: (msg: UserInfo) => void;
+    ping: (msg: PingMessage) => void;
+    pong: (msg: PongMessage) => void;
     subscribed: (msg: SubscribedMessage) => void;
     published: (msg: PublishedMessage) => void;
     error: (msg: ErrorMessage) => void;
     sdp: (msg: SdpMessage) => void;
     candidate: (msg: CandidateMessage) => void;
-    "participant-join": (msg: ParticipantMessage) => void;
+    "participant-join": (msg: ParticipantJoinMessage) => void;
+    "participant-leave": (msg: ParticipantLeaveMessage) => void;
     custom: (msg: CustomMessage) => void;
     'custom-ack': (msg: CustomAckMessage) => void;
 }
 
 interface EmitEventMap {
+    ping: (msg: PingMessage) => void;
+    pong: (msg: PongMessage) => void;
     join: (msg: JoinMessage, ack: (res: any) => void) => void;
     leave: (msg: LeaveMessage, ack: (res: any) => void) => void;
     subscribe: (msg: SubscribeAddMessage | SubscribeRemoveMessage, ack: (res: SubscribeResultMessage) => void) => void;
@@ -115,6 +144,10 @@ interface EventData {
     connect: NamedEvent<'connect', SocketConnectState>;
     disconnect: NamedEvent<'disconnect', SocketConnectState>;
     connectState: NamedEvent<'connectState', RTCPeerConnectionState>;
+    ready: NamedEvent<'ready', UserInfo>;
+    ping: NamedEvent<'ping', PingMessage>;
+    pong: NamedEvent<'pong', PongMessage>;
+    participantJoin: NamedEvent<'participantJoin', ParticipantJoinMessage>;
     track: NamedEvent<'track', [MediaStreamTrack, readonly MediaStream[], RTCRtpTransceiver]>;
     subscribed: NamedEvent<'subscribed', SubscribedMessage>;
     published: NamedEvent<'published', PublishedMessage>;
@@ -139,15 +172,21 @@ export class ConferenceClient {
     private pendingCandidates: CandidateMessage[];
     private peer: RTCPeerConnection;
     private onTrasksCallbacks: OnTrack[];
+    private onCloseCallback?: OnClose;
     private emitter: Emittery<EventData>;
     private sdpMsgId: number;
     private customMsgId: number;
+    private pingMsgId: number;
     private negMux: Mutex;
+    private userInfo: UserInfo;
     private participants: Participant[];
+    private leavedParticipants: LeavedParticipant[];
+    private room: string
     private _id: string;
 
     constructor(config: Configuration) {
         this.config = config;
+        this.room = '';
         const {
             signalUrl,
             token,
@@ -160,6 +199,7 @@ export class ConferenceClient {
         this.participants = [];
         this.sdpMsgId = 1;
         this.customMsgId = 1;
+        this.pingMsgId = 1;
         this.negMux = new Mutex();
         this.peer = this.createPeer();
         this._id = uuidv4();
@@ -176,6 +216,23 @@ export class ConferenceClient {
             // reconnectionDelay: 500,
             rememberUpgrade: true,
         });
+        this.socket.on('ready', (info: UserInfo) => {
+            this.userInfo = info;
+            if (!info) {
+                this.logger().error(`invalid ready msg.`);
+                this.socket.disconnect();
+            }
+            if (!info.rooms) {
+                info.rooms = [];
+            }
+            if (info.rooms.length == 1) {
+                this.room = info.rooms[0];
+            }
+            this.emitter.emit('ready', {
+                name: 'ready',
+                data: info,
+            });
+        })
         this.socket.on('connect', () => {
             this.emitter.emit('connect', {
                 name: 'connect',
@@ -188,6 +245,9 @@ export class ConferenceClient {
                 data: { connected: false, reason },
             });
             this.logger().warn(`socket disconnected because ${reason}`);
+            if (this.onCloseCallback) {
+                this.onCloseCallback(reason);
+            }
         })
         this.socket.on('error', (msg: ErrorMessage) => {
             this.emitter.emit('error', {
@@ -195,6 +255,35 @@ export class ConferenceClient {
                 data: msg,
             });
             this.logger().error(`Received${msg.fatal ? " fatal " : " "}error ${msg.msg} because of ${msg.cause}`);
+        });
+        this.socket.on('ping', (msg: PingMessage) => {
+            const router = msg.router;
+            if (!router) {
+                this.logger().warn('Receive a ping msg without router.');
+                return;
+            }
+            this.emitter.emit('ping', {
+                name: 'ping',
+                data: msg,
+            });
+            this.socket.emit('pong', {
+                router: {
+                    room: router.room,
+                    userTo: router.userFrom,
+                },
+                msgId: msg.msgId,
+            });
+        });
+        this.socket.on('pong', (msg: PongMessage) => {
+            const router = msg.router;
+            if (!router) {
+                this.logger().warn('Receive a pong msg without router.');
+                return;
+            }
+            this.emitter.emit('pong', {
+                name: 'pong',
+                data: msg,
+            });
         });
         this.socket.on('subscribed', (msg: SubscribedMessage, ack?: Ack) => {
             this.ack(ack);
@@ -211,33 +300,48 @@ export class ConferenceClient {
                 data: msg,
             });
         });
-        this.socket.on("sdp", (msg: SdpMessage, ark?: Ack) => {
-            this.ack(ark);
+        this.socket.on("sdp", (msg: SdpMessage, ack?: Ack) => {
+            this.ack(ack);
             this.emitter.emit('sdp', {
                 name: 'sdp',
                 data: msg,
             });
         });
-        this.socket.on("candidate", async (msg: CandidateMessage, ark?: Ack) => {
-            this.ack(ark);
+        this.socket.on("candidate", async (msg: CandidateMessage, ack?: Ack) => {
+            this.ack(ack);
             if (!this.peer.remoteDescription) {
                 this.pendingCandidates.push(msg);
                 return
             }
             await this.addCandidate(this.peer, msg);
         });
-        this.socket.on("participant-join", (msg: ParticipantMessage, ark?: Ack) => {
-            this.ack(ark);
-            if (!this.participants.some((v) => v.userId === msg.userId)) {
-                this.logger().debug(`accept new participant ${msg.userName} (${msg.userId}).`)
+        this.socket.on("participant-join", (msg: ParticipantJoinMessage, ack?: Ack) => {
+            this.ack(ack);
+            if (this.leavedParticipants.some((v) => v.userId == msg.userId && v.socketId == msg.socketId)) {
+                return;
+            } else if (!this.participants.some((v) => v.userId === msg.userId && v.socketId == msg.socketId)) {
                 this.participants.push({
                     userId: msg.userId,
                     userName: msg.userName,
+                    socketId: msg.socketId,
                 });
-            } else {
-                this.logger().debug(`accept repeated participant ${msg.userName} (${msg.userId}).`)
+                this.emitter.emit('participantJoin', {
+                    name: 'participantJoin',
+                    data: msg,
+                });
             }
         });
+        this.socket.on("participant-leave", (msg: ParticipantLeaveMessage, ack?: Ack) => {
+            this.ack(ack);
+            const exist = this.leavedParticipants.find((v) => v.userId == msg.userId && v.socketId == msg.socketId)
+            if (exist) {
+                exist.timestamp = Date.now();
+            }
+            const pos = this.participants.findIndex((v) => v.userId === msg.userId && v.socketId == msg.socketId);
+            if (pos !== -1) {
+                this.participants.splice(pos, 1);
+            }
+        })
         this.socket.onAny((evt: string, msg: CustomMessage) => {
             if (evt.startsWith("custom:")) {
                 evt = evt.substring(7);
@@ -288,6 +392,10 @@ export class ConferenceClient {
 
     private nextCustomMsgId = () => {
         return this.customMsgId ++;
+    }
+
+    private nextPingMsgId = () => {
+        return this.pingMsgId ++;
     }
 
     private ack = (func?: Ack) => {
@@ -361,14 +469,19 @@ export class ConferenceClient {
             return;
         }
         this.logger().info("start connect socket...");
+        const disconnectEvt = this.emitter.once('disconnect');
+        const readyEvt = this.emitter.once('ready').then(() => ({ data: { connected: true, reason: '' } }));
+        const stopEvt = stopEmitter ? stopEmitter.once('stop').then(() => {
+            this.logger().debug('Received stop msg, it means timeout.');
+            throw new TimeOutError();
+        }) : new Promise<NamedEvent<'', SocketConnectState>>(() => {});
+        const timeoutEvt = makeTimeoutPromise<NamedEvent<'', SocketConnectState>>(timeout);
         this.socket.connect();
         const { data } = await Promise.race([
-            this.emitter.once(['connect', 'disconnect']),
-            stopEmitter ? stopEmitter.events('stop').next().then(() => {
-                this.logger().debug('Received stop msg, it means timeout.');
-                throw new TimeOutError();
-            }) : new Promise<NamedEvent<'', SocketConnectState>>(() => {}),
-            makeTimeoutPromise<NamedEvent<'', SocketConnectState>>(timeout),
+            disconnectEvt,
+            readyEvt,
+            stopEvt,
+            timeoutEvt,
         ]);
         if (!data.connected) {
             this.logger().error(`Unable to make sure the socket connection, because ${data.reason}`);
@@ -445,6 +558,13 @@ export class ConferenceClient {
         await this.socketWithTimeout(timeouter.left()).emitWithAck('join', {
             rooms,
         });
+        const myRooms = this.userInfo.rooms;
+        for (const room of rooms) {
+            if (myRooms.indexOf(room) === -1) {
+                myRooms.push(room);
+            }
+        }
+        this.userInfo.rooms = myRooms;
     }
 
     leave = async (timeout: number = -1, ...rooms: string[]) => {
@@ -453,14 +573,51 @@ export class ConferenceClient {
         await this.socketWithTimeout(timeouter.left()).emitWithAck('leave', {
             rooms,
         });
+        const myRooms = this.userInfo.rooms;
+        for (const room of rooms) {
+            const pos = myRooms.indexOf(room);
+            if (pos !== -1) {
+                myRooms.splice(pos, 1);
+            }
+        }
+        if (this.room && rooms.indexOf(this.room) !== -1) {
+            this.room = '';
+        }
+    }
+
+    toRoom = async (room: string, timeout: number = -1) => {
+        const timeouter = new Timeouter(timeout);
+        await this.makeSureSocket(timeouter.left());
+        const myRooms = this.userInfo.rooms;
+        if (myRooms.indexOf(room) === -1) {
+            throw new Error(`no right to switch to room ${room}.`);
+        }
+        this.room = room;
+        return this;
+    }
+
+    getUserInfo = async (timeout: number = -1) => {
+        const timeouter = new Timeouter(timeout);
+        await this.makeSureSocket(timeouter.left());
+        return this.userInfo;
+    }
+
+    private checkRoom = () => {
+        const room = this.room;
+        if (!room) {
+            throw new Error("no room is selected");
+        }
+        return room;
     }
 
     sendCustomMessageWithAck = async (evt: string, msg: any, to?: string, timeout: number = -1) => {
         const timeouter = new Timeouter(timeout);
         await this.makeSureSocket(timeouter.left());
-        const router: MessageRouter = to ? {
+        const room = this.checkRoom();
+        const router: MessageRouter = {
+            room: room,
             userTo: to,
-        } : undefined;
+        };
         const evts = combineAsyncIterable([this.emitter.events(['customAckMsg', 'disconnect', 'error']), timeouter.stopEvt()]);
         const msgId = this.nextCustomMsgId();
         this.socket.emit(`custom:${evt}` as "custom", {
@@ -486,10 +643,14 @@ export class ConferenceClient {
         }
     };
 
-    sendCustomMessage = (evt: string, msg: any, to?: string) => {
-        const router: MessageRouter = to ? {
+    sendCustomMessage = async (evt: string, msg: any, to?: string, timeout: number = -1) => {
+        const timeouter = new Timeouter(timeout);
+        await this.makeSureSocket(timeouter.left());
+        const room = this.checkRoom();
+        const router: MessageRouter = {
+            room: room,
             userTo: to,
-        } : undefined;
+        };
         const msgId = this.nextCustomMsgId();
         this.socket.emit(`custom:${evt}` as "custom", {
             msgId,
@@ -502,6 +663,7 @@ export class ConferenceClient {
     waitCustomMessage = async (checker: (evt:string, from?: string, to?: string) => boolean, timeout: number = -1): Promise<any> => {
         const timeouter = new Timeouter(timeout);
         await this.makeSureSocket(timeouter.left());
+        const room = this.checkRoom();
         const evts = combineAsyncIterable([this.emitter.events(['customMsg', 'disconnect', 'error']), timeouter.stopEvt()]);
         for await (const evt of evts) {
             if (evt.name === 'disconnect') {
@@ -518,7 +680,7 @@ export class ConferenceClient {
                 const msg = msg_with_evt.msg;
                 const msg_evt = msg_with_evt.evt;
                 if (msg_evt && msg) {
-                    if (checker(msg_evt, msg.router?.userFrom, msg.router?.userTo)) {
+                    if (room === msg.router?.room && checker(msg_evt, msg.router?.userFrom, msg.router?.userTo)) {
                         const content = msg.content ? JSON.parse(msg.content) : undefined;
                         await evts.return();
                         if (msg.ack) {
@@ -535,6 +697,126 @@ export class ConferenceClient {
             }
         }
     };
+
+    keepAlive = async (uid: string, mode: KeepAliveMode, cb?: KeepAliveCallback, timeout: number = -1, stopEmitter?: Emittery<StopEmitEventMap>) => {
+        await this.makeSureSocket(timeout, stopEmitter);
+        const room = this.checkRoom();
+        if (!cb) {
+            cb = (ctx) => {
+                return ctx.timeoutNum > 3;
+            }
+        }
+        if (timeout <= 0) {
+            timeout = 3000;
+        }
+        const keepAlive = async () => {
+            const ctx: KeepAliveContext = {
+                timeoutNum: 0,
+                timeoutDurationMs: 0,
+            };
+            let err: Error;
+            if (mode === KeepAliveMode.ACTIVE) {
+                const emitter = new Emittery<TimeoutEmitEventMap>();
+                while (true) {
+                    const now = new Date().getTime();
+                    const msgId = this.nextPingMsgId();
+                    const [timeoutEvts, clearTimeoutEvt] = makeTimeoutEvent(emitter, timeout);
+                    const evts = combineAsyncIterable([
+                        this.emitter.events(['pong', 'disconnect', 'error']),
+                        stopEmitter.events('stop'),
+                        timeoutEvts,
+                    ])
+                    this.socket.emit('ping', {
+                        router: {
+                            userTo: uid,
+                            room,
+                        },
+                        msgId,
+                    });
+                    let err: Error;
+                    for await (const evt of evts) {
+                        switch(evt.name) {
+                            case 'stop':
+                                clearTimeoutEvt();
+                                await evts.return();
+                                return;
+                            case "disconnect":
+                                clearTimeoutEvt();
+                                await evts.return();
+                                throw new SocketCloseError(evt.data.reason);
+                            case "error":
+                                clearTimeoutEvt();
+                                await evts.return();
+                                throw new ServerError(evt.data);
+                            case "timeout":
+                                clearTimeoutEvt();
+                                await evts.return();
+                                ctx.timeoutNum ++;
+                                ctx.timeoutDurationMs += new Date().getTime() - now;
+                                if (cb(ctx)) {
+                                    throw new TimeOutError();
+                                } else {
+                                    break;
+                                }
+                            case "pong":
+                                const router = evt.data.router;
+                                if (router.room == room && router.userFrom == uid && evt.data.msgId === msgId) {
+                                    clearTimeoutEvt();
+                                    await evts.return();
+                                    ctx.timeoutNum = 0;
+                                    ctx.timeoutDurationMs = 0;
+                                }
+                                break;
+                        }
+                    }
+                }
+            } else {
+                const emitter = new Emittery<TimeoutEmitEventMap>();
+                const timeoutEvts = emitter.events('timeout');
+                const evts = combineAsyncIterable([
+                    this.emitter.events(['ping', 'disconnect', 'error']),
+                    stopEmitter.events('stop'),
+                    timeoutEvts,
+                ])
+                let now = new Date().getTime();
+                let timeoutClear = timeoutEmit(timeoutEvts, emitter, timeout);
+                for await (const evt of evts) {
+                    switch(evt.name) {
+                        case 'stop':
+                            timeoutClear();
+                            await evts.return();
+                            return;
+                        case 'disconnect':
+                            timeoutClear();
+                            await evts.return();
+                            throw new SocketCloseError(evt.data.reason);
+                        case 'error':
+                            timeoutClear();
+                            await evts.return();
+                            throw new ServerError(evt.data);
+                        case 'timeout':
+                            ctx.timeoutNum ++;
+                            ctx.timeoutDurationMs += new Date().getTime() - now;
+                            now = new Date().getTime();
+                            if (cb(ctx)) {
+                                await evts.return();
+                                return;
+                            } else {
+                                break;
+                            }
+                        case 'ping':
+                            ctx.timeoutNum = 0;
+                            ctx.timeoutDurationMs = 0;
+                            now = new Date().getTime();
+                            timeoutClear();
+                            timeoutClear = timeoutEmit(timeoutEvts, emitter, timeout);
+                            break;
+                    }
+                }
+            }
+        };
+        await keepAlive();
+    }
 
     private waitForEvt = async <E extends keyof EventData>(event: E, checker: (evt: EventData[E]) => boolean, initer: () => boolean) => {
         if (initer()) {
@@ -967,6 +1249,7 @@ export class ConferenceClient {
         }
         const task = this.negMux.runExclusive(async () => {
             await this.makeSureSocket(timeouter.left(), cleaner.stopEmitter);
+            const room = this.checkRoom();
             if (cleaner.stop) {
                 return {
                     subId: "",
@@ -983,6 +1266,9 @@ export class ConferenceClient {
             let subId: string = '';
             try {
                 const { id } = await this.socketWithTimeout(timeouter.left()).emitWithAck('subscribe', {
+                    router: {
+                        room,
+                    },
                     op: SUB_OP_ADD,
                     reqTypes,
                     pattern,
@@ -1152,14 +1438,18 @@ export class ConferenceClient {
         });
     }
 
-    onTracks = async (callback: OnTrack) => {
+    onTracks = (callback: OnTrack) => {
         this.onTrasksCallbacks.push(callback);
     }
 
-    offTracks = async (callback: OnTrack) => {
+    offTracks = (callback: OnTrack) => {
         const i = this.onTrasksCallbacks.indexOf(callback);
         if (i != -1) {
             this.onTrasksCallbacks.splice(i, 1);
         }
+    }
+
+    setOnClose = (callback: OnClose) => {
+        this.onCloseCallback = callback;
     }
 }

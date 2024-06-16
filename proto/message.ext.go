@@ -11,6 +11,15 @@ type RoomMessage interface {
 	CopyPlain() RoomMessage
 }
 
+func GetRoom(msg RoomMessage) string {
+	router := msg.GetRouter();
+	if router != nil {
+		return router.GetRoom()
+	} else {
+		return ""
+	}
+}
+
 type CanToMap interface {
 	ToMap() map[string]any
 }
@@ -161,6 +170,7 @@ func (x *StateParticipantMessage) ToMap() map[string]any {
 		"userId":   x.GetUserId(),
 		"userName": x.GetUserName(),
 		"socketId": x.GetSocketId(),
+		"joinId":   x.GetJoinId(),
 	}
 }
 
@@ -170,6 +180,7 @@ func (x *StateParticipantMessage) CopyPlain() RoomMessage {
 		UserId:   x.GetUserId(),
 		UserName: x.GetUserName(),
 		SocketId: x.GetSocketId(),
+		JoinId:   x.GetJoinId(),
 	}
 }
 
@@ -191,6 +202,7 @@ func (x *StateLeaveMessage) ToMap() map[string]any {
 		"router":   x.GetRouter().ToMap(),
 		"userId":   x.GetUserId(),
 		"socketId": x.GetSocketId(),
+		"joinId":   x.GetJoinId(),
 	}
 }
 
@@ -199,6 +211,7 @@ func (x *StateLeaveMessage) CopyPlain() RoomMessage {
 		Router:   x.GetRouter().CopyPlain(),
 		UserId:   x.GetUserId(),
 		SocketId: x.GetSocketId(),
+		JoinId:   x.GetJoinId(),
 	}
 }
 

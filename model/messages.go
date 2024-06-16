@@ -223,7 +223,6 @@ type SubscribedMessage struct {
 }
 
 type UserInfo struct {
-	SignalMessage `mapstructure:",squash"`
 	Key           string   `json:"key" mapstructure:"key"`
 	UserId        string   `json:"userId" mapstructure:"userId"`
 	UserName      string   `json:"userName" mapstructure:"userName"`

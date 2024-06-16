@@ -149,6 +149,8 @@ message StateParticipantMessage {
 	string userName = 3;
 	// @gotags: mapstructure:"socketId"
 	string socketId = 4;
+	// @gotags: mapstructure:"joinId"
+	uint32 joinId = 5;
 }
 
 message StateLeaveMessage {
@@ -158,6 +160,8 @@ message StateLeaveMessage {
 	string userId = 2;
 	// @gotags: mapstructure:"socketId"
 	string socketId = 3;
+	// @gotags: mapstructure:"joinId"
+	uint32 joinId = 4;
 }
 
 message PingMessage {

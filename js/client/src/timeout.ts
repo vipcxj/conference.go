@@ -6,9 +6,32 @@ export interface StopEmitEventMap {
     stop: NamedEvent<'stop', undefined>;
 }
 
+export interface TimeoutEmitEventMap {
+    timeout: NamedEvent<'timeout', undefined>;
+}
+
 export interface TimeoutHandler {
     handler?: any;
 };
+
+export class Stopper {
+    private emitter: Emittery<StopEmitEventMap>;
+
+    constructor() {
+        this.emitter = new Emittery<StopEmitEventMap>();
+    }
+
+    getEmitter = () => {
+        return this.emitter;
+    }
+
+    stop = () => {
+        this.emitter.emit('stop', {
+            name: 'stop',
+            data: undefined,
+        });
+    }
+}
 
 export class Timeouter {
     private timeoutInMs: number;
@@ -111,4 +134,25 @@ export const makeTimeoutPromise = <T>(timeout: number, handler?: TimeoutHandler)
             reject(new TimeOutError());
         }
     });
-};
+}
+
+export const makeTimeoutEvent = <ET extends TimeoutEmitEventMap>(emitter: Emittery<ET>, timeout: number): [AsyncIterableIterator<TimeoutEmitEventMap['timeout']>, () => void] => {
+    const evts = emitter.events('timeout');
+    const timeoutClear = timeoutEmit(evts, emitter, timeout);
+    return [evts, () => {
+        evts.return();
+        timeoutClear();
+    }];
+}
+
+export const timeoutEmit = <ET extends TimeoutEmitEventMap>(evts: AsyncIterableIterator<TimeoutEmitEventMap['timeout']>, emitter: Emittery<ET>, timeout: number) => {
+    const t = setTimeout(() => {
+        emitter.emit('timeout', {
+            name: 'timeout',
+            data: undefined,
+        });
+    }, timeout);
+    return () => {
+        clearTimeout(t);
+    }
+}

@@ -34,9 +34,23 @@ export interface ErrorMessage extends SignalMessage {
     callFrames?: CallFrame[]
 }
 
-export interface ParticipantMessage extends SignalMessage {
+export interface PingMessage extends SignalMessage {
+    msgId: number;
+}
+
+export interface PongMessage extends SignalMessage {
+    msgId: number;
+}
+
+export interface ParticipantJoinMessage extends SignalMessage {
     userId: string
     userName: string
+    socketId: string
+}
+
+export interface ParticipantLeaveMessage extends SignalMessage {
+    userId: string
+    socketId: string
 }
 
 export interface Track {
@@ -132,4 +146,12 @@ export interface CustomMessageWithEvt {
 
 export interface CustomAckMessage extends SignalMessage {
     msgId: number;
+}
+
+export interface UserInfo {
+    key: string;
+    userId: string;
+    userName: string;
+    role: string;
+    rooms: string[];
 }

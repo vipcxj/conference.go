@@ -362,6 +362,14 @@ func MapValues[K comparable, T any](m map[K]T) []T {
 	return values
 }
 
+func MapKeys[K comparable, T any](m map[K]T) []K {
+	keys := make([]K, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys;
+}
+
 func MapValuesTo[K comparable, V any, T any](m map[K]V, mapper func(K, V) (mapped T, remove bool)) []T {
 	if m == nil {
 		return nil

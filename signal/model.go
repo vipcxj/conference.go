@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -737,10 +736,10 @@ func (me *PublishedTrack) SatifySelect(transportId string) bool {
 	}
 }
 
-// type Participant struct {
-// 	Id string
-// 	Name string
-// }
+type RoomInfo struct {
+	JoinId uint32
+	Joined bool
+}
 
 type SignalContext struct {
 	Id                string
@@ -750,7 +749,7 @@ type SignalContext struct {
 	Peer              *webrtc.PeerConnection
 	ctx               context.Context
 	cancel            context.CancelCauseFunc
-	rooms             []string
+	rooms             map[string]RoomInfo
 	rooms_mux         sync.RWMutex
 	pendingCandidates []*model.CandidateMessage
 	cand_mux          sync.Mutex
@@ -781,6 +780,7 @@ func newSignalContext(global *Global, signal Signal, authInfo *auth.AuthInfo, id
 		AuthInfo:      authInfo,
 		ctx:           ctx,
 		cancel:        cancel,
+		rooms:         make(map[string]RoomInfo),
 		subscriptions: haxmap.New[string, *Subscription](),
 		publications:  haxmap.New[string, *Publication](),
 		logger:        logger,
@@ -819,7 +819,29 @@ func (ctx *SignalContext) RoomPaterns() []string {
 func (ctx *SignalContext) Rooms() []string {
 	ctx.rooms_mux.RLock()
 	defer ctx.rooms_mux.RUnlock()
-	return ctx.rooms
+	cap := len(ctx.rooms)
+	rooms := make([]string, 0, cap)
+	for room, info := range ctx.rooms {
+		if info.Joined {
+			rooms = append(rooms, room)
+		}
+	}
+	return rooms
+}
+
+func (ctx *SignalContext) JoinId(room string) uint32 {
+	ctx.rooms_mux.RLock()
+	defer ctx.rooms_mux.RUnlock()
+	info, ok := ctx.rooms[room]
+	if ok {
+		if info.Joined {
+			return info.JoinId
+		} else {
+			return 0
+		}
+	} else {
+		return 0
+	}
 }
 
 func (ctx *SignalContext) NextSdpMsgId() int {
@@ -1002,10 +1024,8 @@ func (ctx *SignalContext) matchRoom(msg model.RoomMessage) bool {
 	if room == "" {
 		return false
 	}
-	ctx.rooms_mux.RLock()
-	defer ctx.rooms_mux.RUnlock()
-	_, found := slices.BinarySearch(ctx.rooms, room)
-	return found
+	id := ctx.JoinId(room)
+	return id != 0
 }
 
 func (ctx *SignalContext) matchUserTo(msg model.RoomMessage, strict bool) bool {
@@ -1097,7 +1117,7 @@ func (ctx *SignalContext) Subscribe(message *model.SubscribeMessage) (subId stri
 
 	r := ctx.Global.Router()
 	ctx.clusterEmit(&model.WantMessage{
-		Router: &model.RouterMessage {
+		Router: &model.RouterMessage{
 			Room: message.Room,
 		},
 		Pattern:     message.Pattern,
@@ -1239,13 +1259,19 @@ func (ctx *SignalContext) SatifySelect(message *model.SelectMessage) {
 }
 
 func (ctx *SignalContext) StateParticipants(message *model.WantParticipantMessage) {
-	if !ctx.matchRoom(message) {
+	room := proto.GetRoom(message)
+	if room == "" {
+		return
+	}
+	joinId := ctx.JoinId(room)
+	if joinId == 0 {
 		return
 	}
 	ctx.clusterEmit(&model.StateParticipantMessage{
 		UserId:   ctx.AuthInfo.UID,
 		UserName: ctx.AuthInfo.UName,
 		SocketId: ctx.Id,
+		JoinId:   joinId,
 	})
 }
 
@@ -1609,31 +1635,66 @@ func (ctx *SignalContext) JoinRoom(rooms ...string) error {
 		}
 		s_rooms = rooms
 	}
-	// ctx.Socket.Join(s_rooms...)
-	ctx.rooms_mux.Lock()
-	defer ctx.rooms_mux.Unlock()
-	ctx.rooms = utils.SortedSliceAppendNoRepeat(ctx.rooms, s_rooms...)
+	joined_rooms := make([]string, 0, len(s_rooms))
+	func() {
+		ctx.rooms_mux.Lock()
+		defer ctx.rooms_mux.Unlock()
+		for _, room := range s_rooms {
+			info, ok := ctx.rooms[room]
+			if ok {
+				if !info.Joined {
+					info.JoinId++
+					info.Joined = true
+					joined_rooms = append(joined_rooms, room)
+				}
+			} else {
+				ctx.rooms[room] = RoomInfo{
+					JoinId: 1,
+					Joined: true,
+				}
+				joined_rooms = append(joined_rooms, room)
+			}
+		}
+	}()
+	for _, room := range joined_rooms {
+		joinId := ctx.JoinId(room)
+		if joinId != 0 {
+			ctx.ClusterEmit(&model.StateParticipantMessage{
+				Router: &model.RouterMessage{
+					Room: room,
+				},
+				UserId:   ctx.AuthInfo.UID,
+				UserName: ctx.AuthInfo.UName,
+				SocketId: ctx.Id,
+				JoinId:   joinId,
+			})
+		}
+	}
 	return nil
 }
 
 func (ctx *SignalContext) LeaveRoom(rooms ...string) {
-	leaved := func() []string {
+	leaved := func() map[string]uint32 {
 		ctx.rooms_mux.Lock()
 		defer ctx.rooms_mux.Unlock()
-		var removed []string
-		ctx.rooms, removed = utils.SliceRemoveByValuesAndReturnRemoved(ctx.rooms, false, rooms...)
-		if len(ctx.rooms) > 0 {
-			slices.Sort(ctx.rooms)
+		removed := make(map[string]uint32)
+		for _, room := range rooms {
+			info, ok := ctx.rooms[room]
+			if ok && info.Joined {
+				info.Joined = false
+				removed[room] = info.JoinId
+			}
 		}
 		return removed
 	}()
-	for _, room := range leaved {
+	for room, joinId := range leaved {
 		ctx.ClusterEmit(&model.StateLeaveMessage{
 			Router: &model.RouterMessage{
 				Room: room,
 			},
 			UserId:   ctx.AuthInfo.UID,
 			SocketId: ctx.Id,
+			JoinId:   joinId,
 		})
 	}
 }

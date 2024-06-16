@@ -257,4 +257,5 @@ type Participant struct {
 	Id       string
 	Name     string
 	SourceId string
+	JoinId   uint32
 }
