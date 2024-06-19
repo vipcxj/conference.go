@@ -148,6 +148,8 @@ export interface CustomMessageWithEvt {
 
 export interface CustomAckMessage extends SignalMessage {
     msgId: number;
+    content: string;
+    err: boolean;
 }
 
 export interface UserInfo {

@@ -67,7 +67,7 @@ func FinallyResponse(s *SignalContext, ack AckFunc, arkArgs []any, cause string,
 			s.Sugar().Debugf("send ack \"%v\" of %v msg", rawErr, cause)
 			switch err := rawErr.(type) {
 			case error:
-				ack(nil, err)
+				ack(nil, errors.MaybeWrapError(err))
 			default:
 				e := errors.FatalError("%v", rawErr)
 				ack(nil, e)

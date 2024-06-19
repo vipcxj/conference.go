@@ -4,13 +4,15 @@ import (
 	"context"
 	"time"
 
+	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/model"
 )
 
-type AckFunc = func(any, error)
+type AckFunc = func(any, *errors.ConferenceError)
+type CustomAckFunc = func(string, *errors.ConferenceError)
 type MsgCb = func(ack AckFunc, arg any) (remained bool)
-type CustomMsgCb = func(content string, ack func(), room string, from string, to string) (remained bool)
-type RoomedCustomMsgCb = func(content string, ack func(), from string, to string) (remained bool)
+type CustomMsgCb = func(content string, ack CustomAckFunc, room string, from string, to string) (remained bool)
+type RoomedCustomMsgCb = func(content string, ack CustomAckFunc, from string, to string) (remained bool)
 type ParticipantCb = func(participant *model.Participant) (remained bool)
 
 type KeepAliveContext struct {
@@ -30,7 +32,7 @@ const (
 type Signal interface {
 	MakesureConnect(ctx context.Context) error
 	sendMsg(ctx context.Context, ack bool, evt string, arg any) (res any, err error)
-	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) error
+	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error)
 	onMsg(evt string, cb MsgCb) error
 	OnMessage(evt string, cb CustomMsgCb)
 	Join(ctx context.Context, rooms ...string) error
@@ -44,7 +46,7 @@ type Signal interface {
 
 type RoomedSignal interface {
 	GetRoom() string
-	SendMessage(ctx context.Context, ack bool, evt string, content string, to string) error
+	SendMessage(ctx context.Context, ack bool, evt string, content string, to string) (res string, err error)
 	OnMessage(evt string, cb RoomedCustomMsgCb)
 	OnParticipantJoin(cb ParticipantCb) int
 	OffParticipantJoin(id int)

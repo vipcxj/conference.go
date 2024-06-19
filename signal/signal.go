@@ -4,12 +4,13 @@ import (
 	"context"
 	"sync"
 
+	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/model"
 	"github.com/vipcxj/conference.go/utils"
 	"go.uber.org/zap"
 )
 
-type AckFunc = func([]any, error)
+type AckFunc = func([]any, *errors.ConferenceError)
 type MsgCb = func(ack AckFunc, args ...any) (remained bool)
 type CustomMsgCb = func(evt string, msg *model.CustomMessage)
 type CustomAckMsgCb = func(msg *model.CustomAckMessage)

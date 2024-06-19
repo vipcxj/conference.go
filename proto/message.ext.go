@@ -12,7 +12,7 @@ type RoomMessage interface {
 }
 
 func GetRoom(msg RoomMessage) string {
-	router := msg.GetRouter();
+	router := msg.GetRouter()
 	if router != nil {
 		return router.GetRoom()
 	} else {
@@ -346,8 +346,10 @@ func (x *CustomAckMessage) ToMap() map[string]any {
 		return nil
 	}
 	return map[string]any{
-		"router": x.GetRouter().ToMap(),
-		"msgId":  x.GetMsgId(),
+		"router":  x.GetRouter().ToMap(),
+		"msgId":   x.GetMsgId(),
+		"content": x.GetContent(),
+		"err":     x.GetErr(),
 	}
 }
 
@@ -363,7 +365,9 @@ func (x *CustomAckMessage) FixRouter(room string, user string, node string) {
 
 func (x *CustomAckMessage) CopyPlain() RoomMessage {
 	return &CustomAckMessage{
-		Router: x.GetRouter().CopyPlain(),
-		MsgId:  x.GetMsgId(),
+		Router:  x.GetRouter().CopyPlain(),
+		MsgId:   x.GetMsgId(),
+		Content: x.GetContent(),
+		Err:     x.GetErr(),
 	}
 }

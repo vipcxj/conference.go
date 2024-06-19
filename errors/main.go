@@ -40,6 +40,8 @@ type ConferenceError struct {
 	Msg        string      `json:"msg" mapstructure:"msg"`
 	Data       interface{} `json:"data" mapstructure:"data"`
 	CallFrames []CallFrame `json:"callFrames" mapstructure:"callFrames"`
+	Cause      string      `json:"cause" mapstructure:"cause"`
+	cause      error
 }
 
 func (e *ConferenceError) GenCallStacks(ignores int) *ConferenceError {
@@ -66,6 +68,10 @@ func (e *ConferenceError) Error() string {
 	return e.Msg
 }
 
+func (e *ConferenceError) Unwrap() error {
+	return e.cause
+}
+
 func (e *ConferenceError) ToString() string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("[%d] %v", e.Code, e.Msg))
@@ -84,14 +90,37 @@ func (e *ConferenceError) ToString() string {
 }
 
 func NewError(code int, msg string, args ...any) *ConferenceError {
-	return &ConferenceError{
-		Msg:  fmt.Sprintf(msg, args...),
-		Code: code,
+	err := fmt.Errorf(msg, args...)
+	cause := _errors.Unwrap(err)
+	cause_msg := ""
+	if cause != nil {
+		cause_msg = cause.Error()
 	}
+	res := &ConferenceError{
+		Msg:   err.Error(),
+		Code:  code,
+		cause: _errors.Unwrap(err),
+		Cause: cause_msg,
+	}
+	cfgo_err, ok :=	cause.(*ConferenceError)
+	if ok {
+		res.Data = cfgo_err.Data
+		res.CallFrames = cfgo_err.CallFrames
+	}
+	return res
 }
 
 func NewStackError(ignores int, code int, msg string, args ...any) *ConferenceError {
 	return NewError(code, msg, args...).GenCallStacks(ignores + 1)
+}
+
+func MaybeWrapError(cause error) *ConferenceError {
+	cfgo_err, ok :=	cause.(*ConferenceError)
+	if ok {
+		return cfgo_err
+	} else {
+		return NewError(ERR_FATAL, "%w", cause)
+	}
 }
 
 func IsOk(err error) bool {

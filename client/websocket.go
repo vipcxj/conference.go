@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"github.com/lesismal/nbio/nbhttp"
 	nbws "github.com/lesismal/nbio/nbhttp/websocket"
 	"github.com/mitchellh/mapstructure"
+	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/model"
 	sg "github.com/vipcxj/conference.go/signal"
@@ -27,6 +29,7 @@ type WebSocketSignalConfigure struct {
 }
 
 type AckKey struct {
+	room string
 	user string
 	id   uint32
 }
@@ -273,6 +276,11 @@ func (box *ParticipantsBox) GetParticipants(room string) []*model.Participant {
 	}
 }
 
+type ackMsg struct {
+	ch chan struct {}
+	msg *model.CustomAckMessage
+}
+
 type WebsocketSignal struct {
 	conf             *WebSocketSignalConfigure
 	signal           *websocket.WebSocketSignal
@@ -290,7 +298,7 @@ type WebsocketSignal struct {
 	custom_msg_mux           sync.Mutex
 	custom_msg_cbs           map[string][]CustomMsgCb
 	custom_ack_msg_mux       sync.Mutex
-	custom_ack_msg_notifiers map[AckKey]chan any
+	custom_ack_msg_notifiers map[AckKey]*ackMsg
 
 	user_info *model.UserInfo
 	rooms     []string
@@ -319,12 +327,12 @@ func (s *RoomedWebsocketSignal) GetRoom() string {
 	return s.room
 }
 
-func (s *RoomedWebsocketSignal) SendMessage(ctx context.Context, ack bool, evt string, content string, to string) error {
+func (s *RoomedWebsocketSignal) SendMessage(ctx context.Context, ack bool, evt string, content string, to string) (res string, err error) {
 	return s.signal.SendMessage(ctx, ack, evt, content, to, s.GetRoom())
 }
 
 func (s *RoomedWebsocketSignal) OnMessage(evt string, cb RoomedCustomMsgCb) {
-	s.signal.OnMessage(evt, func(content string, ack func(), room, from, to string) (remained bool) {
+	s.signal.OnMessage(evt, func(content string, ack CustomAckFunc, room, from, to string) (remained bool) {
 		if room == s.GetRoom() {
 			return cb(content, ack, from, to)
 		} else {
@@ -389,28 +397,33 @@ func NewWebsocketSignal(ctx context.Context, conf *WebSocketSignalConfigure, eng
 		ctx:            ctx,
 		msg_cbs:        sg.NewMsgCbs(),
 		custom_msg_cbs: make(map[string][]CustomMsgCb),
+		custom_ack_msg_notifiers: make(map[AckKey]*ackMsg),
 		ping_chs:       make(map[PingKey][]chan *model.PingMessage),
 		participants:   mewParticipantsBox(),
 	}
 }
 
-func (signal *WebsocketSignal) PushCustomAckMsgCh(to string, id uint32) chan any {
+func (signal *WebsocketSignal) PushCustomAckMsgCh(room string, to string, id uint32) *ackMsg {
 	signal.custom_ack_msg_mux.Lock()
 	defer signal.custom_ack_msg_mux.Unlock()
 	key := AckKey{
+		room: room,
 		user: to,
 		id:   id,
 	}
-	ch := make(chan any)
-	signal.custom_ack_msg_notifiers[key] = ch
-	return ch
+	ack_msg := &ackMsg{
+		ch: make(chan struct{}),
+	}
+	signal.custom_ack_msg_notifiers[key] = ack_msg
+	return ack_msg
 }
 
-func (signal *WebsocketSignal) PopCustomAckMsgCh(from string, id uint32) chan any {
+func (signal *WebsocketSignal) PopCustomAckMsgCh(room string, from string, id uint32) *ackMsg {
 	signal.custom_ack_msg_mux.Lock()
 	defer signal.custom_ack_msg_mux.Unlock()
 	for _, user := range []string{from, ""} {
 		key := AckKey{
+			room: room,
 			user: user,
 			id:   id,
 		}
@@ -469,15 +482,25 @@ func (signal *WebsocketSignal) accessSignal(ctx context.Context) (*websocket.Web
 		new_cbs := make([]CustomMsgCb, 0)
 		if ok {
 			for _, cb := range cbs {
-				var ack func()
+				var ack CustomAckFunc
 				router := msg.GetRouter()
 				if msg.GetAck() {
-					ack = func() {
+					ack = func(res string, err *errors.ConferenceError) {
+						if err != nil {
+							js_err, ms_err := json.Marshal(err)
+							if ms_err != nil {
+								res = fmt.Sprintf("unable to encode the custom ack err, %v", ms_err.Error())
+							} else {
+								res = string(js_err)
+							}
+						}
 						signal.signal.SendMsg(signal.ctx, false, "custom-ack", &model.CustomAckMessage{
 							Router: &model.RouterMessage{
 								UserTo: router.GetUserFrom(),
 							},
 							MsgId: msg.GetMsgId(),
+							Content: res,
+							Err: err != nil,
 						})
 					}
 				}
@@ -493,9 +516,10 @@ func (signal *WebsocketSignal) accessSignal(ctx context.Context) (*websocket.Web
 		}
 	})
 	signal.signal.OnCustomAck(func(msg *model.CustomAckMessage) {
-		ch := signal.PopCustomAckMsgCh(msg.GetRouter().GetUserFrom(), msg.MsgId)
-		if ch != nil {
-			close(ch)
+		ack_msg := signal.PopCustomAckMsgCh(msg.GetRouter().GetRoom(), msg.GetRouter().GetUserFrom(), msg.MsgId)
+		if ack_msg != nil {
+			ack_msg.msg = msg
+			close(ack_msg.ch)
 		}
 	})
 	ready_ch := make(chan struct{})
@@ -642,15 +666,15 @@ func (signal *WebsocketSignal) sendMsg(ctx context.Context, ack bool, evt string
 	}
 }
 
-func (signal *WebsocketSignal) SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) error {
+func (signal *WebsocketSignal) SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error) {
 	s, err := signal.accessSignal(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	custom_msg_id := signal.next_custom_msg_id.Add(1)
-	var ch chan any
+	var ack_msg *ackMsg
 	if ack {
-		ch = signal.PushCustomAckMsgCh(to, custom_msg_id)
+		ack_msg = signal.PushCustomAckMsgCh(room, to, custom_msg_id)
 	}
 	s.SendMsg(ctx, false, fmt.Sprintf("custom:%s", evt), &model.CustomMessage{
 		Router: &model.RouterMessage{
@@ -661,17 +685,29 @@ func (signal *WebsocketSignal) SendMessage(ctx context.Context, ack bool, evt st
 		Ack:     ack,
 		Content: content,
 	})
-	if ch != nil {
+	if ack_msg != nil {
 		select {
 		case <-ctx.Done():
-			return context.Cause(ctx)
+			return "", context.Cause(ctx)
 		case <-signal.ctx.Done():
-			return context.Cause(signal.ctx)
-		case <-ch:
-			return nil
+			return "", context.Cause(signal.ctx)
+		case <-ack_msg.ch:
+			msg := ack_msg.msg
+			content := msg.GetContent()
+			if msg.GetErr() {
+				var ce errors.ConferenceError
+				err = json.Unmarshal([]byte(content), &ce)
+				if err != nil {
+					return "", errors.FatalError("unable to decode custom ack err \"%s\", %w", content, err)
+				} else {
+					return "", &ce
+				}
+			} else {
+				return content, nil
+			}
 		}
 	} else {
-		return nil
+		return "", nil
 	}
 }
 
@@ -685,7 +721,7 @@ func args2arg(args ...any) (arg any) {
 
 func (signal *WebsocketSignal) onMsg(evt string, cb MsgCb) error {
 	signal.msg_cbs.AddCallback(evt, func(ack sg.AckFunc, args ...any) (remained bool) {
-		my_ack := func(arg any, err error) {
+		my_ack := func(arg any, err *errors.ConferenceError) {
 			ack([]any{arg}, err)
 		}
 		return cb(my_ack, args2arg(args...))

@@ -12,6 +12,7 @@ import (
 	"github.com/vipcxj/conference.go/client"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/entry"
+	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/utils"
 )
@@ -205,45 +206,68 @@ func TestSendMessage(t *testing.T) {
 		t.Fatalf("unable to create client 1, %v", err)
 	}
 	defer cancel1(nil)
-	c1.OnMessage("hello", func(content string, ack func(), room, from, to string) (remained bool) {
+	c1.OnMessage("hello", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
 		utils.AssertEqual(t, "room", room)
 		utils.AssertEqual(t, "2", from)
 		utils.AssertEqual(t, "1", to)
 		utils.AssertEqual(t, "hello", content)
-		if ack != nil {
-			ack()
-		}
+		utils.AssertTrue(t, ack == nil)
 		close(ch1)
-		return true
+		return false
 	})
 	err = c1.MakeSureConnect(ctx)
 	if err != nil {
-		t.Fatalf("failed to make sure c1 connected")
+		t.Fatalf("failed to make sure c1 connected, %v", err)
 	}
 	c2, cancel2, err := createClient(ctx, "2", "room", true)
 	if err != nil {
 		t.Fatalf("unable to create client 2, %v", err)
 	}
 	defer cancel2(nil)
-	c2.OnMessage("hello", func(content string, ack func(), room, from, to string) (remained bool) {
+	c2.OnMessage("hello", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
 		utils.AssertEqual(t, "room", room)
 		utils.AssertEqual(t, "1", from)
 		utils.AssertEqual(t, "2", to)
 		utils.AssertEqual(t, "hello", content)
-		if ack != nil {
-			ack()
-		}
+		utils.AssertTrue(t, ack == nil)
 		close(ch2)
-		return true
+		return false
 	})
 	err = c2.MakeSureConnect(ctx)
 	if err != nil {
-		t.Fatalf("failed to make sure c2 connected")
+		t.Fatalf("failed to make sure c2 connected, %v", err)
 	}
 	c1.SendMessage(ctx, false, "hello", "hello", "2", "room")
 	<- ch2
 	c2.SendMessage(ctx, false, "hello", "hello", "1", "room")
 	<- ch1
+	c1.OnMessage("hello", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
+		utils.AssertEqual(t, "room", room)
+		utils.AssertEqual(t, "2", from)
+		utils.AssertEqual(t, "1", to)
+		utils.AssertTrue(t, ack != nil)
+		ack(content, nil)
+		return false
+	})
+	res, err := c2.SendMessage(ctx, true, "hello", "world", "1", "room")
+	if err != nil {
+		t.Fatalf("failed to send msg to client 1, %v", err)
+	}
+	utils.AssertEqual(t, "world", res)
+	c2.OnMessage("error", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
+		utils.AssertEqual(t, "room", room)
+		utils.AssertEqual(t, "1", from)
+		utils.AssertEqual(t, "2", to)
+		utils.AssertTrue(t, ack != nil)
+		ack("", errors.FatalError("test error"))
+		return false
+	})
+	res, err = c1.SendMessage(ctx, true, "error", "error", "2", "room")
+	utils.AssertTrue(t, err != nil)
+	ce, ok := err.(*errors.ConferenceError)
+	utils.AssertTrue(t, ok)
+	utils.AssertEqual(t, "test error", ce.Error())
+	utils.AssertEqual(t, "", res)
 }
 
 

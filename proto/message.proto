@@ -201,4 +201,8 @@ message CustomAckMessage {
     Router router = 1;
 	// @gotags: mapstructure:"msgId"
 	uint32 msgId = 2;
+	// @gotags: mapstructure:"content"
+	string content = 3;
+	// @gotags: mapstructure:"err"
+	bool err = 4;
 }

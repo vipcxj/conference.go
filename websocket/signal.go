@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type AckFunc = func([]any, error)
+type AckFunc = func([]any, *errors.ConferenceError)
 type MsgCb = func(evt string, ack AckFunc, args ...any)
 
 type ackArgs struct {
@@ -94,29 +94,30 @@ func encodeWsTextData(evt string, msg_id uint64, flag WsMsgFlag, data any) (stri
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s;%d;%d;%s", evt, msg_id, int(flag), data_str), nil
+	return fmt.Sprintf("%s;%d;%d;%s", evt, msg_id, int(flag), string(data_str)), nil
 }
 
 // evt;msg_id;flag(WsMsgFlag);json_data
-func decodeWsTextData(s string) (evt string, msg_id uint64, flag WsMsgFlag, data string, err error) {
+func decodeWsTextData(s string) (evt string, msg_id uint64, flag WsMsgFlag, data string, err *errors.ConferenceError) {
 	evt_pos := strings.Index(s, ";")
 	if evt_pos != -1 {
 		evt = s[0:evt_pos]
 		s = s[evt_pos+1:]
 		msg_id_pos := strings.Index(s, ";")
 		if msg_id_pos != -1 {
-			msg_id, err = strconv.ParseUint(s[0:msg_id_pos], 10, 64)
-			if err != nil {
-				err = errors.FatalError("unable to parse msg id when decoding msg, %v", err)
+			var raw_err error
+			msg_id, raw_err = strconv.ParseUint(s[0:msg_id_pos], 10, 64)
+			if raw_err != nil {
+				err = errors.FatalError("unable to parse msg id when decoding msg, %w", err)
 				return
 			}
 			s = s[msg_id_pos+1:]
 			flag_pos := strings.Index(s, ";")
 			if flag_pos != -1 {
 				var flag_int uint64
-				flag_int, err = strconv.ParseUint(s[0:flag_pos], 10, 8)
-				if err != nil {
-					err = errors.FatalError("unable to parse ack flag when decoding msg, %v", err)
+				flag_int, raw_err = strconv.ParseUint(s[0:flag_pos], 10, 8)
+				if raw_err != nil {
+					err = errors.FatalError("unable to parse ack flag when decoding msg, %w", err)
 					return
 				}
 				if !isValidWsMsgFlag(flag_int) {
@@ -155,6 +156,7 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 	msg_handler := func(c *websocket.Conn, mt websocket.MessageType, b []byte) {
 		if mt == websocket.TextMessage {
 			s := string(b)
+			var raw_err error
 			evt, msg_id, flag, data_str, err := decodeWsTextData(s)
 			if err != nil {
 				sig.Sugar().Errorf("unable to decode message, %v", err)
@@ -162,12 +164,22 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 			}
 			var data any
 			if data_str != "" {
-				err = json.Unmarshal([]byte(data_str), &data)
-				if err != nil {
+				raw_err = json.Unmarshal([]byte(data_str), &data)
+				if raw_err != nil {
 					if flag.is_ack() {
-						err = errors.FatalError("unable to decode ack message, %v", err)
+						err = errors.FatalError("unable to decode ack message, %v", raw_err)
 					} else {
-						err = errors.FatalError("unable to decode %s message, %v", evt, err)
+						err = errors.FatalError("unable to decode %s message, %v", evt, raw_err)
+					}
+				} else {
+					if flag.is_err_ack() {
+						var ce errors.ConferenceError
+						raw_err = mapstructure.Decode(data, &ce)
+						if raw_err != nil {
+							err = errors.FatalError("unable to decode the ack err \"%s\", %w", data_str, raw_err)
+						} else {
+							err = &ce
+						}
 					}
 				}
 			}
@@ -186,7 +198,7 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 						if flag.is_err_ack() {
 							ack_ch <- &ackArgs{
 								arg: nil,
-								err: errors.ClientError(data),
+								err: errors.ThisIsImpossible().GenCallStacks(0),
 							}
 						} else {
 							ack_ch <- &ackArgs{
@@ -221,30 +233,31 @@ func NewWebSocketSignal(mode WsSignalMode, upgrader *websocket.Upgrader) *WebSoc
 					if sig.msg_cb != nil {
 						var ack_fun AckFunc = nil
 						if flag.need_ack() {
-							ack_fun = func(args []any, err error) {
+							ack_fun = func(args []any, err *errors.ConferenceError) {
 								var data any
-								if err != nil {
-									data = err.Error()
-								} else {
+								if err == nil {
 									if len(args) > 0 {
 										data = args[0]
 									} else {
 										data = nil
 									}
+								} else {
+									data = err
 								}
 								var msg string
+								var raw_err error
 								if err != nil {
-									msg, err = encodeWsTextData("", msg_id, WS_MSG_FLAG_IS_ACK_ERR, data)
+									msg, raw_err = encodeWsTextData("", msg_id, WS_MSG_FLAG_IS_ACK_ERR, data)
 								} else {
-									msg, err = encodeWsTextData("", msg_id, WS_MSG_FLAG_IS_ACK_NORMAL, data)
+									msg, raw_err = encodeWsTextData("", msg_id, WS_MSG_FLAG_IS_ACK_NORMAL, data)
 								}
-								if err != nil {
-									sig.Sugar().Errorf("unable to encode ws ack msg with arg %v", data)
+								if raw_err != nil {
+									sig.Sugar().Errorf("unable to encode ws ack msg with arg %v, %v", data, raw_err)
 									return
 								}
-								err = c.WriteMessage(websocket.TextMessage, []byte(msg))
-								if err != nil {
-									sig.Sugar().Errorf("unable to send ws ack msg with arg %v", data)
+								raw_err = c.WriteMessage(websocket.TextMessage, []byte(msg))
+								if raw_err != nil {
+									sig.Sugar().Errorf("unable to send ws ack msg with arg %v, %v", data, raw_err)
 									return
 								}
 							}

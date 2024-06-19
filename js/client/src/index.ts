@@ -754,8 +754,16 @@ export class ConferenceClient {
                 await evts.return();
                 throw new TimeOutError();
             } else if (msgId === evt.data.msgId) {
-                await evts.return();
-                return;
+                const router = evt.data.router;
+                if (router?.room === room && router?.userFrom === to) {
+                    await evts.return();
+                    const content = JSON.parse(evt.data.content);
+                    if (evt.data.err) {
+                        throw new ServerError(content as ErrorMessage);
+                    } else {
+                        return content;
+                    }
+                }
             }
         }
     };
@@ -777,7 +785,7 @@ export class ConferenceClient {
         });
     };
 
-    waitCustomMessage = async (checker: (evt:string, from?: string, to?: string) => boolean, timeout: number = -1): Promise<any> => {
+    waitCustomMessage = async (checker: (evt:string, from?: string, to?: string) => boolean, timeout: number = -1): Promise<{ resp: any, ack?: (res: any, err: ErrorMessage) => void}> => {
         const timeouter = new Timeouter(timeout);
         await this.makeSureSocket(timeouter.left());
         const room = this.checkRoom();
@@ -798,15 +806,23 @@ export class ConferenceClient {
                 const msg_evt = msg_with_evt.evt;
                 if (msg_evt && msg) {
                     if (room === msg.router?.room && checker(msg_evt, msg.router?.userFrom, msg.router?.userTo)) {
-                        const content = msg.content ? JSON.parse(msg.content) : undefined;
                         await evts.return();
+                        const content = msg.content ? JSON.parse(msg.content) : undefined;
                         if (msg.ack) {
-                            this.socket.emit('custom-ack', {
-                                router: {
-                                    userTo: msg.router?.userFrom,
+                            return {
+                                resp: content,
+                                ack: (res: any, err: ErrorMessage) => {
+                                    this.socket.emit('custom-ack', {
+                                        router: {
+                                            room: msg.router?.room,
+                                            userTo: msg.router?.userFrom,
+                                        },
+                                        msgId: msg.msgId,
+                                        content: JSON.stringify(err ? err: res),
+                                        err: !!err,
+                                    });
                                 },
-                                msgId: msg.msgId,
-                            });
+                            }
                         }
                         return content;
                     }
