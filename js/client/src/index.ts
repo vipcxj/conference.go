@@ -1420,7 +1420,6 @@ export class ConferenceClient {
         }
         const task = this.negMux.runExclusive(async () => {
             await this.makeSureSocket(timeouter.left(), cleaner.stopEmitter);
-            const room = this.checkRoom();
             if (cleaner.stop) {
                 return {
                     subId: "",
@@ -1437,9 +1436,6 @@ export class ConferenceClient {
             let subId: string = '';
             try {
                 const { id } = await this.socketWithTimeout(timeouter.left()).emitWithAck('subscribe', {
-                    router: {
-                        room,
-                    },
                     op: SUB_OP_ADD,
                     reqTypes,
                     pattern,
