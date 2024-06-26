@@ -15,7 +15,7 @@ type ErrorMessage struct {
 	Msg           string             `json:"msg" mapstructure:"msg"`
 	Cause         string             `json:"cause" mapstructure:"cause"`
 	Fatal         bool               `json:"fatal" mapstructure:"fatal"`
-	CallFrames    []errors.CallFrame `json:"callFrames" mapstructure:"callFrames"`
+	CallFrames    []errors.CallFrame `json:"callFrames,omitempty" mapstructure:"callFrames"`
 }
 
 type SdpMessage struct {
@@ -33,12 +33,12 @@ type CandidateMessage struct {
 
 type JoinMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	Rooms         []string `json:"rooms" mapstructure:"rooms"`
+	Rooms         []string `json:"rooms,omitempty" mapstructure:"rooms"`
 }
 
 type LeaveMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	Rooms         []string `json:"rooms" mapstructure:"rooms"`
+	Rooms         []string `json:"rooms,omitempty" mapstructure:"rooms"`
 }
 
 type RouterMessage = proto.Router
@@ -113,7 +113,7 @@ type PublishMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	Op            PublishOp        `json:"op" mapstructure:"op"`
 	Id            string           `json:"id" mapstructure:"id"`
-	Tracks        []TrackToPublish `json:"tracks" mapstructure:"tracks"`
+	Tracks        []TrackToPublish `json:"tracks,omitempty" mapstructure:"tracks"`
 }
 
 func (m *PublishMessage) Validate() error {
@@ -178,7 +178,7 @@ type SubscribeMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	Op            SubscribeOp         `json:"op" mapstructure:"op"`
 	Id            string              `json:"id" mapstructure:"id"`
-	ReqTypes      []string            `json:"reqTypes" mapstructure:"reqTypes"`
+	ReqTypes      []string            `json:"reqTypes,omitempty" mapstructure:"reqTypes"`
 	Pattern       *PublicationPattern `json:"pattern" mapstructure:"pattern"`
 }
 
@@ -219,7 +219,7 @@ type SubscribedMessage struct {
 	SubId         string         `json:"subId" mapstructure:"subId"`
 	PubId         string         `json:"pubId" mapstructure:"pubId"`
 	SdpId         int            `json:"sdpId" mapstructure:"sdpId"`
-	Tracks        []*proto.Track `json:"tracks" mapstructure:"tracks"`
+	Tracks        []*proto.Track `json:"tracks,omitempty" mapstructure:"tracks"`
 }
 
 type UserInfo struct {
@@ -227,5 +227,5 @@ type UserInfo struct {
 	UserId        string   `json:"userId" mapstructure:"userId"`
 	UserName      string   `json:"userName" mapstructure:"userName"`
 	Role          string   `json:"role" mapstructure:"role"`
-	Rooms         []string `json:"rooms" mapstructure:"rooms"`
+	Rooms         []string `json:"rooms,omitempty" mapstructure:"rooms"`
 }
