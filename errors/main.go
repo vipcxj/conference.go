@@ -39,7 +39,7 @@ type ConferenceError struct {
 	Code       int         `json:"code" mapstructure:"code"`
 	Msg        string      `json:"msg" mapstructure:"msg"`
 	Data       interface{} `json:"data" mapstructure:"data"`
-	CallFrames []CallFrame `json:"callFrames" mapstructure:"callFrames"`
+	CallFrames []CallFrame `json:"callFrames,omitempty" mapstructure:"callFrames"`
 	Cause      string      `json:"cause" mapstructure:"cause"`
 	cause      error
 }
@@ -102,7 +102,7 @@ func NewError(code int, msg string, args ...any) *ConferenceError {
 		cause: _errors.Unwrap(err),
 		Cause: cause_msg,
 	}
-	cfgo_err, ok :=	cause.(*ConferenceError)
+	cfgo_err, ok := cause.(*ConferenceError)
 	if ok {
 		res.Data = cfgo_err.Data
 		res.CallFrames = cfgo_err.CallFrames
@@ -115,7 +115,7 @@ func NewStackError(ignores int, code int, msg string, args ...any) *ConferenceEr
 }
 
 func MaybeWrapError(cause error) *ConferenceError {
-	cfgo_err, ok :=	cause.(*ConferenceError)
+	cfgo_err, ok := cause.(*ConferenceError)
 	if ok {
 		return cfgo_err
 	} else {
