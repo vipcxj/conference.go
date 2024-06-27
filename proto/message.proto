@@ -38,10 +38,10 @@ message Router {
 	string nodeFrom = 2;
 	// @gotags: mapstructure:"nodeTo,omitempty"
     string nodeTo = 3;
-	// @gotags: mapstructure:"userFrom,omitempty"
-	string userFrom = 4;
-	// @gotags: mapstructure:"userTo,omitempty"
-	string userTo = 5;
+	// @gotags: mapstructure:"socketFrom,omitempty"
+	string socketFrom = 4;
+	// @gotags: mapstructure:"socketTo,omitempty"
+	string socketTo = 5;
 }
 
 message WantMessage {

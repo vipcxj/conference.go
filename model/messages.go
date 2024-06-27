@@ -6,10 +6,7 @@ import (
 	"github.com/vipcxj/conference.go/proto"
 )
 
-type SignalMessage struct {
-	Room string `json:"room" mapstructure:"room"`
-	To   string `json:"to" mapstructure:"to"`
-}
+type SignalMessage struct{}
 type ErrorMessage struct {
 	SignalMessage `mapstructure:",squash"`
 	Msg           string             `json:"msg" mapstructure:"msg"`
@@ -180,6 +177,7 @@ type SubscribeMessage struct {
 	Id            string              `json:"id" mapstructure:"id"`
 	ReqTypes      []string            `json:"reqTypes,omitempty" mapstructure:"reqTypes"`
 	Pattern       *PublicationPattern `json:"pattern" mapstructure:"pattern"`
+	Room          string              `json:"room,omitempty" mapstructure:"room"`
 }
 
 func (m *SubscribeMessage) Validate() error {
@@ -223,9 +221,10 @@ type SubscribedMessage struct {
 }
 
 type UserInfo struct {
-	Key           string   `json:"key" mapstructure:"key"`
-	UserId        string   `json:"userId" mapstructure:"userId"`
-	UserName      string   `json:"userName" mapstructure:"userName"`
-	Role          string   `json:"role" mapstructure:"role"`
-	Rooms         []string `json:"rooms,omitempty" mapstructure:"rooms"`
+	SocketId string   `json:"socketId" mapstructure:"socketId"`
+	Key      string   `json:"key" mapstructure:"key"`
+	UserId   string   `json:"userId" mapstructure:"userId"`
+	UserName string   `json:"userName" mapstructure:"userName"`
+	Role     string   `json:"role" mapstructure:"role"`
+	Rooms    []string `json:"rooms,omitempty" mapstructure:"rooms"`
 }

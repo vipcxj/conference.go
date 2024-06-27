@@ -347,7 +347,7 @@ export class ConferenceClient {
             this.socket.emit('pong', {
                 router: {
                     room: router.room,
-                    userTo: router.userFrom,
+                    socketTo: router.socketFrom,
                 },
                 msgId: msg.msgId,
             });
@@ -733,7 +733,7 @@ export class ConferenceClient {
         const room = this.checkRoom();
         const router: MessageRouter = {
             room: room,
-            userTo: to,
+            socketTo: to,
         };
         const evts = combineAsyncIterable([this.emitter.events(['customAckMsg', 'disconnect', 'error']), timeouter.stopEvt()]);
         const msgId = this.nextCustomMsgId();
@@ -755,7 +755,7 @@ export class ConferenceClient {
                 throw new TimeOutError();
             } else if (msgId === evt.data.msgId) {
                 const router = evt.data.router;
-                if (router?.room === room && router?.userFrom === to) {
+                if (router?.room === room && router?.socketFrom === to) {
                     await evts.return();
                     const content = JSON.parse(evt.data.content);
                     if (evt.data.err) {
@@ -774,7 +774,7 @@ export class ConferenceClient {
         const room = this.checkRoom();
         const router: MessageRouter = {
             room: room,
-            userTo: to,
+            socketTo: to,
         };
         const msgId = this.nextCustomMsgId();
         this.socket.emit(`custom:${evt}` as "custom", {
@@ -805,7 +805,7 @@ export class ConferenceClient {
                 const msg = msg_with_evt.msg;
                 const msg_evt = msg_with_evt.evt;
                 if (msg_evt && msg) {
-                    if (room === msg.router?.room && checker(msg_evt, msg.router?.userFrom, msg.router?.userTo)) {
+                    if (room === msg.router?.room && checker(msg_evt, msg.router?.socketFrom, msg.router?.socketTo)) {
                         await evts.return();
                         const content = msg.content ? JSON.parse(msg.content) : undefined;
                         if (msg.ack) {
@@ -815,7 +815,7 @@ export class ConferenceClient {
                                     this.socket.emit('custom-ack', {
                                         router: {
                                             room: msg.router?.room,
-                                            userTo: msg.router?.userFrom,
+                                            socketTo: msg.router?.socketFrom,
                                         },
                                         msgId: msg.msgId,
                                         content: JSON.stringify(err ? err: res),
@@ -867,7 +867,7 @@ export class ConferenceClient {
         }
     }
 
-    keepAlive = async (uid: string, mode: KeepAliveMode, cb?: KeepAliveCallback, timeout: number = -1, stopEmitter?: Emittery<StopEmitEventMap>) => {
+    keepAlive = async (socketId: string, mode: KeepAliveMode, cb?: KeepAliveCallback, timeout: number = -1, stopEmitter?: Emittery<StopEmitEventMap>) => {
         await this.makeSureSocket(timeout, stopEmitter);
         const room = this.checkRoom();
         if (!cb) {
@@ -898,7 +898,7 @@ export class ConferenceClient {
                     ])
                     this.socket.emit('ping', {
                         router: {
-                            userTo: uid,
+                            socketTo: socketId,
                             room,
                         },
                         msgId,
@@ -930,7 +930,7 @@ export class ConferenceClient {
                                 }
                             case "pong":
                                 const router = evt.data.router;
-                                if (router.room == room && router.userFrom == uid && evt.data.msgId === msgId) {
+                                if (router.room == room && router.socketFrom == socketId && evt.data.msgId === msgId) {
                                     clearTimeoutEvt();
                                     await evts.return();
                                     ctx.timeoutNum = 0;

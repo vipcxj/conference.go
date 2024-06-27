@@ -2,8 +2,8 @@ import { Labels, Pattern } from './pattern';
 
 export interface MessageRouter {
     room?: string;
-    userFrom?: string;
-    userTo?: string;
+    socketFrom?: string;
+    socketTo?: string;
 }
 
 export interface SignalMessage {

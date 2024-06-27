@@ -857,7 +857,7 @@ func (sctx *SignalContext) clusterEmit(message model.RoomMessage) {
 	if router != nil && router.GetRoom() != "" {
 		room := router.GetRoom()
 		msg_copy := message.CopyPlain()
-		msg_copy.FixRouter(room, sctx.AuthInfo.UID, sctx.Messager().NodeName())
+		msg_copy.FixRouter(room, sctx.Id, sctx.Messager().NodeName())
 		err := sctx.Messager().Emit(sctx.ctx, msg_copy)
 		if err != nil {
 			sctx.Sugar().Error("cluster msg emit failed, %v", err)
@@ -865,7 +865,7 @@ func (sctx *SignalContext) clusterEmit(message model.RoomMessage) {
 	} else {
 		for _, room := range sctx.Rooms() {
 			msg_copy := message.CopyPlain()
-			msg_copy.FixRouter(room, sctx.AuthInfo.UID, sctx.Messager().NodeName())
+			msg_copy.FixRouter(room, sctx.Id, sctx.Messager().NodeName())
 			err := sctx.Messager().Emit(sctx.ctx, msg_copy)
 			if err != nil {
 				sctx.Sugar().Error("cluster msg emit failed, %v", err)
@@ -948,6 +948,7 @@ func (ctx *SignalContext) disableCloseCallback() {
 
 func (ctx *SignalContext) MakeUserInfo() *model.UserInfo {
 	return &model.UserInfo{
+		SocketId: ctx.Id,
 		Key:      ctx.AuthInfo.Key,
 		UserId:   ctx.AuthInfo.UID,
 		UserName: ctx.AuthInfo.UName,
@@ -1028,16 +1029,16 @@ func (ctx *SignalContext) matchRoom(msg model.RoomMessage) bool {
 	return id != 0
 }
 
-func (ctx *SignalContext) matchUserTo(msg model.RoomMessage, strict bool) bool {
+func (ctx *SignalContext) matchSocketTo(msg model.RoomMessage, strict bool) bool {
 	router := msg.GetRouter()
 	if router == nil {
 		return false
 	}
-	userTo := router.GetUserTo()
+	socketTo := router.GetSocketTo()
 	if strict {
-		return userTo == ctx.AuthInfo.UID
+		return socketTo == ctx.Id
 	} else {
-		return userTo == "" || userTo == ctx.AuthInfo.UID
+		return socketTo == "" || socketTo == ctx.Id
 	}
 }
 
@@ -1300,28 +1301,28 @@ func (ctx *SignalContext) Bind() {
 }
 
 func (ctx *SignalContext) OnPingMessage(message *model.PingMessage) {
-	if !ctx.matchRoom(message) || !ctx.matchUserTo(message, true) {
+	if !ctx.matchRoom(message) || !ctx.matchSocketTo(message, true) {
 		return
 	}
 	ctx.emit("ping", proto.ToClientMessage(message))
 }
 
 func (ctx *SignalContext) OnPongMessage(message *model.PongMessage) {
-	if !ctx.matchRoom(message) || !ctx.matchUserTo(message, true) {
+	if !ctx.matchRoom(message) || !ctx.matchSocketTo(message, true) {
 		return
 	}
 	ctx.emit("pong", proto.ToClientMessage(message))
 }
 
 func (ctx *SignalContext) OnCustomMessage(message *model.CustomClusterMessage) {
-	if !ctx.matchRoom(message) || !ctx.matchUserTo(message, false) {
+	if !ctx.matchRoom(message) || !ctx.matchSocketTo(message, false) {
 		return
 	}
 	ctx.emit(fmt.Sprintf("custom:%s", message.Evt), proto.ToClientMessage(message.Msg))
 }
 
 func (ctx *SignalContext) OnCustomAckMessage(message *model.CustomAckMessage) {
-	if !ctx.matchRoom(message) || !ctx.matchUserTo(message, true) {
+	if !ctx.matchRoom(message) || !ctx.matchSocketTo(message, true) {
 		return
 	}
 	ctx.emit("custom-ack", proto.ToClientMessage(message))

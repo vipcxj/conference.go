@@ -618,31 +618,31 @@ func (m *Messager) consumeCustomAck(msg *model.CustomAckMessage) {
 func (m *Messager) logEmitMsg(msg model.RoomMessage, msgType string) {
 	router := msg.GetRouter()
 	if router.GetNodeTo() != "" {
-		if router.GetUserFrom() != "" {
-			if router.GetUserTo() != "" {
+		if router.GetSocketFrom() != "" {
+			if router.GetSocketTo() != "" {
 				m.Sugar().Debugf(
-					"send %s msg from user %s in node %s to use %s in room %s of node %s, msg: %v",
+					"send %s msg from socket %s in node %s to socket %s in room %s of node %s, msg: %v",
 					msgType,
-					router.GetUserFrom(), router.GetNodeFrom(),
-					router.GetUserTo(), router.GetRoom(), router.GetNodeTo(),
+					router.GetSocketFrom(), router.GetNodeFrom(),
+					router.GetSocketTo(), router.GetRoom(), router.GetNodeTo(),
 					msg,
 				)
 			} else {
 				m.Sugar().Debugf(
-					"send %s msg from user %s in node %s to room %s of node %s, msg: %v",
+					"send %s msg from socket %s in node %s to room %s of node %s, msg: %v",
 					msgType,
-					router.GetUserFrom(), router.GetNodeFrom(),
+					router.GetSocketFrom(), router.GetNodeFrom(),
 					router.GetRoom(), router.GetNodeTo(),
 					msg,
 				)
 			}
 		} else {
-			if router.GetUserTo() != "" {
+			if router.GetSocketTo() != "" {
 				m.Sugar().Debugf(
-					"send %s msg from node %s to use %s in room %s of node %s, msg: %v",
+					"send %s msg from node %s to socket %s in room %s of node %s, msg: %v",
 					msgType,
 					router.GetNodeFrom(),
-					router.GetUserTo(), router.GetRoom(), router.GetNodeTo(),
+					router.GetSocketTo(), router.GetRoom(), router.GetNodeTo(),
 					msg,
 				)
 			} else {
@@ -656,31 +656,31 @@ func (m *Messager) logEmitMsg(msg model.RoomMessage, msgType string) {
 			}
 		}
 	} else {
-		if router.GetUserFrom() != "" {
-			if router.GetUserTo() != "" {
+		if router.GetSocketFrom() != "" {
+			if router.GetSocketTo() != "" {
 				m.Sugar().Debugf(
-					"send %s msg from user %s in node %s to use %s in room %s, msg: %v",
+					"send %s msg from socket %s in node %s to socket %s in room %s, msg: %v",
 					msgType,
-					router.GetUserFrom(), router.GetNodeFrom(),
-					router.GetUserTo(), router.GetRoom(),
+					router.GetSocketFrom(), router.GetNodeFrom(),
+					router.GetSocketTo(), router.GetRoom(),
 					msg,
 				)
 			} else {
 				m.Sugar().Debugf(
-					"send %s msg from user %s in node %s to room %s, msg: %v",
+					"send %s msg from socket %s in node %s to room %s, msg: %v",
 					msgType,
-					router.GetUserFrom(), router.GetNodeFrom(),
+					router.GetSocketFrom(), router.GetNodeFrom(),
 					router.GetRoom(),
 					msg,
 				)
 			}
 		} else {
-			if router.GetUserTo() != "" {
+			if router.GetSocketTo() != "" {
 				m.Sugar().Debugf(
-					"send %s msg from node %s to use %s in room %s, msg: %v",
+					"send %s msg from node %s to socket %s in room %s, msg: %v",
 					msgType,
 					router.GetNodeFrom(),
-					router.GetUserTo(), router.GetRoom(),
+					router.GetSocketTo(), router.GetRoom(),
 					msg,
 				)
 			} else {

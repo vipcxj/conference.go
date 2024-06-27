@@ -266,8 +266,8 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		if ack != nil {
 			panic(fmt.Errorf("ping msg does not support ack"))
 		}
-		if msg.GetRouter() == nil || msg.GetRouter().UserTo == "" {
-			panic(fmt.Errorf("ping msg require a router with valid userTo attribute"))
+		if msg.GetRouter() == nil || msg.GetRouter().GetSocketTo() == "" {
+			panic(fmt.Errorf("ping msg require a router with valid socketTo attribute"))
 		}
 		err = ctx.ClusterEmit(&msg)
 		if err != nil {
@@ -287,8 +287,8 @@ func InitSignal(s Signal) (*SignalContext, error) {
 		if ack != nil {
 			panic(fmt.Errorf("pong msg does not support ack"))
 		}
-		if msg.GetRouter() == nil || msg.GetRouter().UserTo == "" {
-			panic(fmt.Errorf("ping msg require a router with valid userTo attribute"))
+		if msg.GetRouter() == nil || msg.GetRouter().GetSocketTo() == "" {
+			panic(fmt.Errorf("pong msg require a router with valid socketTo attribute"))
 		}
 		err = ctx.ClusterEmit(&msg)
 		if err != nil {

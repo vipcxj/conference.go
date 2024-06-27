@@ -206,63 +206,66 @@ func TestSendMessage(t *testing.T) {
 		t.Fatalf("unable to create client 1, %v", err)
 	}
 	defer cancel1(nil)
-	c1.OnMessage("hello", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
-		utils.AssertEqual(t, "room", room)
-		utils.AssertEqual(t, "2", from)
-		utils.AssertEqual(t, "1", to)
-		utils.AssertEqual(t, "hello", content)
-		utils.AssertTrue(t, ack == nil)
-		close(ch1)
-		return false
-	})
 	err = c1.MakeSureConnect(ctx)
 	if err != nil {
 		t.Fatalf("failed to make sure c1 connected, %v", err)
 	}
+
 	c2, cancel2, err := createClient(ctx, "2", "room", true)
 	if err != nil {
 		t.Fatalf("unable to create client 2, %v", err)
 	}
 	defer cancel2(nil)
+	err = c2.MakeSureConnect(ctx)
+	if err != nil {
+		t.Fatalf("failed to make sure c2 connected, %v", err)
+	}
+
+	c1.OnMessage("hello", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
+		utils.AssertEqual(t, "room", room)
+		utils.AssertEqual(t, c2.Id(), from)
+		utils.AssertEqual(t, c1.Id(), to)
+		utils.AssertEqual(t, "hello", content)
+		utils.AssertTrue(t, ack == nil)
+		close(ch1)
+		return false
+	})
 	c2.OnMessage("hello", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
 		utils.AssertEqual(t, "room", room)
-		utils.AssertEqual(t, "1", from)
-		utils.AssertEqual(t, "2", to)
+		utils.AssertEqual(t, c1.Id(), from)
+		utils.AssertEqual(t, c2.Id(), to)
 		utils.AssertEqual(t, "hello", content)
 		utils.AssertTrue(t, ack == nil)
 		close(ch2)
 		return false
 	})
-	err = c2.MakeSureConnect(ctx)
-	if err != nil {
-		t.Fatalf("failed to make sure c2 connected, %v", err)
-	}
-	c1.SendMessage(ctx, false, "hello", "hello", "2", "room")
+
+	c1.SendMessage(ctx, false, "hello", "hello", c2.Id(), "room")
 	<- ch2
-	c2.SendMessage(ctx, false, "hello", "hello", "1", "room")
+	c2.SendMessage(ctx, false, "hello", "hello", c1.Id(), "room")
 	<- ch1
 	c1.OnMessage("hello", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
 		utils.AssertEqual(t, "room", room)
-		utils.AssertEqual(t, "2", from)
-		utils.AssertEqual(t, "1", to)
+		utils.AssertEqual(t, c2.Id(), from)
+		utils.AssertEqual(t, c1.Id(), to)
 		utils.AssertTrue(t, ack != nil)
 		ack(content, nil)
 		return false
 	})
-	res, err := c2.SendMessage(ctx, true, "hello", "world", "1", "room")
+	res, err := c2.SendMessage(ctx, true, "hello", "world", c1.Id(), "room")
 	if err != nil {
 		t.Fatalf("failed to send msg to client 1, %v", err)
 	}
 	utils.AssertEqual(t, "world", res)
 	c2.OnMessage("error", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
 		utils.AssertEqual(t, "room", room)
-		utils.AssertEqual(t, "1", from)
-		utils.AssertEqual(t, "2", to)
+		utils.AssertEqual(t, c1.Id(), from)
+		utils.AssertEqual(t, c2.Id(), to)
 		utils.AssertTrue(t, ack != nil)
 		ack("", errors.FatalError("test error"))
 		return false
 	})
-	res, err = c1.SendMessage(ctx, true, "error", "error", "2", "room")
+	res, err = c1.SendMessage(ctx, true, "error", "error", c2.Id(), "room")
 	utils.AssertTrue(t, err != nil)
 	ce, ok := err.(*errors.ConferenceError)
 	utils.AssertTrue(t, ok)
@@ -278,6 +281,11 @@ func TestKeepAlive(t *testing.T) {
 		t.Fatalf("unable to create client 1, %v", err)
 	}
 	defer cancel1(nil)
+	id1, err := c1.MakeSureId(ctx)
+	if err != nil {
+		t.Fatalf("unable to get id of client 1, %v", err)
+	}
+	utils.AssertTrue(t, id1 != "")
 	rc1, err := c1.Roomed(ctx, "room")
 	if err != nil {
 		t.Fatalf("unable to create roomed client 1, %v", err)
@@ -287,11 +295,16 @@ func TestKeepAlive(t *testing.T) {
 		t.Fatalf("unable to create client 2, %v", err)
 	}
 	defer cancel2(nil)
+	id2, err := c2.MakeSureId(ctx)
+	if err != nil {
+		t.Fatalf("unable to get id of client 2, %v", err)
+	}
+	utils.AssertTrue(t, id2 != "")
 	rc2, err := c2.Roomed(ctx, "room")
 	if err != nil {
 		t.Fatalf("unable to create roomed client 2, %v", err)
 	}
-	stop1, err := rc1.KeepAlive(ctx, "2", client.KEEP_ALIVE_MODE_ACTIVE, time.Second, func(kaCtx *client.KeepAliveContext) (stop bool) {
+	stop1, err := rc1.KeepAlive(ctx, id2, client.KEEP_ALIVE_MODE_ACTIVE, time.Second, func(kaCtx *client.KeepAliveContext) (stop bool) {
 		if kaCtx.Err != nil {
 			t.Errorf("client 1 failed to keep alive with client 2, %v", kaCtx.Err)
 			return true
@@ -306,7 +319,7 @@ func TestKeepAlive(t *testing.T) {
 		t.Fatalf("client 1 failed to keep alive, %v", err)
 	}
 	defer stop1()
-	stop2, err := rc2.KeepAlive(ctx, "1", client.KEEP_ALIVE_MODE_PASSIVE, time.Second*2, func(kaCtx *client.KeepAliveContext) (stop bool) {
+	stop2, err := rc2.KeepAlive(ctx, id1, client.KEEP_ALIVE_MODE_PASSIVE, time.Second*2, func(kaCtx *client.KeepAliveContext) (stop bool) {
 		if kaCtx.Err != nil {
 			t.Errorf("client 2 failed to keep alive with client 1, %v", kaCtx.Err)
 			return true

@@ -29,9 +29,9 @@ type WebSocketSignalConfigure struct {
 }
 
 type AckKey struct {
-	room string
-	user string
-	id   uint32
+	room     string
+	socketId string
+	id       uint32
 }
 
 type ParticipantKey struct {
@@ -88,7 +88,7 @@ func (p *Participants) Add(participant *model.Participant) bool {
 	} else {
 		p.participants = append(p.participants, participant)
 		p.index[key] = len(p.participants) - 1
-		success = true;
+		success = true
 	}
 	return success
 }
@@ -108,7 +108,7 @@ func (p *Participants) Remove(uid string, sid string, jid uint32) *model.Partici
 		}
 	} else {
 		p.leaves[key] = LeavedInfo{
-			jid: jid,
+			jid:       jid,
 			timestamp: time.Now(),
 		}
 	}
@@ -164,7 +164,7 @@ func (box *ParticipantsBox) ProcessJoinCbs(msg *model.StateParticipantMessage) {
 	box.mux.Lock()
 	defer box.mux.Unlock()
 	participants, ok := box.participants[room]
-	added := false;
+	added := false
 	if ok {
 		added = participants.Add(participant)
 	} else {
@@ -277,7 +277,7 @@ func (box *ParticipantsBox) GetParticipants(room string) []*model.Participant {
 }
 
 type ackMsg struct {
-	ch chan struct {}
+	ch  chan struct{}
 	msg *model.CustomAckMessage
 }
 
@@ -392,14 +392,23 @@ func (s *RoomedWebsocketSignal) KeepAlive(ctx context.Context, uid string, mode 
 
 func NewWebsocketSignal(ctx context.Context, conf *WebSocketSignalConfigure, engine *nbhttp.Engine) *WebsocketSignal {
 	return &WebsocketSignal{
-		conf:           conf,
-		engine:         engine,
-		ctx:            ctx,
-		msg_cbs:        sg.NewMsgCbs(),
-		custom_msg_cbs: make(map[string][]CustomMsgCb),
+		conf:                     conf,
+		engine:                   engine,
+		ctx:                      ctx,
+		msg_cbs:                  sg.NewMsgCbs(),
+		custom_msg_cbs:           make(map[string][]CustomMsgCb),
 		custom_ack_msg_notifiers: make(map[AckKey]*ackMsg),
-		ping_chs:       make(map[PingKey][]chan *model.PingMessage),
-		participants:   mewParticipantsBox(),
+		ping_chs:                 make(map[PingKey][]chan *model.PingMessage),
+		participants:             mewParticipantsBox(),
+	}
+}
+
+func (signal *WebsocketSignal) Id() string {
+	u_info := signal.user_info
+	if u_info != nil {
+		return u_info.SocketId
+	} else {
+		return ""
 	}
 }
 
@@ -407,9 +416,9 @@ func (signal *WebsocketSignal) PushCustomAckMsgCh(room string, to string, id uin
 	signal.custom_ack_msg_mux.Lock()
 	defer signal.custom_ack_msg_mux.Unlock()
 	key := AckKey{
-		room: room,
-		user: to,
-		id:   id,
+		room:     room,
+		socketId: to,
+		id:       id,
 	}
 	ack_msg := &ackMsg{
 		ch: make(chan struct{}),
@@ -421,11 +430,11 @@ func (signal *WebsocketSignal) PushCustomAckMsgCh(room string, to string, id uin
 func (signal *WebsocketSignal) PopCustomAckMsgCh(room string, from string, id uint32) *ackMsg {
 	signal.custom_ack_msg_mux.Lock()
 	defer signal.custom_ack_msg_mux.Unlock()
-	for _, user := range []string{from, ""} {
+	for _, socketId := range []string{from, ""} {
 		key := AckKey{
-			room: room,
-			user: user,
-			id:   id,
+			room:     room,
+			socketId: socketId,
+			id:       id,
 		}
 		ch, ok := signal.custom_ack_msg_notifiers[key]
 		if ok {
@@ -496,15 +505,15 @@ func (signal *WebsocketSignal) accessSignal(ctx context.Context) (*websocket.Web
 						}
 						signal.signal.SendMsg(signal.ctx, false, "custom-ack", &model.CustomAckMessage{
 							Router: &model.RouterMessage{
-								UserTo: router.GetUserFrom(),
+								SocketTo: router.GetSocketFrom(),
 							},
-							MsgId: msg.GetMsgId(),
+							MsgId:   msg.GetMsgId(),
 							Content: res,
-							Err: err != nil,
+							Err:     err != nil,
 						})
 					}
 				}
-				if cb(msg.GetContent(), ack, router.GetRoom(), router.GetUserFrom(), router.GetUserTo()) {
+				if cb(msg.GetContent(), ack, router.GetRoom(), router.GetSocketFrom(), router.GetSocketTo()) {
 					new_cbs = append(new_cbs, cb)
 				}
 			}
@@ -516,7 +525,7 @@ func (signal *WebsocketSignal) accessSignal(ctx context.Context) (*websocket.Web
 		}
 	})
 	signal.signal.OnCustomAck(func(msg *model.CustomAckMessage) {
-		ack_msg := signal.PopCustomAckMsgCh(msg.GetRouter().GetRoom(), msg.GetRouter().GetUserFrom(), msg.MsgId)
+		ack_msg := signal.PopCustomAckMsgCh(msg.GetRouter().GetRoom(), msg.GetRouter().GetSocketFrom(), msg.MsgId)
 		if ack_msg != nil {
 			ack_msg.msg = msg
 			close(ack_msg.ch)
@@ -581,13 +590,13 @@ func (signal *WebsocketSignal) accessSignal(ctx context.Context) (*websocket.Web
 			router := msg.GetRouter()
 			_, err := signal.sendMsg(signal.ctx, false, "pong", &model.PongMessage{
 				Router: &model.RouterMessage{
-					Room:   router.GetRoom(),
-					UserTo: router.GetUserFrom(),
+					Room:     router.GetRoom(),
+					SocketTo: router.GetSocketFrom(),
 				},
 				MsgId: msg.MsgId,
 			})
 			if err != nil {
-				log.Sugar().Errorf("unable to send pong msg to user %s in room %s, %v", router.GetUserFrom(), router.GetRoom(), err)
+				log.Sugar().Errorf("unable to send pong msg to socket %s in room %s, %v", router.GetSocketFrom(), router.GetRoom(), err)
 			}
 		}()
 		return
@@ -678,8 +687,8 @@ func (signal *WebsocketSignal) SendMessage(ctx context.Context, ack bool, evt st
 	}
 	s.SendMsg(ctx, false, fmt.Sprintf("custom:%s", evt), &model.CustomMessage{
 		Router: &model.RouterMessage{
-			Room:   room,
-			UserTo: to,
+			Room:     room,
+			SocketTo: to,
 		},
 		MsgId:   custom_msg_id,
 		Ack:     ack,
@@ -770,7 +779,7 @@ func (signal *WebsocketSignal) Leave(ctx context.Context, rooms ...string) error
 func (c *WebsocketSignal) publishPingMsgs(msg *model.PingMessage) {
 	router := msg.GetRouter()
 	key := PingKey{
-		Uid:  router.GetUserFrom(),
+		Sid:  router.GetSocketFrom(),
 		Room: router.GetRoom(),
 	}
 	c.ping_chs_mux.Lock()
@@ -783,9 +792,9 @@ func (c *WebsocketSignal) publishPingMsgs(msg *model.PingMessage) {
 	}
 }
 
-func (s *WebsocketSignal) subscribePingMsg(room string, uid string) chan *model.PingMessage {
+func (s *WebsocketSignal) subscribePingMsg(room string, sid string) chan *model.PingMessage {
 	key := PingKey{
-		Uid:  uid,
+		Sid:  sid,
 		Room: room,
 	}
 	s.ping_chs_mux.Lock()
@@ -800,9 +809,9 @@ func (s *WebsocketSignal) subscribePingMsg(room string, uid string) chan *model.
 	return ch
 }
 
-func (c *WebsocketSignal) unsubscribePingMsg(room string, uid string, ch chan *model.PingMessage) {
+func (c *WebsocketSignal) unsubscribePingMsg(room string, sid string, ch chan *model.PingMessage) {
 	key := PingKey{
-		Uid:  uid,
+		Sid:  sid,
 		Room: room,
 	}
 	c.ping_chs_mux.Lock()
@@ -818,7 +827,7 @@ func (c *WebsocketSignal) unsubscribePingMsg(room string, uid string, ch chan *m
 	}
 }
 
-func (c *WebsocketSignal) KeepAlive(ctx context.Context, room string, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error) {
+func (c *WebsocketSignal) KeepAlive(ctx context.Context, room string, sid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error) {
 	err = c.MakesureConnect(ctx)
 	if err != nil {
 		return
@@ -840,7 +849,7 @@ func (c *WebsocketSignal) KeepAlive(ctx context.Context, room string, uid string
 						errCh <- err
 						return false
 					}
-					if msg.MsgId == msg_id && msg.GetRouter().GetUserFrom() == uid && msg.GetRouter().GetRoom() == room {
+					if msg.MsgId == msg_id && msg.GetRouter().GetSocketFrom() == sid && msg.GetRouter().GetRoom() == room {
 						close(ch)
 						return false
 					} else {
@@ -849,8 +858,8 @@ func (c *WebsocketSignal) KeepAlive(ctx context.Context, room string, uid string
 				})
 				_, err := c.sendMsg(ctx, false, "ping", &model.PingMessage{
 					Router: &model.RouterMessage{
-						Room:   room,
-						UserTo: uid,
+						Room:     room,
+						SocketTo: sid,
 					},
 					MsgId: msg_id,
 				})
@@ -900,21 +909,21 @@ func (c *WebsocketSignal) KeepAlive(ctx context.Context, room string, uid string
 				}
 			}
 		case KEEP_ALIVE_MODE_PASSIVE:
-			ch := c.subscribePingMsg(room, uid)
+			ch := c.subscribePingMsg(room, sid)
 			for {
 				now := time.Now()
 				select {
 				case <-c.ctx.Done():
-					c.unsubscribePingMsg(room, uid, ch)
+					c.unsubscribePingMsg(room, sid, ch)
 					return
 				case <-ctx.Done():
-					c.unsubscribePingMsg(room, uid, ch)
+					c.unsubscribePingMsg(room, sid, ch)
 					return
 				case <-time.After(timeout):
 					kaCtx.TimeoutNum++
 					kaCtx.TimeoutDuration += time.Since(now)
 					if errCb(kaCtx) {
-						c.unsubscribePingMsg(room, uid, ch)
+						c.unsubscribePingMsg(room, sid, ch)
 						return
 					}
 				case <-ch:

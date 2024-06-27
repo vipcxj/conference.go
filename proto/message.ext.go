@@ -7,7 +7,7 @@ import (
 type RoomMessage interface {
 	gproto.Message
 	GetRouter() *Router
-	FixRouter(room string, user string, node string)
+	FixRouter(room string, socketId string, node string)
 	CopyPlain() RoomMessage
 }
 
@@ -52,40 +52,40 @@ func (x *Router) ToMap() map[string]any {
 		return nil
 	}
 	return map[string]any{
-		"room":     x.GetRoom(),
-		"nodeFrom": x.GetNodeFrom(),
-		"nodeTo":   x.GetNodeTo(),
-		"userFrom": x.GetUserFrom(),
-		"userTo":   x.GetUserTo(),
+		"room":       x.GetRoom(),
+		"nodeFrom":   x.GetNodeFrom(),
+		"nodeTo":     x.GetNodeTo(),
+		"socketFrom": x.GetSocketFrom(),
+		"socketTo":   x.GetSocketTo(),
 	}
 }
 
 func (x *Router) CopyPlain() *Router {
 	return &Router{
-		Room:     x.GetRoom(),
-		NodeFrom: x.GetNodeFrom(),
-		NodeTo:   x.GetNodeTo(),
-		UserFrom: x.GetUserFrom(),
-		UserTo:   x.GetUserTo(),
+		Room:       x.GetRoom(),
+		NodeFrom:   x.GetNodeFrom(),
+		NodeTo:     x.GetNodeTo(),
+		SocketFrom: x.GetSocketFrom(),
+		SocketTo:   x.GetSocketTo(),
 	}
 }
 
-func fixRouter(router *Router, room string, user string, node string) {
+func fixRouter(router *Router, room string, socketId string, node string) {
 	if router.Room == "" {
 		router.Room = room
 	}
-	router.UserFrom = user
+	router.SocketFrom = socketId
 	router.NodeFrom = node
 }
 
-func (x *WantMessage) FixRouter(room string, user string, node string) {
+func (x *WantMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *WantMessage) CopyPlain() RoomMessage {
@@ -97,14 +97,14 @@ func (x *WantMessage) CopyPlain() RoomMessage {
 	}
 }
 
-func (x *StateMessage) FixRouter(room string, user string, node string) {
+func (x *StateMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *StateMessage) CopyPlain() RoomMessage {
@@ -116,14 +116,14 @@ func (x *StateMessage) CopyPlain() RoomMessage {
 	}
 }
 
-func (x *SelectMessage) FixRouter(room string, user string, node string) {
+func (x *SelectMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *SelectMessage) CopyPlain() RoomMessage {
@@ -135,14 +135,14 @@ func (x *SelectMessage) CopyPlain() RoomMessage {
 	}
 }
 
-func (x *WantParticipantMessage) FixRouter(room string, user string, node string) {
+func (x *WantParticipantMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *WantParticipantMessage) CopyPlain() RoomMessage {
@@ -151,14 +151,14 @@ func (x *WantParticipantMessage) CopyPlain() RoomMessage {
 	}
 }
 
-func (x *StateParticipantMessage) FixRouter(room string, user string, node string) {
+func (x *StateParticipantMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *StateParticipantMessage) ToMap() map[string]any {
@@ -184,14 +184,14 @@ func (x *StateParticipantMessage) CopyPlain() RoomMessage {
 	}
 }
 
-func (x *StateLeaveMessage) FixRouter(room string, user string, node string) {
+func (x *StateLeaveMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *StateLeaveMessage) ToMap() map[string]any {
@@ -215,14 +215,14 @@ func (x *StateLeaveMessage) CopyPlain() RoomMessage {
 	}
 }
 
-func (x *PingMessage) FixRouter(room string, user string, node string) {
+func (x *PingMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *PingMessage) ToMap() map[string]any {
@@ -242,14 +242,14 @@ func (x *PingMessage) CopyPlain() RoomMessage {
 	}
 }
 
-func (x *PongMessage) FixRouter(room string, user string, node string) {
+func (x *PongMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *PongMessage) ToMap() map[string]any {
@@ -281,14 +281,14 @@ func (x *CustomMessage) ToMap() map[string]any {
 	}
 }
 
-func (x *CustomMessage) FixRouter(room string, user string, node string) {
+func (x *CustomMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *CustomMessage) CopyPlain() RoomMessage {
@@ -320,7 +320,7 @@ func (x *CustomClusterMessage) ToMap() map[string]any {
 	}
 }
 
-func (x *CustomClusterMessage) FixRouter(room string, user string, node string) {
+func (x *CustomClusterMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
@@ -331,7 +331,7 @@ func (x *CustomClusterMessage) FixRouter(room string, user string, node string) 
 	} else if x.Msg.Router == nil {
 		x.Msg.Router = &Router{}
 	}
-	fixRouter(x.Msg.Router, room, user, node)
+	fixRouter(x.Msg.Router, room, socketId, node)
 }
 
 func (x *CustomClusterMessage) CopyPlain() RoomMessage {
@@ -353,14 +353,14 @@ func (x *CustomAckMessage) ToMap() map[string]any {
 	}
 }
 
-func (x *CustomAckMessage) FixRouter(room string, user string, node string) {
+func (x *CustomAckMessage) FixRouter(room string, socketId string, node string) {
 	if x == nil {
 		return
 	}
 	if x.Router == nil {
 		x.Router = &Router{}
 	}
-	fixRouter(x.Router, room, user, node)
+	fixRouter(x.Router, room, socketId, node)
 }
 
 func (x *CustomAckMessage) CopyPlain() RoomMessage {

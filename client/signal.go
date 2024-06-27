@@ -30,6 +30,7 @@ const (
 )
 
 type Signal interface {
+	Id() string
 	MakesureConnect(ctx context.Context) error
 	sendMsg(ctx context.Context, ack bool, evt string, arg any) (res any, err error)
 	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error)

@@ -11,6 +11,8 @@ import (
 )
 
 type Client interface {
+	Id() string
+	MakeSureId(ctx context.Context) (string, error)
 	MakeSureConnect(ctx context.Context) error
 	OnMessage(evt string, cb CustomMsgCb)
 	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error)
@@ -29,7 +31,7 @@ type WebsocketClientConfigure struct {
 }
 
 type PingKey struct {
-	Uid  string
+	Sid  string
 	Room string
 }
 
@@ -61,6 +63,18 @@ func NewWebsocketClient(ctx context.Context, conf *WebsocketClientConfigure, eng
 	return client
 }
 
+func (c *WebsocketClient) Id() string {
+	return c.signal.Id()
+}
+
+func (c *WebsocketClient) MakeSureId(ctx context.Context) (string, error) {
+	err := c.signal.MakesureConnect(ctx)
+	if err != nil {
+		return "", err
+	}
+	return c.Id(), nil
+}
+
 func (c *WebsocketClient) MakeSureConnect(ctx context.Context) error {
 	return c.signal.MakesureConnect(ctx)
 }
@@ -89,7 +103,7 @@ func (c *WebsocketClient) Leave(ctx context.Context, rooms ...string) error {
 	return c.signal.Leave(ctx, rooms...)
 }
 
-func (c *WebsocketClient) UserInfo(ctx context.Context, ) (*model.UserInfo, error) {
+func (c *WebsocketClient) UserInfo(ctx context.Context) (*model.UserInfo, error) {
 	return c.signal.UserInfo(ctx)
 }
 
