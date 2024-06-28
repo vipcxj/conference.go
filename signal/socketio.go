@@ -20,6 +20,8 @@ import (
 	"go.uber.org/zap"
 )
 
+type IOSocketAckFunc = func ([]any, error)
+
 func GetSingalContextFromSocketIO(s *socket.Socket) *SignalContext {
 	d := s.Data()
 	if d != nil {
@@ -126,6 +128,7 @@ type SocketIOSignal struct {
 func NewSocketIOSingal(socket *socket.Socket) Signal {
 	ss := &SocketIOSignal{
 		socket: socket,
+		msg_cbs: NewMsgCbs(),
 	}
 	ss.socket.OnAny(func(args ...any) {
 		if len(args) > 0 {
@@ -187,16 +190,20 @@ func NewSocketIOSingal(socket *socket.Socket) Signal {
 						last := args[len(args)-1]
 						lastType := reflect.TypeOf(last)
 						if lastType != nil && lastType.Kind() == reflect.Func {
-							ok := false
-							ack, ok = last.(AckFunc)
+							io_ack, ok := last.(IOSocketAckFunc)
 							if !ok {
 								panic("Invalid ack param")
+							}
+							ack = func(args []any, err *errors.ConferenceError) {
+								io_ack(args, err)
 							}
 							if len(args) > 2 {
 								real_args = args[1 : len(args)-1]
 							} else {
 								real_args = nil
 							}
+						} else {
+							real_args = args[1:]
 						}
 					}
 					if real_args == nil {

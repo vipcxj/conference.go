@@ -24,8 +24,8 @@ type SdpMessage struct {
 
 type CandidateMessage struct {
 	SignalMessage `mapstructure:",squash"`
-	Op            string                  `json:"op" mapstructure:"op"`
-	Candidate     webrtc.ICECandidateInit `json:"candidate" mapstructure:"candidate"`
+	Op            string                  `json:"op,omitempty" mapstructure:"op"`
+	Candidate     webrtc.ICECandidateInit `json:"candidate,omitempty" mapstructure:"candidate"`
 }
 
 type JoinMessage struct {
