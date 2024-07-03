@@ -203,10 +203,13 @@ func (s *Subscription) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
+	router := s.sctx.Global.router
 	s.sctx.subscriptions.Del(s.id)
-	for _, track := range s.acceptedTrack {
+	for tid, track := range s.acceptedTrack {
+		router.UnbindSub(s.id, tid)
 		track.Remove()
 	}
+	
 	s.acceptedTrack = nil
 }
 

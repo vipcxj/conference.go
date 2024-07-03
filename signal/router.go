@@ -250,10 +250,11 @@ const CHAN_BUF_SIZE = 512
 const DEFAULT_MTU = 1500
 
 type Accepter struct {
-	track  *webrtc.TrackLocalStaticRTP
-	closed bool
-	subs   map[string]*Subscription
-	mu     sync.Mutex
+	track     *webrtc.TrackLocalStaticRTP
+	closed    bool
+	subs      map[string]*Subscription
+	mu        sync.Mutex
+	ref_count int64
 }
 
 func NewAccepter(track *model.Track) *Accepter {
@@ -271,9 +272,11 @@ func NewAccepter(track *model.Track) *Accepter {
 	if err != nil {
 		panic(err)
 	}
-	return &Accepter{
-		track: trackLocal,
+	accepter := &Accepter{
+		track:     trackLocal,
+		ref_count: 1,
 	}
+	return accepter
 }
 
 func (a *Accepter) BindSub(sub *Subscription) {
@@ -285,6 +288,18 @@ func (a *Accepter) BindSub(sub *Subscription) {
 	_, ok := a.subs[sub.id]
 	if !ok {
 		a.subs[sub.id] = sub
+	}
+}
+
+func (a *Accepter) UnbindSub(sub_id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.subs == nil {
+		return
+	}
+	_, ok := a.subs[sub_id]
+	if ok {
+		delete(a.subs, sub_id)
 	}
 }
 
@@ -301,14 +316,34 @@ func (a *Accepter) Write(buf []byte) error {
 	return err
 }
 
-func (a *Accepter) Close() {
+func (a *Accepter) Ref() *Accepter {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.closed = true
-	for _, sub := range a.subs {
-		sub.UnbindAccepter(a)
+	if a.closed {
+		return nil
 	}
-	a.subs = nil
+	a.ref_count ++
+	return a
+}
+
+func (a *Accepter) Close(force bool) (really_closed bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if force {
+		a.ref_count = 0
+	} else {
+		a.ref_count --
+	}
+	if a.ref_count == 0 {
+		a.closed = true
+		for _, sub := range a.subs {
+			sub.UnbindAccepter(a)
+		}
+		a.subs = nil
+		return true
+	} else {
+		return false
+	}
 }
 
 type Router struct {
@@ -433,7 +468,7 @@ func (r *Router) run(ser *net.UDPConn) {
 				accepter, ok := r.track2accepters.Get(packet.TrackId)
 				if ok {
 					if packet.IsEOF() {
-						r.CloseAccepter(packet.TrackId)
+						accepter.Close(true)
 					} else {
 						err := accepter.Write(packet.data[PACKET_TRACK_HEADER_SIZE:packet.n])
 						if err != nil {
@@ -444,13 +479,6 @@ func (r *Router) run(ser *net.UDPConn) {
 			}()
 		}
 	}()
-}
-
-func (r *Router) CloseAccepter(trackId string) {
-	accepter, ok := r.track2accepters.GetAndDel(trackId)
-	if ok {
-		accepter.Close()
-	}
 }
 
 func (r *Router) PublishTrack(trackId string, transportId string) chan *Packet {
@@ -555,9 +583,9 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 				if err != nil {
 					panic(err)
 				}
-				_, ok := r.track2accepters.Get(trackId)
+				accepter, ok := r.track2accepters.Get(trackId)
 				if ok {
-					r.CloseAccepter(trackId)
+					accepter.Close(true)
 				}
 			}
 		}
@@ -567,8 +595,23 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 }
 
 func (r *Router) AcceptTrack(track *model.Track) *Accepter {
-	accepter, _ := r.track2accepters.GetOrCompute(track.GlobalId, func() *Accepter {
-		return NewAccepter(track)
-	})
-	return accepter
+	for {
+		accepter, loaded := r.track2accepters.GetOrCompute(track.GlobalId, func() *Accepter {
+			return NewAccepter(track)
+		})
+		if loaded {
+			accepter = accepter.Ref()
+		}
+		if accepter != nil {
+			return accepter
+		}
+	}
+}
+
+func (r *Router) UnbindSub(sub_id string, track_id string) {
+	accepter, ok := r.track2accepters.Get(track_id)
+	if ok {
+		accepter.UnbindSub(sub_id)
+		accepter.Close(false)
+	}
 }
