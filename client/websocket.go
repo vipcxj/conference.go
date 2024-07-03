@@ -45,13 +45,17 @@ type LeavedInfo struct {
 }
 
 type Participants struct {
-	participants []*model.Participant
-	index        map[ParticipantKey]int
-	leaves       map[ParticipantKey]LeavedInfo
+	participants map[ParticipantKey]*model.Participant
+	leaves       map[ParticipantKey]*LeavedInfo
 }
 
-func (p *Participants) List() []*model.Participant {
-	return p.participants
+func (p *Participants) FindOneByUser(uid string) *model.Participant {
+	for key, value := range p.participants {
+		if key.uid == uid {
+			return value
+		}
+	}
+	return nil
 }
 
 func (p *Participants) Clean() (empty bool) {
@@ -78,16 +82,14 @@ func (p *Participants) Add(participant *model.Participant) bool {
 		}
 	}
 	success := false
-	pos, ok := p.index[key]
+	pt, ok := p.participants[key]
 	if ok {
-		ap := p.participants[pos]
-		if participant.JoinId > ap.JoinId {
-			p.participants[pos] = participant
+		if participant.JoinId > pt.JoinId {
+			p.participants[key] = participant
 			success = true
 		}
 	} else {
-		p.participants = append(p.participants, participant)
-		p.index[key] = len(p.participants) - 1
+		p.participants[key] = participant
 		success = true
 	}
 	return success
@@ -107,18 +109,16 @@ func (p *Participants) Remove(uid string, sid string, jid uint32) *model.Partici
 			return nil
 		}
 	} else {
-		p.leaves[key] = LeavedInfo{
+		p.leaves[key] = &LeavedInfo{
 			jid:       jid,
 			timestamp: time.Now(),
 		}
 	}
-	pos, ok := p.index[key]
+	pt, ok := p.participants[key]
 	if ok {
-		ap := p.participants[pos]
-		if jid >= ap.JoinId {
-			p.participants, _ = utils.SliceRemoveByIndex(p.participants, false, pos)
-			delete(p.index, key)
-			return ap
+		if jid >= pt.JoinId {
+			delete(p.participants, key)
+			return pt
 		}
 	}
 	return nil
@@ -169,8 +169,8 @@ func (box *ParticipantsBox) ProcessJoinCbs(msg *model.StateParticipantMessage) {
 		added = participants.Add(participant)
 	} else {
 		ps := &Participants{
-			index:  make(map[ParticipantKey]int),
-			leaves: make(map[ParticipantKey]LeavedInfo),
+			participants: make(map[ParticipantKey]*model.Participant),
+			leaves:       make(map[ParticipantKey]*LeavedInfo),
 		}
 		added = ps.Add(participant)
 		// added must be true
@@ -198,8 +198,8 @@ func (box *ParticipantsBox) ProcessLeaveCbs(msg *model.StateLeaveMessage) {
 		participant = participants.Remove(msg.UserId, msg.SocketId, msg.JoinId)
 	} else {
 		ps := &Participants{
-			index:  make(map[ParticipantKey]int),
-			leaves: make(map[ParticipantKey]LeavedInfo),
+			participants: make(map[ParticipantKey]*model.Participant),
+			leaves: make(map[ParticipantKey]*LeavedInfo),
 		}
 		participant = ps.Remove(msg.UserId, msg.SocketId, msg.JoinId)
 		box.participants[room] = ps
@@ -265,14 +265,14 @@ func (ps *ParticipantsBox) RemoveLeaveCallback(room string, id int) {
 	}
 }
 
-func (box *ParticipantsBox) GetParticipants(room string) []*model.Participant {
+func (box *ParticipantsBox) HasUser(room string, uid string) bool {
 	box.mux.Lock()
 	defer box.mux.Unlock()
 	participants, ok := box.participants[room]
 	if ok {
-		return participants.List()
+		return participants.FindOneByUser(uid) != nil
 	} else {
-		return nil
+		return false
 	}
 }
 
@@ -357,10 +357,6 @@ func (s *RoomedWebsocketSignal) OffParticipantLeave(id int) {
 	s.signal.participants.RemoveLeaveCallback(s.GetRoom(), id)
 }
 
-func (s *RoomedWebsocketSignal) GetParticipants() []*model.Participant {
-	return s.signal.participants.GetParticipants(s.GetRoom())
-}
-
 func (s *RoomedWebsocketSignal) WaitParticipant(ctx context.Context, uid string) bool {
 	ch := make(chan struct{})
 	cbId := s.OnParticipantJoin(func(participant *model.Participant) (remained bool) {
@@ -371,10 +367,7 @@ func (s *RoomedWebsocketSignal) WaitParticipant(ctx context.Context, uid string)
 		return true
 	})
 	defer s.OffParticipantJoin(cbId)
-	participants := s.GetParticipants()
-	exist := utils.SliceAnyMatch(participants, func(p *model.Participant) bool {
-		return p.Id == uid
-	})
+	exist := s.signal.participants.HasUser(s.GetRoom(), uid)
 	if exist {
 		return true
 	}

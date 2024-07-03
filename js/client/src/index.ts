@@ -101,13 +101,17 @@ interface LeavedInfoMap {
 }
 
 interface Participants {
-    participants: Participant[];
-    index: Map<string, number>;
+    participants: Map<string, Participant>;
     leaves: Map<string, LeavedInfo>;
 }
 
-function ptsList(pts: Participants) {
-    return pts.participants;
+function ptsHasUser(pts: Participants, uid: string) {
+    for (const key of pts.participants.keys()) {
+        if (key.startsWith(`${uid}|`)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function ptsClean(pts: Participants) {
@@ -117,7 +121,7 @@ function ptsClean(pts: Participants) {
             pts.leaves.delete(key);
         }
 	}
-	return (!pts.participants || pts.participants.length === 0) && (!pts.leaves || pts.leaves.size === 0);
+	return (!pts.participants || pts.participants.size === 0) && (!pts.leaves || pts.leaves.size === 0);
 }
 
 function ptsAdd(pts: Participants, participant: Participant): boolean {
@@ -131,16 +135,14 @@ function ptsAdd(pts: Participants, participant: Participant): boolean {
         }
     }
     let success = false;
-    const pos = pts.index.get(key);
-    if (pos != undefined) {
-        const pt = pts.participants[pos];
+    const pt = pts.participants.get(key);
+    if (pt) {
         if (participant.joinId > pt.joinId) {
-            pts.participants[pos] = participant;
+            pts.participants[key] = participant;
             success = true;
         }
     } else {
-        pts.participants.push(participant);
-        pts.index.set(key, pts.participants.length - 1);
+        pts.participants.set(key, participant);
         success = true;
     }
     return success;
@@ -162,12 +164,10 @@ function ptsRemove(pts: Participants, uid: string, sid: string, jid: number): Pa
             timestamp: Date.now(),
         });
     }
-    const pos = pts.index.get(key);
-    if (pos != undefined) {
-        const pt = pts.participants[pos];
+    const pt = pts.participants.get(key);
+    if (pt) {
         if (jid >= pt.joinId) {
-            pts.participants.splice(pos, 1);
-            pts.index.delete(key);
+            pts.participants.delete(key);
             return pt;
         }
     }
@@ -411,8 +411,7 @@ export class ConferenceClient {
                 added = ptsAdd(participants, participant);
             } else {
                 participants = {
-                    participants: [],
-                    index: new Map<string, number>(),
+                    participants: new Map<string, Participant>(),
                     leaves: new Map<string, LeavedInfo>(),
                 };
                 added = ptsAdd(participants, participant);
@@ -437,8 +436,7 @@ export class ConferenceClient {
                 participant = ptsRemove(participants, msg.userId, msg.socketId, msg.joinId);
             } else {
                 participants = {
-                    participants: [],
-                    index: new Map<string, number>(),
+                    participants: new Map<string, Participant>(),
                     leaves: new Map<string, LeavedInfo>(),
                 };
                 participant = ptsRemove(participants, msg.userId, msg.socketId, msg.joinId);
@@ -838,7 +836,7 @@ export class ConferenceClient {
         const [timeoutEvts, clearTimeoutEvt] = makeTimeoutEvent(emitter, timeout);
         const evts = combineAsyncIterable([tgtEvts, timeoutEvts, stopEmitter.events('stop')]);
         const participants = this.participantsMap.get(room);
-        if (participants && participants.participants.some((p) => p.userId === uid)) {
+        if (participants && ptsHasUser(participants, uid)) {
             return true;
         }
         for await (const evt of evts) {
