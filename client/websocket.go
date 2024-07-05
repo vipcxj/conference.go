@@ -199,7 +199,7 @@ func (box *ParticipantsBox) ProcessLeaveCbs(msg *model.StateLeaveMessage) {
 	} else {
 		ps := &Participants{
 			participants: make(map[ParticipantKey]*model.Participant),
-			leaves: make(map[ParticipantKey]*LeavedInfo),
+			leaves:       make(map[ParticipantKey]*LeavedInfo),
 		}
 		participant = ps.Remove(msg.UserId, msg.SocketId, msg.JoinId)
 		box.participants[room] = ps
@@ -265,14 +265,14 @@ func (ps *ParticipantsBox) RemoveLeaveCallback(room string, id int) {
 	}
 }
 
-func (box *ParticipantsBox) HasUser(room string, uid string) bool {
+func (box *ParticipantsBox) FindOneByUser(room string, uid string) *model.Participant {
 	box.mux.Lock()
 	defer box.mux.Unlock()
 	participants, ok := box.participants[room]
 	if ok {
-		return participants.FindOneByUser(uid) != nil
+		return participants.FindOneByUser(uid)
 	} else {
-		return false
+		return nil
 	}
 }
 
@@ -357,7 +357,7 @@ func (s *RoomedWebsocketSignal) OffParticipantLeave(id int) {
 	s.signal.participants.RemoveLeaveCallback(s.GetRoom(), id)
 }
 
-func (s *RoomedWebsocketSignal) WaitParticipant(ctx context.Context, uid string) bool {
+func (s *RoomedWebsocketSignal) WaitParticipant(ctx context.Context, uid string) *model.Participant {
 	ch := make(chan struct{})
 	cbId := s.OnParticipantJoin(func(participant *model.Participant) (remained bool) {
 		if participant.Id == uid {
@@ -367,16 +367,15 @@ func (s *RoomedWebsocketSignal) WaitParticipant(ctx context.Context, uid string)
 		return true
 	})
 	defer s.OffParticipantJoin(cbId)
-	exist := s.signal.participants.HasUser(s.GetRoom(), uid)
-	if exist {
-		return true
+	participant := s.signal.participants.FindOneByUser(s.GetRoom(), uid)
+	if participant != nil {
+		return participant
 	}
 	select {
 	case <-ctx.Done():
-		return false
 	case <-ch:
-		return true
 	}
+	return s.signal.participants.FindOneByUser(s.GetRoom(), uid)
 }
 
 func (s *RoomedWebsocketSignal) KeepAlive(ctx context.Context, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error) {

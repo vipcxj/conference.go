@@ -53,6 +53,6 @@ type RoomedSignal interface {
 	OffParticipantJoin(id int)
 	OnParticipantLeave(cb ParticipantCb) int
 	OffParticipantLeave(id int)
-	WaitParticipant(ctx context.Context, uid string) (success bool)
+	WaitParticipant(ctx context.Context, uid string) *model.Participant
 	KeepAlive(ctx context.Context, uid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error)
 }
