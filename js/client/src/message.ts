@@ -153,6 +153,7 @@ export interface CustomAckMessage extends SignalMessage {
 }
 
 export interface UserInfo {
+    socketId: string;
     key: string;
     userId: string;
     userName: string;

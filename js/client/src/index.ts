@@ -492,6 +492,15 @@ export class ConferenceClient {
         }
     }
 
+    connect = async (timeout: number, socketId: string = '', stopEmitter?: Emittery<StopEmitEventMap>) => {
+        await this.makeSureSocket(timeout, socketId, stopEmitter);
+    }
+
+    socketId = async (timeout: number, stopEmitter?: Emittery<StopEmitEventMap>) => {
+        await this.makeSureSocket(timeout, '', stopEmitter);
+        return this.userInfo.socketId;
+    }
+
     name = () => {
         return this.config.name || '';
     }
@@ -578,10 +587,16 @@ export class ConferenceClient {
         return peer;
     }
 
-    private makeSureSocket = async (timeout: number, stopEmitter?: Emittery<StopEmitEventMap>) => {
+    private makeSureSocket = async (timeout: number, socketId: string = '', stopEmitter?: Emittery<StopEmitEventMap>) => {
         if (this.socket.connected) {
             this.logger().debug('already connected.');
+            if (socketId && socketId != this._id) {
+                this.logger().warn('The argument socketId is ignored, bceause the socket has been connected, and id can not be changed any more.');
+            }
             return;
+        }
+        if (socketId) {
+            this._id = socketId;
         }
         this.logger().info("start connect socket...");
         const disconnectEvt = this.emitter.once('disconnect');
@@ -866,7 +881,7 @@ export class ConferenceClient {
     }
 
     keepAlive = async (socketId: string, mode: KeepAliveMode, cb?: KeepAliveCallback, timeout: number = -1, stopEmitter?: Emittery<StopEmitEventMap>) => {
-        await this.makeSureSocket(timeout, stopEmitter);
+        await this.makeSureSocket(timeout, '', stopEmitter);
         const room = this.checkRoom();
         if (!cb) {
             cb = (ctx) => {
@@ -1202,7 +1217,7 @@ export class ConferenceClient {
             this.logger().debug('There is another publish or subscribe task running, wait it finished.');
         }
         const task = this.negMux.runExclusive(async () => {
-            await this.makeSureSocket(timeouter.left(), cleaner.stopEmitter);
+            await this.makeSureSocket(timeouter.left(), '', cleaner.stopEmitter);
             const peer = this.peer;
             this.logger().debug('start publish');
             const tracks: TrackToPublish[] = [];
@@ -1417,7 +1432,7 @@ export class ConferenceClient {
             this.logger().debug('There is another publish or subscribe task running, wait it finished.');
         }
         const task = this.negMux.runExclusive(async () => {
-            await this.makeSureSocket(timeouter.left(), cleaner.stopEmitter);
+            await this.makeSureSocket(timeouter.left(), '', cleaner.stopEmitter);
             if (cleaner.stop) {
                 return {
                     subId: "",
