@@ -206,7 +206,7 @@ func TestSendMessage(t *testing.T) {
 		t.Fatalf("unable to create client 1, %v", err)
 	}
 	defer cancel1(nil)
-	err = c1.MakeSureConnect(ctx)
+	err = c1.MakeSureConnect(ctx, "")
 	if err != nil {
 		t.Fatalf("failed to make sure c1 connected, %v", err)
 	}
@@ -216,7 +216,7 @@ func TestSendMessage(t *testing.T) {
 		t.Fatalf("unable to create client 2, %v", err)
 	}
 	defer cancel2(nil)
-	err = c2.MakeSureConnect(ctx)
+	err = c2.MakeSureConnect(ctx, "")
 	if err != nil {
 		t.Fatalf("failed to make sure c2 connected, %v", err)
 	}
@@ -241,9 +241,9 @@ func TestSendMessage(t *testing.T) {
 	})
 
 	c1.SendMessage(ctx, false, "hello", "hello", c2.Id(), "room")
-	<- ch2
+	<-ch2
 	c2.SendMessage(ctx, false, "hello", "hello", c1.Id(), "room")
-	<- ch1
+	<-ch1
 	c1.OnMessage("hello", func(content string, ack client.CustomAckFunc, room, from, to string) (remained bool) {
 		utils.AssertEqual(t, "room", room)
 		utils.AssertEqual(t, c2.Id(), from)
@@ -272,7 +272,6 @@ func TestSendMessage(t *testing.T) {
 	utils.AssertEqual(t, "test error", ce.Error())
 	utils.AssertEqual(t, "", res)
 }
-
 
 func TestKeepAlive(t *testing.T) {
 	ctx := context.Background()

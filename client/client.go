@@ -13,7 +13,7 @@ import (
 type Client interface {
 	Id() string
 	MakeSureId(ctx context.Context) (string, error)
-	MakeSureConnect(ctx context.Context) error
+	MakeSureConnect(ctx context.Context, socket_id string) error
 	OnMessage(evt string, cb CustomMsgCb)
 	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error)
 	Join(ctx context.Context, rooms ...string) error
@@ -68,15 +68,15 @@ func (c *WebsocketClient) Id() string {
 }
 
 func (c *WebsocketClient) MakeSureId(ctx context.Context) (string, error) {
-	err := c.signal.MakesureConnect(ctx)
+	err := c.signal.MakesureConnect(ctx, "")
 	if err != nil {
 		return "", err
 	}
 	return c.Id(), nil
 }
 
-func (c *WebsocketClient) MakeSureConnect(ctx context.Context) error {
-	return c.signal.MakesureConnect(ctx)
+func (c *WebsocketClient) MakeSureConnect(ctx context.Context, socket_id string) error {
+	return c.signal.MakesureConnect(ctx, socket_id)
 }
 
 func (c *WebsocketClient) IsInRoom(ctx context.Context, room string) (bool, error) {

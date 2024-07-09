@@ -31,7 +31,7 @@ const (
 
 type Signal interface {
 	Id() string
-	MakesureConnect(ctx context.Context) error
+	MakesureConnect(ctx context.Context, socket_id string) error
 	sendMsg(ctx context.Context, ack bool, evt string, arg any) (res any, err error)
 	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error)
 	onMsg(evt string, cb MsgCb) error

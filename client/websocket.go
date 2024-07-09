@@ -437,12 +437,12 @@ func (signal *WebsocketSignal) PopCustomAckMsgCh(room string, from string, id ui
 	return nil
 }
 
-func (signal *WebsocketSignal) MakesureConnect(ctx context.Context) error {
-	_, err := signal.accessSignal(ctx)
+func (signal *WebsocketSignal) MakesureConnect(ctx context.Context, socket_id string) error {
+	_, err := signal.accessSignal(ctx, socket_id)
 	return err
 }
 
-func (signal *WebsocketSignal) accessSignal(ctx context.Context) (*websocket.WebSocketSignal, error) {
+func (signal *WebsocketSignal) accessSignal(ctx context.Context, socket_id string) (*websocket.WebSocketSignal, error) {
 	signal.signal_mux.Lock()
 	for {
 		if signal.signal != nil {
@@ -598,9 +598,15 @@ func (signal *WebsocketSignal) accessSignal(ctx context.Context) (*websocket.Web
 		Upgrader:    u,
 		DialTimeout: time.Second * 6,
 	}
+	var sid string
+	if socket_id != "" {
+		sid = socket_id
+	} else {
+		sid = uuid.NewString()
+	}
 	_, _, err := dialer.DialContext(signal.ctx, signal.conf.Url, http.Header{
 		"Authorization": {signal.conf.Token},
-		"Signal-Id":     {uuid.NewString()},
+		"Signal-Id":     {sid},
 	})
 	if err != nil {
 		return nil, err
@@ -624,7 +630,7 @@ func (signal *WebsocketSignal) accessSignal(ctx context.Context) (*websocket.Web
 }
 
 func (signal *WebsocketSignal) UserInfo(ctx context.Context) (*model.UserInfo, error) {
-	_, err := signal.accessSignal(ctx)
+	_, err := signal.accessSignal(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -632,7 +638,7 @@ func (signal *WebsocketSignal) UserInfo(ctx context.Context) (*model.UserInfo, e
 }
 
 func (signal *WebsocketSignal) GetRooms(ctx context.Context) ([]string, error) {
-	_, err := signal.accessSignal(ctx)
+	_, err := signal.accessSignal(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +648,7 @@ func (signal *WebsocketSignal) GetRooms(ctx context.Context) ([]string, error) {
 }
 
 func (signal *WebsocketSignal) IsInRoom(ctx context.Context, room string) (bool, error) {
-	_, err := signal.accessSignal(ctx)
+	_, err := signal.accessSignal(ctx, "")
 	if err != nil {
 		return false, err
 	}
@@ -652,7 +658,7 @@ func (signal *WebsocketSignal) IsInRoom(ctx context.Context, room string) (bool,
 }
 
 func (signal *WebsocketSignal) sendMsg(ctx context.Context, ack bool, evt string, arg any) (res any, err error) {
-	s, err := signal.accessSignal(ctx)
+	s, err := signal.accessSignal(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -668,7 +674,7 @@ func (signal *WebsocketSignal) sendMsg(ctx context.Context, ack bool, evt string
 }
 
 func (signal *WebsocketSignal) SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error) {
-	s, err := signal.accessSignal(ctx)
+	s, err := signal.accessSignal(ctx, "")
 	if err != nil {
 		return "", err
 	}
@@ -820,7 +826,7 @@ func (c *WebsocketSignal) unsubscribePingMsg(room string, sid string, ch chan *m
 }
 
 func (c *WebsocketSignal) KeepAlive(ctx context.Context, room string, sid string, mode KeepAliveMode, timeout time.Duration, errCb KeepAliveCb) (stopFun func(), err error) {
-	err = c.MakesureConnect(ctx)
+	err = c.MakesureConnect(ctx, "")
 	if err != nil {
 		return
 	}
