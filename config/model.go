@@ -116,7 +116,7 @@ type ConferenceConfigure struct {
 			Path             string `mapstructure:"path" json:"path" default:"${CONF_AUTH_SERVER_HEALTHY_PATH | /healthz}"`
 		} `mapstructure:"healthy" json:"healthy" default:""`
 	} `mapstructure:"authServer" json:"authServer" default:""`
-	SecretKey string `mapstructure:"secretKey" default:"${CONF_SECRET_KEY}"`
+	SecretKey string `mapstructure:"secretKey" default:"${CONF_SECRET_KEY | 123456}"`
 	Log       struct {
 		Profile string `mapstructure:"profile" json:"profile" default:"${CONF_LOG_PROFILE | production}"`
 		Level   string `mapstructure:"level" json:"level" default:"${CONF_LOG_LEVEL | info}"`

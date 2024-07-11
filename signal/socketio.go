@@ -101,7 +101,9 @@ func ConfigureSocketIOSingalServer(global *Global, g *graceful.Graceful) error {
 		sugar := signal.Sugar()
 		if err != nil {
 			sugar.Errorf("socket connect failed, %v", err)
-			FatalErrorAndClose(ctx, ErrToString(err), "init signal")
+			if ctx != nil {
+				FatalErrorAndClose(ctx, ErrToString(err), "init signal")
+			}
 		} else {
 			sugar.Info("socket connected")
 		}
