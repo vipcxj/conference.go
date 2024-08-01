@@ -56,6 +56,9 @@ func NewMongo(global *Global) (*Mongo, error) {
 			Keys: bson.M{
 				"key": 1,
 			},
+			Options: &options.IndexOptions{
+				Name: utils.NewStringPtr("key"),
+			},
 		})
 		if err != nil {
 			return nil, err
@@ -63,6 +66,9 @@ func NewMongo(global *Global) (*Mongo, error) {
 		_, err = recordCol.Indexes().CreateOne(context.Background(), mongo.IndexModel{
 			Keys: bson.M{
 				"start": -1,
+			},
+			Options: &options.IndexOptions{
+				Name: utils.NewStringPtr("start"),
 			},
 		})
 		if err != nil {

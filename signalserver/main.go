@@ -65,6 +65,7 @@ func Run(conf *config.ConferenceConfigure, ctx context.Context, done context.Can
 		done(err)
 		return
 	}
+	global.Sugar().Infof("starting signal server on %v", conf.SignalListenAddress())
 
 	if conf.PromEnable() {
 		g.GET("/metrics", gin.WrapH(promhttp.HandlerFor(global.GetPromReg(), promhttp.HandlerOpts{

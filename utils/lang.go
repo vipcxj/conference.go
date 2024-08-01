@@ -12,3 +12,7 @@ func IsNilInterface(i any) bool {
 	}
 	return false
  }
+
+ func NewStringPtr(v string) *string {
+	return &v
+ }

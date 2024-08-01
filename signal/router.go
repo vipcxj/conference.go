@@ -4,18 +4,21 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/alphadose/haxmap"
 	"github.com/google/uuid"
+	"github.com/pion/interceptor/pkg/jitterbuffer"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/vipcxj/conference.go/config"
 	"github.com/vipcxj/conference.go/errors"
 	"github.com/vipcxj/conference.go/log"
 	"github.com/vipcxj/conference.go/model"
+	_ "github.com/vipcxj/conference.go/utils"
 )
 
 const MAGIC_SETUP = "consetup"
@@ -255,6 +258,11 @@ type Accepter struct {
 	subs      map[string]*Subscription
 	mu        sync.Mutex
 	ref_count int64
+
+	test_buffs [][]byte
+	r          *rand.Rand
+
+	jb *jitterbuffer.JitterBuffer
 }
 
 func NewAccepter(track *model.Track) *Accepter {
@@ -273,8 +281,11 @@ func NewAccepter(track *model.Track) *Accepter {
 		panic(err)
 	}
 	accepter := &Accepter{
-		track:     trackLocal,
-		ref_count: 1,
+		track:      trackLocal,
+		ref_count:  1,
+		test_buffs: make([][]byte, 16),
+		r:          rand.New(rand.NewSource(time.Now().UnixNano())),
+		jb:         jitterbuffer.New(),
 	}
 	return accepter
 }
@@ -312,8 +323,41 @@ func (a *Accepter) Write(buf []byte) error {
 	for _, sub := range a.subs {
 		sub.sctx.Metrics().OnWebrtcRtpWrite(sub.sctx, len(buf))
 	}
+	// var pkg rtp.Packet
+	// err := pkg.Unmarshal(buf)
+	// if err != nil {
+	// 	return fmt.Errorf("unable to unmarshal the buf to rtp package, %w", err)
+	// }
+	// a.jb.Push(&pkg)
+
+	// header := rtp.Header{}
+	// _, err := header.Unmarshal(buf)
+	// if err == nil {
+	// 	hash := md5.Sum(buf[12:])
+	// 	log.Sugar().Infof("accept rtp package %d: %s", header.SequenceNumber, hex.EncodeToString(hash[:]))
+	// }
 	_, err := a.track.Write(buf)
-	return err
+	if err != nil {
+		return fmt.Errorf("unable to write to the static local track, %w", err)
+	} else {
+		return nil
+	}
+	// i := a.r.Intn(len(a.test_buffs))
+	// cached_buf := a.test_buffs[i]
+	// if cached_buf != nil {
+	// 	header := rtp.Header{}
+	// 	_, err := header.Unmarshal(buf)
+	// 	if err == nil {
+	// 		hash := md5.Sum(buf[12:])
+	// 		log.Sugar().Infof("accept rtp package %d: %s", header.SequenceNumber, hex.EncodeToString(hash[:]))
+	// 	}
+	// 	_, err = a.track.Write(cached_buf)
+	// 	a.test_buffs[i] = utils.SliceClone(buf)
+	// 	return err
+	// } else {
+	// 	a.test_buffs[i] = utils.SliceClone(buf)
+	// 	return nil
+	// }
 }
 
 func (a *Accepter) Ref() *Accepter {
@@ -322,8 +366,14 @@ func (a *Accepter) Ref() *Accepter {
 	if a.closed {
 		return nil
 	}
-	a.ref_count ++
+	a.ref_count++
 	return a
+}
+
+func (a *Accepter) IsClosed() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.closed
 }
 
 func (a *Accepter) Close(force bool) (really_closed bool) {
@@ -332,7 +382,7 @@ func (a *Accepter) Close(force bool) (really_closed bool) {
 	if force {
 		a.ref_count = 0
 	} else {
-		a.ref_count --
+		a.ref_count--
 	}
 	if a.ref_count == 0 {
 		a.closed = true
@@ -472,6 +522,9 @@ func (r *Router) run(ser *net.UDPConn) {
 					} else {
 						err := accepter.Write(packet.data[PACKET_TRACK_HEADER_SIZE:packet.n])
 						if err != nil {
+							if accepter.IsClosed() {
+								return
+							}
 							panic(err)
 						}
 					}
@@ -571,6 +624,9 @@ func (r *Router) makeSureExternelConn(addr string) (conn *net.UDPConn) {
 				if ok {
 					err = accepter.Write(rtpData)
 					if err != nil {
+						if accepter.IsClosed() {
+							continue
+						}
 						panic(err)
 					}
 				}

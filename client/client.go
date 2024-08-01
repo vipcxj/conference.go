@@ -16,6 +16,7 @@ type Client interface {
 	MakeSureConnect(ctx context.Context, socket_id string) error
 	OnMessage(evt string, cb CustomMsgCb)
 	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error)
+	SetCloseCb(cb CloseCb)
 	Join(ctx context.Context, rooms ...string) error
 	Leave(ctx context.Context, rooms ...string) error
 	UserInfo(ctx context.Context) (*model.UserInfo, error)
@@ -93,6 +94,10 @@ func (c *WebsocketClient) OnMessage(evt string, cb CustomMsgCb) {
 
 func (c *WebsocketClient) SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error) {
 	return c.signal.SendMessage(ctx, ack, evt, content, to, room)
+}
+
+func (c *WebsocketClient) SetCloseCb(cb CloseCb) {
+	c.signal.SetCloseCb(cb)
 }
 
 func (c *WebsocketClient) Join(ctx context.Context, rooms ...string) error {

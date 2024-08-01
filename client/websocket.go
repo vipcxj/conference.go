@@ -748,6 +748,10 @@ func (signal *WebsocketSignal) OnMessage(evt string, cb CustomMsgCb) {
 	}
 }
 
+func (signal *WebsocketSignal) SetCloseCb(cb CloseCb) {
+	signal.close_cb = cb
+}
+
 func (signal *WebsocketSignal) Join(ctx context.Context, rooms ...string) error {
 	_, err := signal.sendMsg(ctx, true, "join", &model.JoinMessage{
 		Rooms: rooms,

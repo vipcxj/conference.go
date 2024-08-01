@@ -180,6 +180,12 @@ func SliceRemoveByIndex[S ~[]T, T any](slice S, copy bool, index int) (S, bool) 
 	}
 }
 
+func SliceClone[S ~[]T, T any](slice S) S {
+	clone := make(S, len(slice))
+	copy(clone, slice)
+	return clone
+}
+
 func ComparableCompare[T cmp.Ordered](t1, t2 T) int {
 	if t1 == t2 {
 		return 0

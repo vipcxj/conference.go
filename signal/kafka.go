@@ -62,6 +62,8 @@ type KafkaClient struct {
 	workers   map[string]func(record *kgo.Record)
 	group     string
 	topics    []string
+	logger    *zap.Logger
+	sugar     *zap.SugaredLogger
 }
 
 func parseKafkaAddrs(addrs string) []string {
@@ -115,6 +117,15 @@ func KafkaOptPromReg(reg *prometheus.Registry) KafkaOpt {
 			metrics = kprom.NewMetrics(client.conf.Prometheus.Namespace, kprom.Registry(reg), kprom.Subsystem(client.conf.Prometheus.Subsystem))
 			opts = append(opts, kgo.WithHooks(metrics))
 		}
+		return opts
+	}
+}
+
+func KafkaOptLogger(logger *zap.Logger) KafkaOpt {
+	return func(client *KafkaClient, opts []kgo.Opt) []kgo.Opt {
+		client.logger = logger
+		client.sugar = logger.Sugar()
+		opts = append(opts, kgo.WithLogger(log.NewKgoLogger(logger)))
 		return opts
 	}
 }
@@ -245,8 +256,11 @@ func (s *KafkaClient) MakeTopic(topic string) string {
 	return MakeKafkaTopic(s.conf, topic)
 }
 
-func (s *KafkaClient) sugar() *zap.SugaredLogger {
-	return log.Sugar()
+func (s *KafkaClient) Sugar() *zap.SugaredLogger {
+	if s == nil || s.sugar == nil {
+		return log.Sugar()
+	}
+	return s.sugar
 }
 
 func (s *KafkaClient) assigned(ctx context.Context, cl *kgo.Client, assigned map[string][]int32) {
@@ -338,7 +352,7 @@ func (s *KafkaClient) Poll(ctx context.Context) {
 		}
 		fetches.EachPartition(func(p kgo.FetchTopicPartition) {
 			if p.Err != nil {
-				s.sugar().Errorf("err happened in topic %s of partition %d: %v", p.Topic, p.Partition, p.Err)
+				s.Sugar().Errorf("err happened in topic %s of partition %d: %v", p.Topic, p.Partition, p.Err)
 				return
 			}
 

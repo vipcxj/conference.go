@@ -45,6 +45,7 @@ export class Timeouter {
         this.timeoutHandlers = [];
         this.start = Date.now();
         this.stoped = false;
+        this.emitters = [];
     }
 
     elapsed = () => {

@@ -22,8 +22,8 @@ type OnSelectFunc = func(*model.SelectMessage)
 type OnWantParticipantFunc = func(*model.WantParticipantMessage)
 type OnStateParticipantFunc = func(*model.StateParticipantMessage)
 type OnStateLeaveFunc = func(*model.StateLeaveMessage)
-type OnPingFunc = func (*model.PingMessage)
-type OnPongFunc = func (*model.PongMessage)
+type OnPingFunc = func(*model.PingMessage)
+type OnPongFunc = func(*model.PongMessage)
 type OnCustomFunc = func(*model.CustomClusterMessage)
 type OnCustomAckFunc = func(*model.CustomAckMessage)
 
@@ -145,7 +145,7 @@ func NewMessager(global *Global) (*Messager, error) {
 			kafkaConfig,
 			KafkaOptPromReg(global.GetPromReg()),
 			KafkaOptGroup(clusterConfig.GetNodeName()),
-			KafkaOptTopics(topicState, topicWant, topicSelect, topicWantParticipant, topicStateParticipant, topicCustom, topicCustomAck),
+			KafkaOptTopics(topicState, topicWant, topicSelect, topicWantParticipant, topicStateParticipant, topicStateLeave, topicPing, topicPong, topicCustom, topicCustomAck),
 			KafkaOptWorkers(workers),
 		)
 		if err != nil {

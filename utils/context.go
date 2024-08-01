@@ -16,8 +16,14 @@ type autoCancelContext struct {
 
 type AutoCancelContextSpawn = func() (ctx context.Context, done context.CancelCauseFunc)
 type AutoCancelContextStart = func()
+type AutoCancelType int
 
-func WithAutoCancel(parent context.Context) (ctx context.Context, spawn AutoCancelContextSpawn, start AutoCancelContextStart) {
+const (
+	AutoCancelAll AutoCancelType = iota
+	AutoCancelAny
+)
+
+func WithAutoCancel(parent context.Context, cancelType AutoCancelType) (ctx context.Context, spawn AutoCancelContextSpawn, start AutoCancelContextStart) {
 	parent, cancel_self := context.WithCancelCause(parent)
 	autoCtx := &autoCancelContext{
 		ctx: parent,
@@ -32,8 +38,10 @@ func WithAutoCancel(parent context.Context) (ctx context.Context, spawn AutoCanc
 			cancel_child(cause)
 			autoCtx.mux.Lock()
 			defer autoCtx.mux.Unlock()
-			autoCtx.children = SliceRemoveByValue(autoCtx.children, false, child)
-			if len(autoCtx.children) == 0 {
+			if cancelType == AutoCancelAll {
+				autoCtx.children = SliceRemoveByValue(autoCtx.children, false, child)
+			}
+			if cancelType == AutoCancelAny || len(autoCtx.children) == 0 {
 				if autoCtx.start {
 					cancel_self(cause)
 				} else if autoCtx.cause == nil {

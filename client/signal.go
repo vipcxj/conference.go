@@ -13,6 +13,7 @@ type CustomAckFunc = func(string, *errors.ConferenceError)
 type MsgCb = func(ack AckFunc, arg any) (remained bool)
 type CustomMsgCb = func(content string, ack CustomAckFunc, room string, from string, to string) (remained bool)
 type RoomedCustomMsgCb = func(content string, ack CustomAckFunc, from string, to string) (remained bool)
+type CloseCb = func (err error)
 type ParticipantCb = func(participant *model.Participant) (remained bool)
 
 type KeepAliveContext struct {
@@ -36,6 +37,7 @@ type Signal interface {
 	SendMessage(ctx context.Context, ack bool, evt string, content string, to string, room string) (res string, err error)
 	onMsg(evt string, cb MsgCb) error
 	OnMessage(evt string, cb CustomMsgCb)
+	SetCloseCb(cb CloseCb)
 	Join(ctx context.Context, rooms ...string) error
 	Leave(ctx context.Context, rooms ...string) error
 	UserInfo(ctx context.Context) (*model.UserInfo, error)

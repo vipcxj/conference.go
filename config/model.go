@@ -93,7 +93,8 @@ type ConferenceConfigure struct {
 		Port     int    `json:"port" mapstructure:"port" default:"${CONF_ROUTER_PORT | 0}"`
 	} `mapstructure:"router" default:""`
 	WebRTC struct {
-		ICEServer struct {
+		JitterBuffer bool `json:"jitterBuffer" mapstructure:"jitterBuffer" default:"${CONF_WEBRTC_JITTER_BUFFER | true}"`
+		ICEServer    struct {
 			URLs           string `json:"urls" mapstructure:"urls" default:"${CONF_WEBRTC_ICESERVER_URLS}"`
 			Username       string `json:"username,omitempty" mapstructure:"username" default:"${CONF_WEBRTC_ICESERVER_USERNAME}"`
 			Credential     string `json:"credential,omitempty" mapstructure:"credential" default:"${CONF_WEBRTC_ICESERVER_CREDENTIAL}"`

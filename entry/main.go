@@ -11,7 +11,7 @@ import (
 )
 
 func Run(ctx context.Context) {
-	ctx, spawn, start := utils.WithAutoCancel(ctx)
+	ctx, spawn, start := utils.WithAutoCancel(ctx, utils.AutoCancelAny)
 	auth_ctx, auth_done := spawn()
 	conf := config.Conf()
 	go authserver.Run(conf, auth_ctx, auth_done)
@@ -21,7 +21,7 @@ func Run(ctx context.Context) {
 		go signalserver.Run(cfg, signal_ctx, signal_done)
 	}
 	start()
-	<- ctx.Done()
+	<-ctx.Done()
 	if context.Cause(ctx) != context.Canceled {
 		log.Sugar().Fatalf("the server stopped, %v", context.Cause(ctx))
 	}

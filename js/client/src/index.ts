@@ -1,5 +1,5 @@
 import "webrtc-adapter";
-import { io, Socket } from 'socket.io-client';
+import { io, ManagerOptions, Socket, SocketOptions } from 'socket.io-client';
 import { Mutex } from 'async-mutex'
 import Emittery from 'emittery';
 import { v4 as uuidv4 } from 'uuid';
@@ -39,7 +39,7 @@ import {
 } from './message';
 import { getLogger } from './log';
 import { combineAsyncIterable } from "./async";
-import { Timeouter, TimeoutHandler, makeTimeoutPromise, stopTimeoutHandler, StopEmitEventMap, makeTimeoutEvent, TimeoutEmitEventMap, timeoutEmit } from './timeout';
+import { Timeouter, TimeoutHandler, makeTimeoutPromise, stopTimeoutHandler, StopEmitEventMap, makeTimeoutEvent, TimeoutEmitEventMap, timeoutEmit, Stopper } from './timeout';
 import { NamedEvent } from './types';
 
 export const PT = PATTERN;
@@ -261,6 +261,10 @@ export class ConferenceClient {
     private participantsMap: Map<string, Participants>;
     private room: string
     private _id: string;
+    private _host: string;
+    private _path: string;
+    private _token: string;
+    private _opt: Partial<ManagerOptions & SocketOptions>;
 
     constructor(config: Configuration) {
         this.config = config;
@@ -269,7 +273,11 @@ export class ConferenceClient {
             signalUrl,
             token,
         } = config;
+        this._token = token;
+        this._id = uuidv4();
         const [host, path] = splitUrl(signalUrl);
+        this._host = host;
+        this._path = path;
         this.emitter = new Emittery()
         this.ignoreOffer = false;
         this.pendingCandidates = [];
@@ -280,20 +288,25 @@ export class ConferenceClient {
         this.pingMsgId = 1;
         this.negMux = new Mutex();
         this.peer = this.createPeer();
-        this._id = uuidv4();
-        this.socket = io(host, {
+
+        this.createSocket();
+    }
+
+    createSocket = () => {
+        this._opt = {
             auth: {
-                token,
+                token: this._token,
                 id: this._id,
             },
-            path,
+            path: this._path,
             transports: ['websocket'],
             upgrade: false,
             autoConnect: false,
             reconnection: false,
             // reconnectionDelay: 500,
             rememberUpgrade: true,
-        });
+        };
+        this.socket = io(this._host, this._opt);
         this.socket.on('ready', (info: UserInfo) => {
             this.userInfo = info;
             if (!info) {
@@ -595,8 +608,9 @@ export class ConferenceClient {
             }
             return;
         }
-        if (socketId) {
+        if (socketId && this._id !== socketId) {
             this._id = socketId;
+            this.createSocket();
         }
         this.logger().info("start connect socket...");
         const disconnectEvt = this.emitter.once('disconnect');
@@ -882,6 +896,10 @@ export class ConferenceClient {
 
     keepAlive = async (socketId: string, mode: KeepAliveMode, cb?: KeepAliveCallback, timeout: number = -1, stopEmitter?: Emittery<StopEmitEventMap>) => {
         await this.makeSureSocket(timeout, '', stopEmitter);
+        if (!stopEmitter) {
+            const stopper = new Stopper();
+            stopEmitter = stopper.getEmitter();
+        }
         const room = this.checkRoom();
         if (!cb) {
             cb = (ctx) => {
@@ -984,8 +1002,9 @@ export class ConferenceClient {
                             now = new Date().getTime();
                             if (cb(ctx)) {
                                 await evts.return();
-                                return;
+                                throw new TimeOutError();
                             } else {
+                                timeoutClear = timeoutEmit(timeoutEvts, emitter, timeout);
                                 break;
                             }
                         case 'ping':
