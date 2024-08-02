@@ -356,8 +356,10 @@ func offMessage[M model.RoomMessage](
 		pm.UpdatePatternData(rp, func(old map[string]*messagerCallbackBox[M], found bool) (new map[string]*messagerCallbackBox[M], remove bool) {
 			if found {
 				delete(old, funId)
+				return old, false
+			} else {
+				return old, true
 			}
-			return old, false
 		})
 	}
 }

@@ -1,9 +1,12 @@
 package signal
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/vipcxj/conference.go/config"
+	"github.com/vipcxj/conference.go/log"
 )
 
 type Metrics struct {
@@ -16,6 +19,7 @@ type Metrics struct {
 	webrtcConnectingTotal  *prometheus.GaugeVec
 	webrtcReadBytesTotal   *prometheus.CounterVec
 	webrtcWriteBytesTotal  *prometheus.CounterVec
+	rtpStats               *rtpStats
 }
 
 func NewMetrics(reg *prometheus.Registry, conf *config.ConferenceConfigure) *Metrics {
@@ -25,7 +29,7 @@ func NewMetrics(reg *prometheus.Registry, conf *config.ConferenceConfigure) *Met
 	constLabels := make(prometheus.Labels)
 	constLabels["node_name"] = nodeName
 	commonLabels := []string{}
-	return &Metrics{
+	m := &Metrics{
 		reg: reg,
 		signalConnectsTotal: fatory.NewCounterVec(prometheus.CounterOpts{
 			Namespace:   cfg.Namespace,
@@ -83,7 +87,17 @@ func NewMetrics(reg *prometheus.Registry, conf *config.ConferenceConfigure) *Met
 			Name:        "webrtc_write_bytes_total",
 			Help:        "Total number of bytes webrtc write",
 		}, commonLabels),
+		rtpStats: NewRtpStats(32, log.Logger()),
 	}
+	go func ()  {
+		for {
+			select{
+			case <- time.After(time.Second):
+				m.rtpStats.Print()
+			}
+		}
+	}()
+	return m
 }
 
 func (me *Metrics) OnSignalConnectStart(ctx *SignalContext) {
@@ -118,10 +132,11 @@ func (me *Metrics) OnWebrtcConnectClose(ctx *SignalContext) {
 	me.webrtcConnectingTotal.WithLabelValues().Dec()
 }
 
-func (me *Metrics) OnWebrtcRtpRead(ctx *SignalContext, nBytes int) {
+func (me *Metrics) OnWebrtcRtpRead(ctx *SignalContext, buf []byte, nBytes int) {
 	if me == nil {
 		return
 	}
+	me.rtpStats.Push(buf)
 	me.webrtcReadBytesTotal.WithLabelValues().Add(float64(nBytes))
 }
 

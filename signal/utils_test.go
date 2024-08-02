@@ -19,19 +19,26 @@ const (
 
 func checkCreatePatternMap(t *testing.T, m *signal.PatternMap[string], p string, mode PatternMapTestMode, raw map[string]string) {
 	t.Helper()
-	_, found := raw[p]
+	if p == "" {
+		panic("pattern should not be empty")
+	}
+	old, found := raw[p]
 	switch mode {
 	case UPDATE:
 		utils.AssertTrue(t, found)
+		utils.AssertFalse(t, old == "")
 		raw[p] = fmt.Sprintf("%s-update", p)
 	case NEW:
 		utils.AssertFalse(t, found)
+		utils.AssertTrue(t, old == "")
 		raw[p] = p
 	case REMOVE:
 		utils.AssertTrue(t, found)
+		utils.AssertFalse(t, old == "")
 		delete(raw, p)
 	case REMOVE_NO_OP:
 		utils.AssertFalse(t, found)
+		utils.AssertTrue(t, old == "")
 	default:
 		t.Fail()
 	}
@@ -39,8 +46,10 @@ func checkCreatePatternMap(t *testing.T, m *signal.PatternMap[string], p string,
 		switch mode {
 		case NEW, REMOVE_NO_OP:
 			utils.AssertFalse(t, found)
+			utils.AssertTrue(t, old == "")
 		case UPDATE, REMOVE:
 			utils.AssertTrue(t, found)
+			utils.AssertFalse(t, old == "")
 		default:
 			t.Fail()
 		}

@@ -598,7 +598,7 @@ func (me *PublishedTrack) OnRTPPacket(consumer *RTPConsumer) (unon func()) {
 					return
 				default:
 					n, attrs, err := me.remote.Read(buffer)
-					me.pub.ctx.Metrics().OnWebrtcRtpRead(me.pub.ctx, n)
+					me.pub.ctx.Metrics().OnWebrtcRtpRead(me.pub.ctx, buffer, n)
 					if err != nil {
 						consumes(nil, nil, err)
 						break
