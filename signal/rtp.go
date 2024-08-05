@@ -145,6 +145,9 @@ func (s *rtpStats) Push(buf []byte) error {
 			offset := s.oldestPkg().SequenceNumber - header.SequenceNumber
 			if !s.hasSpace(int16(offset)) {
 				s.drop()
+				if s.empty() {
+					return s.Push(buf)
+				}
 			} else {
 				s.backHead(int16(offset))
 				s.pkgs[s.head] = &header
@@ -156,6 +159,9 @@ func (s *rtpStats) Push(buf []byte) error {
 			offset := header.SequenceNumber - s.latestPkg().SequenceNumber
 			if !s.hasSpace(int16(offset)) {
 				s.drop()
+				if s.empty() {
+					return s.Push(buf)
+				}
 			} else {
 				s.forwardTail(int16(offset))
 				var i int
