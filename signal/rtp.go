@@ -39,20 +39,18 @@ func (s *rtpStats) dropsCapacity() int16 {
 	return int16(len(s.drops))
 }
 
-func (s *rtpStats) stepHead() {
-	s.head = (s.head + 1) % s.capacity()
+func (s *rtpStats) stepHead(offset int16) {
+	s.head = (s.head + offset) % s.capacity()
+	if s.head < 0 {
+		s.head += s.capacity()
+	}
 }
 
-func (s *rtpStats) backHead(offset int16) {
-	s.head = (s.head - offset) % s.capacity()
-}
-
-func (s *rtpStats) stepTail() {
-	s.tail = (s.tail + 1) % s.capacity()
-}
-
-func (s *rtpStats) forwardTail(offset int16) {
+func (s *rtpStats) stepTail(offset int16) {
 	s.tail = (s.tail + offset) % s.capacity()
+	if s.tail < 0 {
+		s.tail += s.capacity()
+	}
 }
 
 func (s *rtpStats) size() int16 {
@@ -111,7 +109,7 @@ func (s *rtpStats) drop() {
 	if !s.empty() {
 		pkg := s.pkgs[s.head]
 		s.pkgs[s.head] = nil
-		s.stepHead()
+		s.stepHead(1)
 		if s.dropsFull() {
 			s.all++
 			if pkg == nil {
@@ -137,7 +135,7 @@ func (s *rtpStats) Push(buf []byte) error {
 	}
 	if s.empty() {
 		s.pkgs[s.head] = &header
-		s.stepTail()
+		s.stepTail(1)
 		return nil
 	}
 	if header.SequenceNumber < s.oldestPkg().SequenceNumber {
@@ -149,7 +147,7 @@ func (s *rtpStats) Push(buf []byte) error {
 					return s.Push(buf)
 				}
 			} else {
-				s.backHead(int16(offset))
+				s.stepHead(-int16(offset))
 				s.pkgs[s.head] = &header
 				return nil
 			}
@@ -163,7 +161,7 @@ func (s *rtpStats) Push(buf []byte) error {
 					return s.Push(buf)
 				}
 			} else {
-				s.forwardTail(int16(offset))
+				s.stepTail(int16(offset))
 				var i int
 				if s.tail >= 1 {
 					i = int(s.tail) - 1
