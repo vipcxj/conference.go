@@ -59,7 +59,7 @@ func setup(ctx context.Context) {
 		log.Sugar().Panicf("validate config failed. %w", err)
 	}
 	// init depend on inited confg
-	log.Init(conf.Log.Level, conf.LogProfile())
+	log.Init(conf.Log.Level, conf.LogProfile(), conf.Log.File)
 	go entry.Run(ctx)
 	ctx1, cancel1 := context.WithDeadline(ctx, time.Now().Add(10*time.Second))
 	defer cancel1()

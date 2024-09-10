@@ -2,7 +2,6 @@ package log
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/vipcxj/conference.go/config"
@@ -11,26 +10,31 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func Init(level string, profile config.LogProfile) {
+func Init(level string, profile config.LogProfile, file string) {
 	atLevel, err := zap.ParseAtomicLevel(level)
 	if err != nil {
 		panic(err)
 	}
-	var encoderCfg zapcore.EncoderConfig
+	var cfg zap.Config
 	switch profile {
 	case config.LOG_PROFILE_DEVELOPMENT:
-		encoderCfg = zap.NewDevelopmentEncoderConfig()
+		cfg = zap.NewDevelopmentConfig()
 	case config.LOG_PROFILE_PRODUCTION:
-		encoderCfg = zap.NewProductionEncoderConfig()
+		cfg = zap.NewProductionConfig()
 	default:
 		err = errors.ThisIsImpossible().GenCallStacks(0)
 		panic(err)
 	}
-	var logger = zap.New(zapcore.NewCore(
-		zapcore.NewJSONEncoder(encoderCfg),
-		zapcore.Lock(os.Stdout),
-		atLevel,
-	))
+	cfg.Level = atLevel
+	if len(file) > 0 {
+		cfg.OutputPaths = []string {
+			file,
+		}
+	}
+	logger, err := cfg.Build()
+	if err != nil {
+		panic(err)
+	}
 	zap.ReplaceGlobals(logger)
 }
 

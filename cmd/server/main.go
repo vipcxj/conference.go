@@ -19,7 +19,7 @@ func main() {
 		log.Sugar().Panicf("validate config failed. %w", err)
 	}
 	// init depend on inited confg
-	log.Init(conf.Log.Level, conf.LogProfile())
+	log.Init(conf.Log.Level, conf.LogProfile(), conf.Log.File)
 
 	entry.Run(context.Background())
 }
