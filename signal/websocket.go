@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/graceful"
 	"github.com/gin-gonic/gin"
@@ -121,6 +122,7 @@ func ConfigureWebsocketSingalServer(global *Global, g *graceful.Graceful) error 
 		}
 		upgrader := nbws.NewUpgrader()
 		signal := newWebSocketSignal(upgrader)
+		upgrader.KeepaliveTime = 60 * time.Second
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			conn.CloseAndClean(err)
@@ -128,6 +130,7 @@ func ConfigureWebsocketSingalServer(global *Global, g *graceful.Graceful) error 
 			// w.WriteString(err.Error())
 			return
 		}
+		conn.Keepalive(45 * time.Second)
 		ctx := newSignalContext(global, signal, &authInfo, signal_id)
 		signal.setContext(ctx)
 		_, err = InitSignal(signal)
